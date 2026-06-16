@@ -29,8 +29,9 @@ jobs:
             caddy:2 caddy validate --adapter caddyfile --config /etc/caddy/Caddyfile
 
       - name: Scan secret bị commit nhầm
+        # Bỏ qua *.md (tài liệu được phép nhắc tới chuỗi này), vẫn quét file config/key thật.
         run: |
-          if grep -rIl --exclude-dir=.git -E 'BEGIN [A-Z ]*PRIVATE KEY' .; then
+          if grep -rIl --exclude-dir=.git --exclude='*.md' -E 'BEGIN [A-Z ]*PRIVATE KEY' .; then
             echo "::error::Phát hiện private key bị commit vào repo!"
             exit 1
           fi
