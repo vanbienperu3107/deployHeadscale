@@ -80,3 +80,6 @@ jobs:
         env:
           DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
           REPO_URL: https://github.com/vanbienperu3107/deployHeadscale.git
+          OAUTH2_PROXY_CLIENT_ID: ${{ secrets.OAUTH2_PROXY_CLIENT_ID }}
+          OAUTH2_PROXY_CLIENT_SECRET: ${{ secrets.OAUTH2_PROXY_CLIENT_SECRET }}
+          OAUTH2_PROXY_COOKIE_SECRET: ${{ secrets.OAUTH2_PROXY_COOKIE_SECRET }}
