@@ -1,5 +1,5 @@
 # === Server ===
-server_url: https://hs.yourdomain.com
+server_url: https://vpn2.hangocthanh.io.vn
 listen_addr: 0.0.0.0:8080
 metrics_listen_addr: 0.0.0.0:9090
 grpc_listen_addr: 0.0.0.0:50443
@@ -25,7 +25,7 @@ derp:
     stun_listen_addr: "0.0.0.0:3478"
     private_key_path: /var/lib/headscale/derp_server_private.key
     automatically_add_embedded_derp_region: true
-    ipv4: YOUR_SERVER_PUBLIC_IP    # ← thay bằng IP public thật của VPS
+    ipv4: 138.68.58.101    # IP public VPS (vpn2.hangocthanh.io.vn)
     # ipv6: YOUR_IPV6              # ← nếu có
 
   # Tắt DERP servers của Tailscale (full self-host)
@@ -53,7 +53,7 @@ database:
 # === DNS ===
 dns:
   magic_dns: true
-  base_domain: tail.yourdomain.com    # ← base domain cho MagicDNS
+  base_domain: tail.hangocthanh.io.vn    # base domain MagicDNS (PHẢI khác server_url)
   override_local_dns: true
   nameservers:
     global:
