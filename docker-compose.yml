@@ -1,13 +1,16 @@
 services:
   headscale:
-    image: headscale/headscale:0.28.0
+    # Dùng 0.27.1 để KHỚP với headscale-admin 0.27 (0.28 đổi định dạng API key
+    # khiến admin báo "Not Authorized"). Volume DB dùng tên mới vì DB 0.28 không
+    # tương thích ngược — headscale 0.27 khởi tạo DB trống.
+    image: headscale/headscale:0.27.1
     container_name: headscale
     restart: unless-stopped
     command: serve
     volumes:
       - ./config:/etc/headscale
-      - headscale_data:/var/lib/headscale
-      - headscale_run:/var/run/headscale
+      - headscale_data_027:/var/lib/headscale
+      - headscale_run_027:/var/run/headscale
     ports:
       - "3478:3478/udp"   # STUN / DERP
       # Các port dưới chỉ expose nội bộ (behind Caddy). Bỏ comment nếu cần debug.
@@ -18,10 +21,9 @@ services:
       - net.ipv6.conf.all.forwarding=1
 
   # Web UI quản lý Headscale (truy cập tại https://<domain>/admin)
-  # Dùng tag dev vì headscale 0.28 đổi định dạng API key, bản 0.27 không hiểu (báo
-  # "Not Authorized" dù API trả 200). Đổi sang tag 0.28 ổn định khi họ phát hành.
+  # Khớp version với headscale 0.27 (admin 0.27 hiểu định dạng API key của headscale 0.27).
   headscale-admin:
-    image: goodieshq/headscale-admin:dev
+    image: goodieshq/headscale-admin:0.27
     container_name: headscale-admin
     restart: unless-stopped
     depends_on:
@@ -69,7 +71,7 @@ services:
       - caddy_config:/config
 
 volumes:
-  headscale_data:
-  headscale_run:
+  headscale_data_027:
+  headscale_run_027:
   caddy_data:
   caddy_config:

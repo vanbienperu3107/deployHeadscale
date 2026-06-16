@@ -77,6 +77,8 @@ jobs:
             echo "==> Log oauth2-proxy (chẩn đoán; oauth2-proxy không in secret)"
             sleep 3
             $SUDO docker logs --tail 25 oauth2-proxy 2>&1 || true
+            echo "==> Log headscale (chẩn đoán)"
+            $SUDO docker logs --tail 25 headscale 2>&1 || true
         env:
           DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
           REPO_URL: https://github.com/vanbienperu3107/deployHeadscale.git
