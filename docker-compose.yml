@@ -18,9 +18,10 @@ services:
       - net.ipv6.conf.all.forwarding=1
 
   # Web UI quản lý Headscale (truy cập tại https://<domain>/admin)
-  # Tag bám version headscale-admin; bump lên 0.28 khi có bản khớp headscale 0.28.
+  # Dùng tag dev vì headscale 0.28 đổi định dạng API key, bản 0.27 không hiểu (báo
+  # "Not Authorized" dù API trả 200). Đổi sang tag 0.28 ổn định khi họ phát hành.
   headscale-admin:
-    image: goodieshq/headscale-admin:v0.27
+    image: goodieshq/headscale-admin:dev
     container_name: headscale-admin
     restart: unless-stopped
     depends_on:
