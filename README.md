@@ -1,5 +1,8 @@
 # deployHeadscale
 
+[![CI](https://github.com/vanbienperu3107/deployHeadscale/actions/workflows/ci.yml/badge.svg)](https://github.com/vanbienperu3107/deployHeadscale/actions/workflows/ci.yml)
+[![Deploy](https://github.com/vanbienperu3107/deployHeadscale/actions/workflows/deploy.yml/badge.svg)](https://github.com/vanbienperu3107/deployHeadscale/actions/workflows/deploy.yml)
+
 Bộ cấu hình **deploy Headscale** (control plane self-host cho Tailscale) bằng Docker Compose + Caddy (auto TLS) + DERP embedded.
 
 Thay thế hoàn toàn `controlplane.tailscale.com` và DERP servers của Tailscale Inc bằng server riêng của bạn.
@@ -109,6 +112,19 @@ make nodes                 # danh sách nodes trên server
 tailscale status           # trên client
 ping 100.64.0.2            # test connectivity
 ```
+
+---
+
+## CI/CD (tự động deploy)
+
+Repo có sẵn 2 GitHub Actions workflow:
+
+- **CI** ([ci.yml](.github/workflows/ci.yml)) — validate `docker-compose.yml`, `config.yaml`, `acl.json`, `Caddyfile` trên mọi push/PR.
+- **Deploy** ([deploy.yml](.github/workflows/deploy.yml)) — sau khi CI pass trên `main`, tự SSH vào VPS chạy `git reset --hard` + `docker compose up -d`.
+
+Cần khai báo Secrets: `SSH_HOST`, `SSH_USER`, `SSH_KEY`, `DEPLOY_PATH` (và `SSH_PORT` nếu khác 22).
+
+👉 Hướng dẫn đầy đủ: [docs/CICD.md](docs/CICD.md)
 
 ---
 

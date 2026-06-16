@@ -1,0 +1,46 @@
+name: Deploy
+
+# Chạy tự động SAU KHI workflow "CI" hoàn tất thành công trên nhánh main.
+# Có thể bấm chạy tay qua tab Actions (workflow_dispatch).
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+# Không deploy chồng chéo: hàng đợi 1 lần 1.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy to VPS
+    runs-on: ubuntu-latest
+    # Chỉ deploy khi CI pass (hoặc khi bấm chạy tay).
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    steps:
+      - name: SSH vào VPS và deploy
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT || '22' }}
+          envs: DEPLOY_PATH
+          script_stop: true
+          script: |
+            set -e
+            cd "$DEPLOY_PATH"
+            echo "==> Pull code mới nhất"
+            git fetch --all --prune
+            git reset --hard origin/main
+            echo "==> Pull image mới"
+            docker compose pull
+            echo "==> Khởi động lại stack"
+            docker compose up -d --remove-orphans
+            echo "==> Trạng thái container"
+            docker compose ps
+        env:
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}

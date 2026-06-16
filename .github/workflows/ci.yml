@@ -1,0 +1,37 @@
+name: CI
+
+# Kiểm tra cú pháp cấu hình trên mọi push và pull request.
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  validate:
+    name: Validate config
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate docker-compose.yml
+        run: docker compose -f docker-compose.yml config --quiet && echo "docker-compose.yml OK"
+
+      - name: Validate config/config.yaml (YAML)
+        run: python3 -c "import yaml; yaml.safe_load(open('config/config.yaml')); print('config.yaml OK')"
+
+      - name: Validate config/acl.json (JSON)
+        run: python3 -c "import json; json.load(open('config/acl.json')); print('acl.json OK')"
+
+      - name: Validate Caddyfile
+        run: |
+          docker run --rm -v "${{ github.workspace }}/Caddyfile:/etc/caddy/Caddyfile:ro" \
+            caddy:2 caddy validate --adapter caddyfile --config /etc/caddy/Caddyfile
+
+      - name: Scan secret bị commit nhầm
+        run: |
+          if grep -rIl --exclude-dir=.git -E 'BEGIN [A-Z ]*PRIVATE KEY' .; then
+            echo "::error::Phát hiện private key bị commit vào repo!"
+            exit 1
+          fi
+          echo "OK: không tìm thấy private key trong repo."
