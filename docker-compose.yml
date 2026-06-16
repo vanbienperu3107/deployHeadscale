@@ -17,12 +17,22 @@ services:
       - net.ipv4.ip_forward=1
       - net.ipv6.conf.all.forwarding=1
 
+  # Web UI quản lý Headscale (truy cập tại https://<domain>/admin)
+  # Tag bám version headscale-admin; bump lên 0.28 khi có bản khớp headscale 0.28.
+  headscale-admin:
+    image: goodieshq/headscale-admin:v0.27
+    container_name: headscale-admin
+    restart: unless-stopped
+    depends_on:
+      - headscale
+
   caddy:
     image: caddy:2
     container_name: caddy
     restart: unless-stopped
     depends_on:
       - headscale
+      - headscale-admin
     ports:
       - "80:80"
       - "443:443"

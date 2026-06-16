@@ -1,4 +1,11 @@
 # Reverse proxy + auto TLS (Let's Encrypt) cho Headscale.
 vpn2.hangocthanh.io.vn {
-	reverse_proxy headscale:8080
+	# Web UI headscale-admin tại /admin (giữ nguyên path, không strip)
+	handle /admin* {
+		reverse_proxy headscale-admin:80
+	}
+	# Còn lại → Headscale control plane / API
+	handle {
+		reverse_proxy headscale:8080
+	}
 }
