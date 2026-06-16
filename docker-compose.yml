@@ -48,7 +48,10 @@ services:
       - --cookie-domain=vpn2.hangocthanh.io.vn
       - --cookie-secure=true
     env_file:
-      - .env        # OAUTH2_PROXY_CLIENT_ID / _CLIENT_SECRET / _COOKIE_SECRET
+      # .env do workflow Deploy ghi từ GitHub Secrets trên VPS (gitignored).
+      # required:false để `docker compose config` ở CI không fail khi chưa có .env.
+      - path: .env        # OAUTH2_PROXY_CLIENT_ID / _CLIENT_SECRET / _COOKIE_SECRET
+        required: false
     volumes:
       - ./oauth2-proxy/emails.txt:/etc/oauth2-proxy/emails.txt:ro
     depends_on:
