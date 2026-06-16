@@ -38,7 +38,7 @@ services:
       - --reverse-proxy=true
       - --set-xauthrequest=true
       - --upstream=static://200
-      - --email-domains=*
+      - --email-domain=*
       - --authenticated-emails-file=/etc/oauth2-proxy/emails.txt
       - --redirect-url=https://vpn2.hangocthanh.io.vn/oauth2/callback
       - --whitelist-domain=vpn2.hangocthanh.io.vn

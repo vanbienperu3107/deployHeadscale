@@ -74,6 +74,9 @@ jobs:
             # không tự trigger restart). Volume dữ liệu vẫn giữ nguyên (keys, db, certs).
             $SUDO docker compose up -d --force-recreate --remove-orphans
             $SUDO docker compose ps
+            echo "==> Log oauth2-proxy (chẩn đoán; oauth2-proxy không in secret)"
+            sleep 3
+            $SUDO docker logs --tail 25 oauth2-proxy 2>&1 || true
         env:
           DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
           REPO_URL: https://github.com/vanbienperu3107/deployHeadscale.git
