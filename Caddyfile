@@ -1,10 +1,28 @@
 # Reverse proxy + auto TLS (Let's Encrypt) cho Headscale.
 vpn2.hangocthanh.io.vn {
-	# Web UI headscale-admin tại /admin (giữ nguyên path, không strip)
+	# Các endpoint của oauth2-proxy (đăng nhập Google, callback...)
+	handle /oauth2/* {
+		reverse_proxy oauth2-proxy:4180 {
+			header_up X-Real-IP {remote_host}
+			header_up X-Forwarded-Uri {uri}
+		}
+	}
+
+	# Web UI /admin — phải đăng nhập Google mới vào được
 	handle /admin* {
+		forward_auth oauth2-proxy:4180 {
+			uri /oauth2/auth
+			header_up X-Real-IP {remote_host}
+			copy_headers X-Auth-Request-User X-Auth-Request-Email
+			@error status 401
+			handle_response @error {
+				redir * /oauth2/sign_in?rd={scheme}://{host}{uri}
+			}
+		}
 		reverse_proxy headscale-admin:80
 	}
-	# Còn lại → Headscale control plane / API
+
+	# Còn lại → Headscale control plane / API (xác thực bằng API key/node key)
 	handle {
 		reverse_proxy headscale:8080
 	}

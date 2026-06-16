@@ -28,7 +28,7 @@ jobs:
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_KEY }}
           port: ${{ secrets.SSH_PORT || '22' }}
-          envs: DEPLOY_PATH,REPO_URL
+          envs: DEPLOY_PATH,REPO_URL,OAUTH2_PROXY_CLIENT_ID,OAUTH2_PROXY_CLIENT_SECRET,OAUTH2_PROXY_COOKIE_SECRET
           script_stop: true
           command_timeout: 20m
           script: |
@@ -55,13 +55,20 @@ jobs:
               $SUDO chown -R "$(id -un):$(id -gn)" "$DEPLOY_PATH"
             fi
 
-            echo "==> [4/5] Cập nhật code mới nhất"
+            echo "==> [4/6] Cập nhật code mới nhất"
             cd "$DEPLOY_PATH"
             git config --global --add safe.directory "$DEPLOY_PATH" || true
             git fetch --all --prune
             git reset --hard origin/main
 
-            echo "==> [5/5] Khởi động stack"
+            echo "==> [5/6] Ghi .env (secret OIDC) — giá trị KHÔNG in ra log"
+            umask 077
+            : > "$DEPLOY_PATH/.env"
+            printf 'OAUTH2_PROXY_CLIENT_ID=%s\n'     "$OAUTH2_PROXY_CLIENT_ID"     >> "$DEPLOY_PATH/.env"
+            printf 'OAUTH2_PROXY_CLIENT_SECRET=%s\n' "$OAUTH2_PROXY_CLIENT_SECRET" >> "$DEPLOY_PATH/.env"
+            printf 'OAUTH2_PROXY_COOKIE_SECRET=%s\n' "$OAUTH2_PROXY_COOKIE_SECRET" >> "$DEPLOY_PATH/.env"
+
+            echo "==> [6/6] Khởi động stack"
             $SUDO docker compose pull
             # --force-recreate để container đọc lại Caddyfile/config.yaml (bind-mount đổi
             # không tự trigger restart). Volume dữ liệu vẫn giữ nguyên (keys, db, certs).
