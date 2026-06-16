@@ -1,0 +1,38 @@
+services:
+  headscale:
+    image: headscale/headscale:0.28.0
+    container_name: headscale
+    restart: unless-stopped
+    command: serve
+    volumes:
+      - ./config:/etc/headscale
+      - headscale_data:/var/lib/headscale
+      - headscale_run:/var/run/headscale
+    ports:
+      - "3478:3478/udp"   # STUN / DERP
+      # Các port dưới chỉ expose nội bộ (behind Caddy). Bỏ comment nếu cần debug.
+      # - "127.0.0.1:8080:8080"   # HTTP API
+      # - "127.0.0.1:9090:9090"   # Metrics
+    sysctls:
+      - net.ipv4.ip_forward=1
+      - net.ipv6.conf.all.forwarding=1
+
+  caddy:
+    image: caddy:2
+    container_name: caddy
+    restart: unless-stopped
+    depends_on:
+      - headscale
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  headscale_data:
+  headscale_run:
+  caddy_data:
+  caddy_config:

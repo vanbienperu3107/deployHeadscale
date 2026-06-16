@@ -1,0 +1,86 @@
+# === Server ===
+server_url: https://hs.yourdomain.com
+listen_addr: 0.0.0.0:8080
+metrics_listen_addr: 0.0.0.0:9090
+grpc_listen_addr: 0.0.0.0:50443
+grpc_allow_insecure: false
+
+noise:
+  private_key_path: /var/lib/headscale/noise_private.key
+
+# === IP Allocation ===
+prefixes:
+  v4: 100.64.0.0/10
+  v6: fd7a:115c:a1e0::/48
+  allocation: sequential
+
+# === DERP (embedded — self-hosted relay) ===
+derp:
+  server:
+    enabled: true
+    region_id: 999
+    region_code: "myderp"
+    region_name: "My DERP Server"
+    verify_clients: true
+    stun_listen_addr: "0.0.0.0:3478"
+    private_key_path: /var/lib/headscale/derp_server_private.key
+    automatically_add_embedded_derp_region: true
+    ipv4: YOUR_SERVER_PUBLIC_IP    # ← thay bằng IP public thật của VPS
+    # ipv6: YOUR_IPV6              # ← nếu có
+
+  # Tắt DERP servers của Tailscale (full self-host)
+  urls: []
+  paths: []
+  auto_update_enabled: false
+
+# === Node ===
+node:
+  expiry: 0    # không tự hết hạn
+  ephemeral:
+    inactivity_timeout: 30m
+  routes:
+    ha:
+      probe_interval: 10s
+      probe_timeout: 5s
+
+# === Database (SQLite) ===
+database:
+  type: sqlite
+  sqlite:
+    path: /var/lib/headscale/db.sqlite
+    write_ahead_log: true
+
+# === DNS ===
+dns:
+  magic_dns: true
+  base_domain: tail.yourdomain.com    # ← base domain cho MagicDNS
+  override_local_dns: true
+  nameservers:
+    global:
+      - 1.1.1.1
+      - 8.8.8.8
+    split: {}
+  search_domains: []
+  extra_records: []
+
+# === ACL Policy ===
+policy:
+  mode: file
+  path: /etc/headscale/acl.json
+
+# === Logging ===
+log:
+  level: info
+  format: text
+
+# === Tắt gửi log về Tailscale Inc ===
+logtail:
+  enabled: false
+
+# === Misc ===
+disable_check_updates: true
+randomize_client_port: false
+
+# === Unix socket ===
+unix_socket: /var/run/headscale/headscale.sock
+unix_socket_permission: "0770"

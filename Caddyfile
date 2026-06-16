@@ -1,0 +1,5 @@
+# Reverse proxy + auto TLS (Let's Encrypt) cho Headscale.
+# Thay hs.yourdomain.com bằng domain thật của bạn.
+hs.yourdomain.com {
+	reverse_proxy headscale:8080
+}
