@@ -28,19 +28,43 @@ jobs:
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_KEY }}
           port: ${{ secrets.SSH_PORT || '22' }}
-          envs: DEPLOY_PATH
+          envs: DEPLOY_PATH,REPO_URL
           script_stop: true
+          command_timeout: 20m
           script: |
             set -e
+
+            # Dùng sudo nếu không phải root (cần root hoặc sudo NOPASSWD).
+            if [ "$(id -u)" -ne 0 ]; then SUDO="sudo"; else SUDO=""; fi
+
+            echo "==> [1/5] Cài git + curl nếu thiếu"
+            if ! command -v git >/dev/null 2>&1 || ! command -v curl >/dev/null 2>&1; then
+              $SUDO apt-get update -y
+              $SUDO apt-get install -y git curl
+            fi
+
+            echo "==> [2/5] Cài Docker nếu thiếu"
+            if ! command -v docker >/dev/null 2>&1; then
+              curl -fsSL https://get.docker.com | $SUDO sh
+            fi
+
+            echo "==> [3/5] Clone repo nếu chưa có ($DEPLOY_PATH)"
+            if [ ! -d "$DEPLOY_PATH/.git" ]; then
+              $SUDO mkdir -p "$DEPLOY_PATH"
+              $SUDO git clone "$REPO_URL" "$DEPLOY_PATH"
+              $SUDO chown -R "$(id -un):$(id -gn)" "$DEPLOY_PATH"
+            fi
+
+            echo "==> [4/5] Cập nhật code mới nhất"
             cd "$DEPLOY_PATH"
-            echo "==> Pull code mới nhất"
+            git config --global --add safe.directory "$DEPLOY_PATH" || true
             git fetch --all --prune
             git reset --hard origin/main
-            echo "==> Pull image mới"
-            docker compose pull
-            echo "==> Khởi động lại stack"
-            docker compose up -d --remove-orphans
-            echo "==> Trạng thái container"
-            docker compose ps
+
+            echo "==> [5/5] Khởi động stack"
+            $SUDO docker compose pull
+            $SUDO docker compose up -d --remove-orphans
+            $SUDO docker compose ps
         env:
           DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          REPO_URL: https://github.com/vanbienperu3107/deployHeadscale.git
