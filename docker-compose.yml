@@ -23,7 +23,7 @@ services:
   # Web UI quản lý Headscale (truy cập tại https://<domain>/admin)
   # Khớp version với headscale 0.27 (admin 0.27 hiểu định dạng API key của headscale 0.27).
   headscale-admin:
-    image: goodieshq/headscale-admin:0.27
+    image: goodieshq/headscale-admin:v0.27
     container_name: headscale-admin
     restart: unless-stopped
     depends_on:
