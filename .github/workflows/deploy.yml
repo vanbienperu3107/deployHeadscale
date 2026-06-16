@@ -63,7 +63,9 @@ jobs:
 
             echo "==> [5/5] Khởi động stack"
             $SUDO docker compose pull
-            $SUDO docker compose up -d --remove-orphans
+            # --force-recreate để container đọc lại Caddyfile/config.yaml (bind-mount đổi
+            # không tự trigger restart). Volume dữ liệu vẫn giữ nguyên (keys, db, certs).
+            $SUDO docker compose up -d --force-recreate --remove-orphans
             $SUDO docker compose ps
         env:
           DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
