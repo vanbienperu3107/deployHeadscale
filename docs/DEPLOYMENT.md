@@ -23,12 +23,14 @@ Tài liệu này dẫn bạn đi từ con số 0 đến lúc Headscale tự host
 - [ ] B1. Chuẩn bị: VPS + domain + máy local có `git`, `gh`
 - [ ] B2. Tạo SSH deploy key
 - [ ] B3. Đưa public key lên VPS
-- [ ] B4. Khai báo 5 GitHub Secrets
-- [ ] B5. Trỏ DNS domain → IP VPS
-- [ ] B6. Điền domain/IP thật vào config rồi push
-- [ ] B7. Xác nhận CI/CD tự deploy thành công
-- [ ] B8. Tạo user + pre-auth key
-- [ ] B9. Kết nối client + verify
+- [ ] B4. Tạo OAuth client Google (cho Web UI `/admin`)
+- [ ] B5. Khai báo GitHub Secrets (SSH + OIDC)
+- [ ] B6. Trỏ DNS domain → IP VPS
+- [ ] B7. Điền domain/IP thật vào config rồi push
+- [ ] B8. Xác nhận CI/CD tự deploy thành công
+- [ ] B9. Tạo user + pre-auth key
+- [ ] B10. Kết nối client + verify
+- [ ] B11. Đăng nhập Web UI `/admin`
 
 ---
 
@@ -64,7 +66,7 @@ cat ~/keys/deploy_key.pub      # ← public key, copy chuỗi này cho Bước 3
 ```
 
 Kết quả:
-- `~/keys/deploy_key` → **private key** (dùng ở Bước 4, KHÔNG đưa ai)
+- `~/keys/deploy_key` → **private key** (dùng ở Bước 5, KHÔNG đưa ai)
 - `~/keys/deploy_key.pub` → **public key** (dùng ở Bước 3)
 
 ---
@@ -80,20 +82,40 @@ chmod 600 ~/.ssh/authorized_keys
 ```
 
 - `>>` = nối thêm, không xoá key cũ.
-- User bạn đang đăng nhập ở đây chính là `SSH_USER` ở Bước 4.
+- User bạn đang đăng nhập ở đây chính là `SSH_USER` ở Bước 5.
 
 Test deploy key từ máy local (PowerShell), thay user/IP/port cho đúng:
 
 ```powershell
 ssh -i "$HOME\keys\deploy_key" -p 22 user@IP_VPS "echo OK"
 ```
-Ra `OK` là key + quyền OK. (Nếu "connection refused" → sai **port**; xem [Bước 4](#bước-4--khai-báo-github-secrets) mục `SSH_PORT`.)
+Ra `OK` là key + quyền OK. (Nếu "connection refused" → sai **port**; xem [Bước 5](#bước-5--khai-báo-github-secrets-ssh--oidc) mục `SSH_PORT`.)
 
 ---
 
-## Bước 4 — Khai báo GitHub Secrets
+## Bước 4 — Tạo OAuth client Google (cho Web UI `/admin`)
 
-Workflow deploy đọc 5 secret này. Khai báo từ máy local bằng `gh`:
+Stack có sẵn Web UI `/admin` được gác bằng đăng nhập Google. Cần 1 OAuth client (làm 1 lần). **Bỏ qua bước này** nếu bạn tạm thời không cần `/admin` (nhưng container `oauth2-proxy` sẽ crash-loop tới khi có 3 secret OIDC ở Bước 5).
+
+1. Vào **Google Cloud Console → APIs & Services → Credentials → Create Credentials → OAuth client ID**.
+2. Application type: **Web application**.
+3. **Authorized redirect URIs** (dán đúng ô này, không phải "Authorized JavaScript origins"):
+   ```
+   https://hs.example.com/oauth2/callback
+   ```
+4. Bấm **Create** → lưu lại **Client ID** và **Client secret** (dùng ở Bước 5).
+5. Sinh cookie secret ngẫu nhiên (32 byte) trên máy local/VPS:
+   ```bash
+   openssl rand -base64 32
+   ```
+
+Email nào được phép vào `/admin` → liệt kê trong [`oauth2-proxy/emails.txt`](../oauth2-proxy/emails.txt) (mỗi dòng 1 email), commit cùng repo.
+
+---
+
+## Bước 5 — Khai báo GitHub Secrets (SSH + OIDC)
+
+Workflow deploy đọc các secret này. Khai báo từ máy local bằng `gh`:
 
 ```powershell
 # Private key (PowerShell không hỗ trợ '<', dùng pipe):
@@ -103,6 +125,11 @@ gh secret set SSH_HOST    --repo vanbienperu3107/deployHeadscale --body "IP_HOAC
 gh secret set SSH_USER    --repo vanbienperu3107/deployHeadscale --body "root"            # user bạn ssh ở B3
 gh secret set DEPLOY_PATH --repo vanbienperu3107/deployHeadscale --body "/opt/deployHeadscale"
 gh secret set SSH_PORT    --repo vanbienperu3107/deployHeadscale --body "22"              # ĐÚNG cổng SSH của VPS
+
+# 3 secret OIDC (từ Bước 4) — Deploy tự ghi vào .env trên VPS:
+gh secret set OAUTH2_PROXY_CLIENT_ID     --repo vanbienperu3107/deployHeadscale --body "xxxx.apps.googleusercontent.com"
+gh secret set OAUTH2_PROXY_CLIENT_SECRET --repo vanbienperu3107/deployHeadscale --body "GOCSPX-xxxxxxxx"
+gh secret set OAUTH2_PROXY_COOKIE_SECRET --repo vanbienperu3107/deployHeadscale --body "chuoi-openssl-rand-base64-32"
 ```
 
 | Secret | Là gì | Bẫy thường gặp |
@@ -112,14 +139,17 @@ gh secret set SSH_PORT    --repo vanbienperu3107/deployHeadscale --body "22"    
 | `SSH_USER` | user SSH (vd `root`) | Phải khớp user đã thêm key ở B3 |
 | `SSH_PORT` | cổng SSH | **Đặt sai = "connection refused"**. SSH thường ở 22; chỉ đổi nếu VPS dùng cổng khác |
 | `DEPLOY_PATH` | thư mục repo trên VPS | Workflow tự `git clone` vào đây nếu chưa có |
+| `OAUTH2_PROXY_CLIENT_ID` | Client ID OAuth Google (B4) | — |
+| `OAUTH2_PROXY_CLIENT_SECRET` | Client secret OAuth Google (B4) | — |
+| `OAUTH2_PROXY_COOKIE_SECRET` | `openssl rand -base64 32` | Thiếu/sai → oauth2-proxy không khởi động |
 
-Kiểm tra: `gh secret list --repo vanbienperu3107/deployHeadscale` → thấy đủ 5 dòng.
+Kiểm tra: `gh secret list --repo vanbienperu3107/deployHeadscale` → thấy đủ 8 dòng.
 
 > **Không cần** tự cài Docker hay tự clone repo trên VPS — workflow deploy **tự bootstrap**: lần đầu nó tự cài `git/curl/docker` và `git clone` vào `DEPLOY_PATH`. Yêu cầu: `SSH_USER` là `root`, hoặc có `sudo` không cần mật khẩu.
 
 ---
 
-## Bước 5 — Trỏ DNS
+## Bước 6 — Trỏ DNS
 
 Tại nhà quản lý domain, tạo bản ghi **A**:
 
@@ -131,7 +161,7 @@ hs.example.com   A   <IP_VPS>
 
 ---
 
-## Bước 6 — Điền domain/IP thật rồi push
+## Bước 7 — Điền domain/IP thật rồi push
 
 Trên **máy local**, trong repo `C:\Users\Hoanglong\deployHeadscale`, sửa placeholder:
 
@@ -162,7 +192,7 @@ git push origin main
 
 ---
 
-## Bước 7 — Xác nhận CI/CD tự deploy
+## Bước 8 — Xác nhận CI/CD tự deploy
 
 Push xong, pipeline tự chạy. Theo dõi:
 
@@ -177,14 +207,14 @@ Hoặc xem trên tab **Actions**. Trình tự đúng:
 Kiểm tra cert + service:
 
 ```bash
-curl https://hs.example.com/health        # → {"status":"ok"}
+curl https://hs.example.com/health        # → {"status":"pass"}
 ```
 
-> Lần đầu Caddy mất ~30–60s để xin cert Let's Encrypt. Nếu lỗi cert: kiểm tra DNS (B5) và port 80/443 đã mở chưa.
+> Lần đầu Caddy mất ~30–60s để xin cert Let's Encrypt. Nếu lỗi cert: kiểm tra DNS (B6) và port 80/443 đã mở chưa.
 
 ---
 
-## Bước 8 — Tạo user + pre-auth key
+## Bước 9 — Tạo user + pre-auth key
 
 Chạy trên VPS (hoặc thêm vào Makefile rồi `make`):
 
@@ -197,7 +227,7 @@ docker exec headscale headscale preauthkeys create --user myuser --reusable --ex
 
 ---
 
-## Bước 9 — Kết nối client + verify
+## Bước 10 — Kết nối client + verify
 
 **Linux:**
 ```bash
@@ -210,6 +240,15 @@ sudo tailscale up --login-server=https://hs.example.com --authkey=hskey-xxxxxxxx
 tailscale up --login-server=https://hs.example.com --authkey=hskey-xxxxxxxx
 ```
 
+**Android (app Play Store mới đã bỏ ô custom server) — dùng web-auth:**
+```bash
+# Trên điện thoại bấm kết nối → app hiện 1 link/key đăng ký.
+# Lấy key đó, chạy TRÊN VPS để gắn node vào user:
+docker exec headscale headscale nodes register --user myuser --key <KEY_TỪ_ĐIỆN_THOẠI>
+# Điện thoại không gửi hostname → node tên "invalid-xxxx", đổi lại:
+docker exec headscale headscale nodes rename -i <ID> dien-thoai
+```
+
 **Verify:**
 ```bash
 docker exec headscale headscale nodes list   # trên VPS: thấy node vừa join
@@ -218,6 +257,25 @@ ping 100.64.0.1                              # ping IP tailscale node khác
 ```
 
 ✅ Thấy node trong danh sách + ping thông = xong.
+
+---
+
+## Bước 11 — Đăng nhập Web UI `/admin`
+
+Mở `https://hs.example.com/admin` → bị chuyển sang **đăng nhập Google** (chỉ email trong `oauth2-proxy/emails.txt` mới qua được). Đăng nhập xong, UI hỏi **URL + API key** của Headscale:
+
+```bash
+# Tạo API key trên VPS:
+docker exec headscale headscale apikeys create --expiration 90d
+```
+
+Nhập vào màn hình **Settings** của UI:
+- **URL**: `https://hs.example.com`
+- **API Key**: chuỗi vừa tạo
+
+Xong là quản lý được user/node/route bằng giao diện (giống admin console của Tailscale).
+
+> ⚠️ Nếu UI báo **Not Authorized** dù key đúng: do lệch version `headscale` ↔ `headscale-admin`. Stack ghim cặp **headscale `0.27.1` + admin `v0.27`**; đừng nâng lẻ một bên.
 
 ---
 
@@ -249,5 +307,9 @@ Không SSH vào VPS sửa tay (vì CD `git reset --hard` sẽ ghi đè). Secret 
 | `cd: ***: No such file or directory` | `DEPLOY_PATH` chưa tồn tại | Đã tự xử lý — workflow tự clone. Nếu vẫn lỗi: `SSH_USER` không có quyền tạo thư mục đó / không phải root |
 | `docker: permission denied` | user chưa thuộc nhóm docker | Dùng `SSH_USER=root`, hoặc `usermod -aG docker <user>` rồi đăng nhập lại |
 | Deploy không tự chạy sau CI | `ci.yml` chưa có trên `main`, hoặc CI fail | Push để CI lên main trước; xem CI fail vì sao |
-| Caddy không có cert / `/health` lỗi | DNS chưa trỏ, hoặc chưa mở 80/443 | Làm B5; mở firewall |
-| Headscale crash-loop | `config.yaml` còn placeholder (IP không hợp lệ) | Làm B6 (điền IP/domain thật) |
+| Caddy không có cert / `/health` lỗi | DNS chưa trỏ, hoặc chưa mở 80/443 | Làm B6; mở firewall |
+| Headscale crash-loop | `config.yaml` còn placeholder (IP không hợp lệ) | Làm B7 (điền IP/domain thật) |
+| `oauth2-proxy` thoát ngay (exit 2) | thiếu/sai 3 secret OIDC, hoặc sai flag (`--email-domain` số ít) | Kiểm tra 3 secret `OAUTH2_PROXY_*` ở B5 |
+| Login Google báo `redirect_uri_mismatch` | redirect URI trong Google Console ≠ `https://<domain>/oauth2/callback` | Sửa lại đúng ô **Authorized redirect URIs** (B4) |
+| `/admin` báo **Not Authorized** dù key đúng | lệch version headscale ↔ headscale-admin | Giữ cặp headscale `0.27.1` + admin `v0.27` |
+| Đăng nhập Google xong vẫn không vào được `/admin` | email chưa có trong whitelist | Thêm email vào `oauth2-proxy/emails.txt` rồi push |

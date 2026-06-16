@@ -14,7 +14,9 @@ Tài liệu này giải thích cách thiết lập CI/CD: mỗi khi bạn `git p
 ```
 
 - **CI** (`.github/workflows/ci.yml`): validate `docker-compose.yml`, `config.yaml`, `acl.json`, `Caddyfile`, quét private key bị commit nhầm. Chạy trên **mọi** push & pull request.
-- **CD** (`.github/workflows/deploy.yml`): chạy **sau khi CI pass** trên `main`, SSH vào VPS chạy `git reset --hard origin/main` + `docker compose pull` + `docker compose up -d`.
+- **CD** (`.github/workflows/deploy.yml`): chạy **sau khi CI pass** trên `main`, SSH vào VPS chạy `git reset --hard origin/main`, ghi `.env` (3 secret OIDC) + `docker compose pull` + `docker compose up -d --force-recreate`.
+
+> ℹ️ Dùng `--force-recreate` vì file bind-mount (`Caddyfile`, `config/config.yaml`) **không tự reload** khi `docker compose up -d` thường — container phải được tạo lại mới đọc config mới. Volume dữ liệu (keys, db, certs) vẫn giữ nguyên.
 
 ---
 
@@ -24,7 +26,7 @@ Tài liệu này giải thích cách thiết lập CI/CD: mỗi khi bạn `git p
 |---------|---------|----------|
 | Domain (`hs.yourdomain.com`), public IP | ❌ Không (DNS/IP vốn công khai) | Commit thẳng vào repo |
 | SSH key deploy, host, user | ✅ Có | **GitHub Secrets** |
-| OIDC client secret, token... | ✅ Có | **File trên VPS** (gitignored), tham chiếu qua `*_path` trong config |
+| OIDC client id/secret/cookie (`OAUTH2_PROXY_*`) | ✅ Có | **GitHub Secrets** → Deploy tự ghi ra `.env` (gitignored) trên VPS |
 | noise/derp private key, db.sqlite | ✅ Có | Tự sinh trong Docker volume, **không** vào repo (đã `.gitignore`) |
 
 > CD dùng `git reset --hard origin/main`, nên **đừng sửa file đã được track trực tiếp trên VPS** — sẽ bị ghi đè. Mọi thay đổi cấu hình hãy commit qua Git. Các secret thật để ở file gitignored (`.env`, file secret) — `reset --hard` không đụng tới file gitignored.
@@ -32,6 +34,8 @@ Tài liệu này giải thích cách thiết lập CI/CD: mỗi khi bạn `git p
 ---
 
 ## Phần 1 — Chuẩn bị VPS (làm 1 lần)
+
+> ℹ️ **Có thể bỏ qua phần thủ công này.** Workflow Deploy hiện **tự bootstrap** VPS: lần chạy đầu tự cài `git/curl/docker` và `git clone` repo vào `DEPLOY_PATH`. Chỉ cần SSH key + Secrets (Phần 2–3) là đủ. Dưới đây giữ lại cho ai muốn dựng tay / hiểu rõ.
 
 ### 1.1 Cài Docker + clone repo
 
@@ -55,7 +59,7 @@ Cách sạch nhất: **sửa trên máy bạn → commit → push**, rồi trên
 cd /opt/deployHeadscale
 docker compose up -d
 sleep 30
-curl -fsS https://hs.yourdomain.com/health   # → {"status":"ok"}
+curl -fsS https://hs.yourdomain.com/health   # → {"status":"pass"}
 ```
 
 Nếu lần này OK thì CD tự động về sau cũng OK.
@@ -108,6 +112,11 @@ Vào repo trên GitHub → **Settings → Secrets and variables → Actions → 
 | `SSH_KEY` | **toàn bộ** nội dung file private key `~/deploy_key` | `-----BEGIN OPENSSH PRIVATE KEY-----\n...` |
 | `DEPLOY_PATH` | thư mục repo trên VPS | `/opt/deployHeadscale` |
 | `SSH_PORT` | *(tùy chọn)* cổng SSH nếu khác 22 | `2222` |
+| `OAUTH2_PROXY_CLIENT_ID` | OAuth Client ID (Google) — cho SSO `/admin` | `xxxx.apps.googleusercontent.com` |
+| `OAUTH2_PROXY_CLIENT_SECRET` | OAuth Client secret (Google) | `GOCSPX-xxxxxxxx` |
+| `OAUTH2_PROXY_COOKIE_SECRET` | chuỗi `openssl rand -base64 32` | `aBc...=`  |
+
+> 3 secret `OAUTH2_PROXY_*` là **bắt buộc** vì stack có `oauth2-proxy` (gác SSO `/admin`) — thiếu thì container đó crash-loop. Deploy tự ghi chúng vào `.env` trên VPS. Cách lấy: xem [DEPLOYMENT.md – Bước 4 (OAuth Google)](DEPLOYMENT.md#bước-4--tạo-oauth-client-google-cho-web-ui-admin).
 
 Hoặc dùng `gh` CLI từ máy có quyền (nhanh hơn):
 
@@ -117,6 +126,11 @@ gh secret set SSH_USER    --repo vanbienperu3107/deployHeadscale --body "deploy"
 gh secret set DEPLOY_PATH --repo vanbienperu3107/deployHeadscale --body "/opt/deployHeadscale"
 gh secret set SSH_KEY     --repo vanbienperu3107/deployHeadscale < ~/deploy_key
 # gh secret set SSH_PORT  --repo vanbienperu3107/deployHeadscale --body "2222"   # nếu cần
+
+# SSO Google cho /admin:
+gh secret set OAUTH2_PROXY_CLIENT_ID     --repo vanbienperu3107/deployHeadscale --body "xxxx.apps.googleusercontent.com"
+gh secret set OAUTH2_PROXY_CLIENT_SECRET --repo vanbienperu3107/deployHeadscale --body "GOCSPX-xxxxxxxx"
+gh secret set OAUTH2_PROXY_COOKIE_SECRET --repo vanbienperu3107/deployHeadscale --body "$(openssl rand -base64 32)"
 ```
 
 > Lưu ý với `SSH_KEY`: phải là **private key đầy đủ** kể cả dòng `-----BEGIN/END-----`. Dùng `gh secret set SSH_KEY < file` để khỏi sai định dạng xuống dòng.
