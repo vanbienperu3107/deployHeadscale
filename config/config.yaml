@@ -84,6 +84,7 @@ oidc:
     method: S256
   # Chỉ các email dưới đây mới được đăng ký thiết bị qua Google:
   allowed_users:
+    - hangocthanh3107@gmail.com
     - hangocthanhperu3107@gmail.com
 
 # === Logging ===
