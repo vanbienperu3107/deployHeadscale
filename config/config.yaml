@@ -68,6 +68,24 @@ policy:
   mode: file
   path: /etc/headscale/acl.json
 
+# === OIDC (đăng ký thiết bị tự động bằng Google) ===
+# Thiết bị chạy `tailscale up --login-server=...` (KHÔNG cần authkey) → mở link
+# /register/<key> → đăng nhập Google → tự đăng ký vào tailnet, khỏi chạy tay
+# `headscale nodes register`. client_id/client_secret nạp qua biến môi trường
+# HEADSCALE_OIDC_CLIENT_ID / HEADSCALE_OIDC_CLIENT_SECRET (xem docker-compose.yml,
+# lấy từ .env) để KHÔNG commit secret vào repo public.
+oidc:
+  # false: nếu OIDC trục trặc, headscale vẫn khởi động phục vụ node cũ (an toàn).
+  only_start_if_oidc_is_available: false
+  issuer: "https://accounts.google.com"
+  scope: ["openid", "profile", "email"]
+  pkce:
+    enabled: true
+    method: S256
+  # Chỉ các email dưới đây mới được đăng ký thiết bị qua Google:
+  allowed_users:
+    - hangocthanhperu3107@gmail.com
+
 # === Logging ===
 log:
   level: info

@@ -7,6 +7,12 @@ services:
     container_name: headscale
     restart: unless-stopped
     command: serve
+    # OIDC client (Google) cho đăng ký thiết bị tự động — tái dùng đúng Google
+    # OAuth client của oauth2-proxy. Giá trị lấy từ .env (gitignored), nên secret
+    # KHÔNG nằm trong repo. config/config.yaml chỉ chứa issuer/scope/allowed_users.
+    environment:
+      - HEADSCALE_OIDC_CLIENT_ID=${OAUTH2_PROXY_CLIENT_ID:-}
+      - HEADSCALE_OIDC_CLIENT_SECRET=${OAUTH2_PROXY_CLIENT_SECRET:-}
     volumes:
       - ./config:/etc/headscale
       - headscale_data_027:/var/lib/headscale
