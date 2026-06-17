@@ -1,0 +1,33 @@
+# Headplane — UI quản lý headscale (đăng nhập Google, KHÔNG cần nhập API key).
+# Các secret (cookie_secret, headscale.api_key, oidc.client_id/secret) nạp qua
+# biến môi trường HEADPLANE_<SECTION>__<KEY> từ .env — xem docker-compose.yml
+# (đã bật HEADPLANE_LOAD_ENV_OVERRIDES=true). Nên KHÔNG có secret nào trong file này.
+server:
+  host: "0.0.0.0"
+  port: 3000
+  # base_url KHÔNG kèm /admin — Headplane tự phục vụ dashboard tại <base_url>/admin
+  base_url: "https://vpn2.hangocthanh.io.vn"
+  # Sau reverse proxy HTTPS (Caddy) → bật secure cookie
+  cookie_secure: true
+  data_path: "/var/lib/headplane"
+
+headscale:
+  # HTTP API nội bộ của headscale (không phải gRPC)
+  url: "http://headscale:8080"
+  # config_path tạm bỏ: tránh xung đột với git reset của deploy + config_strict
+  # chưa chắc khớp 0.27. Quản lý node/user qua API vẫn đầy đủ. Bật sau nếu muốn
+  # sửa ACL/DNS ngay trong UI.
+
+# Đăng nhập bằng Google (OIDC). client_id/secret tái dùng Google client của
+# oauth2-proxy (nạp qua env). Sau khi đăng nhập, Headplane dùng headscale.api_key
+# (cấu hình sẵn server-side) để gọi API → người dùng không phải nhập key.
+oidc:
+  enabled: true
+  issuer: "https://accounts.google.com"
+  scope: "openid email profile"
+  use_pkce: true
+  # Để false trong lúc dựng (vẫn cho login bằng API key làm fallback). Bật true
+  # sau khi xác nhận login Google chạy → ép chỉ đăng nhập bằng Google.
+  disable_api_key_login: false
+  extra_params:
+    prompt: "select_account"

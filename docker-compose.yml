@@ -63,6 +63,27 @@ services:
     depends_on:
       - headscale-admin
 
+  # Headplane — UI quản lý headscale chạy server-side: đăng nhập Google (OIDC)
+  # rồi tự dùng API key cấu hình sẵn → user KHÔNG phải nhập key. Phục vụ tại /admin.
+  # Secret nạp từ .env qua HEADPLANE_*; client_id/secret tái dùng Google client
+  # của oauth2-proxy (OAUTH2_PROXY_CLIENT_ID/_SECRET).
+  headplane:
+    image: ghcr.io/tale/headplane:0.6.3
+    container_name: headplane
+    restart: unless-stopped
+    # Env tự động được nạp (v0.6.3 bỏ HEADPLANE_LOAD_ENV_OVERRIDES).
+    # v0.6.3: API key headplane dùng sau khi login OIDC nằm ở oidc.headscale_api_key.
+    environment:
+      - HEADPLANE_OIDC__HEADSCALE_API_KEY=${HEADPLANE_HS_API_KEY:-}
+      - HEADPLANE_SERVER__COOKIE_SECRET=${HEADPLANE_COOKIE_SECRET:-}
+      - HEADPLANE_OIDC__CLIENT_ID=${OAUTH2_PROXY_CLIENT_ID:-}
+      - HEADPLANE_OIDC__CLIENT_SECRET=${OAUTH2_PROXY_CLIENT_SECRET:-}
+    volumes:
+      - ./headplane/config.yaml:/etc/headplane/config.yaml:ro
+      - headplane_data:/var/lib/headplane
+    depends_on:
+      - headscale
+
   caddy:
     image: caddy:2
     container_name: caddy
@@ -71,6 +92,7 @@ services:
       - headscale
       - headscale-admin
       - oauth2-proxy
+      - headplane
     ports:
       - "80:80"
       - "443:443"
@@ -82,5 +104,6 @@ services:
 volumes:
   headscale_data_027:
   headscale_run_027:
+  headplane_data:
   caddy_data:
   caddy_config:
