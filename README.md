@@ -31,6 +31,8 @@ Thay thế hoàn toàn `controlplane.tailscale.com` và DERP servers của Tails
 ---
 
 > 📘 **Mới bắt đầu?** Theo [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) — hướng dẫn triển khai **từng bước từ số 0 → chạy được** (VPS, SSH key, Secrets, DNS, CI/CD tự deploy).
+>
+> 🔁 **Chuyển sang server mới?** Theo [docs/MIGRATION.md](docs/MIGRATION.md) — đổi VPS/IP, vẫn deploy tự động (kèm cách giữ thiết bị đã đăng ký).
 
 ## Yêu cầu
 

@@ -25,7 +25,7 @@ derp:
     stun_listen_addr: "0.0.0.0:3478"
     private_key_path: /var/lib/headscale/derp_server_private.key
     automatically_add_embedded_derp_region: true
-    ipv4: 138.68.58.101    # IP public VPS (vpn2.hangocthanh.io.vn)
+    ipv4: 165.22.12.169    # IP public VPS (vpn2.hangocthanh.io.vn)
     # ipv6: YOUR_IPV6              # ← nếu có
 
   # Tắt DERP servers của Tailscale (full self-host)
