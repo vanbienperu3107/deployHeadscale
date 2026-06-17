@@ -15,6 +15,12 @@ vpn2.hangocthanh.io.vn {
 		reverse_proxy headplane:3000
 	}
 
+	# Captive-portal probe cua client (fork dung domain rieng thay tailscale.com)
+	# -> tra 204 de client biet "khong co captive portal".
+	handle /generate_204 {
+		respond 204
+	}
+
 	# Còn lại → Headscale control plane / API (xác thực bằng API key/node key)
 	handle {
 		reverse_proxy headscale:8080
