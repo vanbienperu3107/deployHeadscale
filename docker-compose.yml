@@ -90,29 +90,52 @@ services:
   # Dung HEADPLANE_HS_API_KEY (da co san trong .env) de goi headscale API.
   # Chay THAT (live) mac dinh -> tu dong gop node trung. Muon chi-LOG-ke-hoach
   # (an toan, khong xoa/doi ten) thi dat DEDUP_DRY_RUN=true.
+  # tailscale (sidecar) — VPS tham gia CHINH tailnet cua no nhu 1 node ten
+  # 'collector'. node-dedup chay trong netns nay -> collector lang nghe TREN
+  # tailnet. Nho vay cac node bao cao KHONG can token (Tailscale tu xac thuc).
+  # TS_AUTHKEY = preauth key headscale (secret tren server). Trong -> khong join
+  # (collector im, cac node khong thay peer 'collector', khong loi).
+  tailscale:
+    image: tailscale/tailscale:latest
+    container_name: ts-collector
+    hostname: collector
+    restart: unless-stopped
+    environment:
+      - TS_AUTHKEY=${TS_AUTHKEY:-}
+      - TS_EXTRA_ARGS=--login-server=https://vpn2.hangocthanh.io.vn --hostname=collector --accept-dns=false
+      - TS_STATE_DIR=/var/lib/tailscale
+      - TS_USERSPACE=false
+    volumes:
+      - tailscale_collector:/var/lib/tailscale
+    devices:
+      - /dev/net/tun
+    cap_add:
+      - NET_ADMIN
+    depends_on:
+      - headscale
+      - caddy
+
+  # node-dedup — "1 thiet bi (theo hostname) = 1 node" + collector MAC/latency.
   node-dedup:
     image: python:3.12-slim
     container_name: node-dedup
     restart: unless-stopped
     command: ["python3", "/app/dedup.py"]
+    # Chay TRONG netns cua tailscale sidecar -> collector tren tailnet. Vi vay
+    # KHONG resolve duoc service name 'headscale' nua => goi API qua domain cong khai.
+    network_mode: "service:tailscale"
     environment:
-      - HS_API_URL=http://headscale:8080
+      - HS_API_URL=https://vpn2.hangocthanh.io.vn
       - HS_API_KEY=${HEADPLANE_HS_API_KEY:-}
       - POLL_INTERVAL=30
       - DB_PATH=/data/devices.db
       - DRY_RUN=${DEDUP_DRY_RUN:-false}
-      # Collector latency/MAC: cac node POST ve qua Caddy /metrics/* (xac thuc
-      # bang token nay). Trong -> collector TAT, chi chay dedup. Token lay tu
-      # .env (workflow ghi tu GitHub Secret METRICS_TOKEN), KHONG nam trong repo.
-      - METRICS_TOKEN=${METRICS_TOKEN:-}
       - METRICS_PORT=8090
-    expose:
-      - "8090"   # chi noi bo (Caddy reverse_proxy node-dedup:8090), khong map ra host
     volumes:
       - ./node-dedup/dedup.py:/app/dedup.py:ro
       - dedup_data:/data
     depends_on:
-      - headscale
+      - tailscale
 
   caddy:
     image: caddy:2
@@ -123,7 +146,6 @@ services:
       - headscale-admin
       - oauth2-proxy
       - headplane
-      - node-dedup
     ports:
       - "80:80"
       - "443:443"
@@ -137,5 +159,6 @@ volumes:
   headscale_run_027:
   headplane_data:
   dedup_data:
+  tailscale_collector:
   caddy_data:
   caddy_config:

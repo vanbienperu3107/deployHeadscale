@@ -3,8 +3,8 @@ import sqlite3
 
 import pytest
 
-from dedup import (aggregate_latency, init_db, init_latency_db, normalize,
-                   plan_actions, record_report, validate_report)
+from dedup import (aggregate_latency, init_db, init_latency_db, is_tailnet_ip,
+                   normalize, plan_actions, record_report, validate_report)
 
 
 def mk(id, host, given, user="u", online=False, last=0):
@@ -150,6 +150,17 @@ def test_record_report_updates_mac_by_ipv4_and_inserts_samples():
     assert record_report(conn, rep, 123) == 1
     assert conn.execute("SELECT mac FROM devices WHERE hostname='itop'").fetchone()[0] == "AA:BB:CC"
     assert conn.execute("SELECT COUNT(*) FROM node_latency").fetchone()[0] == 1
+
+
+def test_is_tailnet_ip():
+    assert is_tailnet_ip("100.64.0.3") is True          # dai Tailscale v4
+    assert is_tailnet_ip("100.127.255.255") is True
+    assert is_tailnet_ip("127.0.0.1") is True           # loopback OK (debug local)
+    assert is_tailnet_ip("fd7a:115c:a1e0::1") is True   # dai Tailscale v6
+    assert is_tailnet_ip("10.121.5.18") is False        # LAN noi bo -> tu choi
+    assert is_tailnet_ip("8.8.8.8") is False            # internet -> tu choi
+    assert is_tailnet_ip("100.128.0.1") is False        # ngoai 100.64/10
+    assert is_tailnet_ip("khong-phai-ip") is False
 
 
 def test_record_report_mac_fallback_by_hostname():

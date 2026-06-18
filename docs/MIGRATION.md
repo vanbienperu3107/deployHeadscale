@@ -282,22 +282,26 @@ https://vpn2.hangocthanh.io.vn/admin/oidc/callback    (headplane - admin)
   ```
   (Logic đã có **unit test pytest trong CI** chạy trước mỗi deploy, nên live mặc định là an toàn. Lưu ý deploy ghi lại `.env` từ secrets, nên cờ thêm tay vào `.env` sẽ bị ghi đè ở lần deploy sau.)
 
-### C.5 — Collector MAC + latency (thu thập từ node)
-Cùng service `node-dedup` còn mở 1 HTTP collector (cổng nội bộ `8090`) để các node tự gửi về **MAC** và **latency ping giữa các node** (headscale không có sẵn 2 thứ này).
+### C.5 — Collector MAC + latency (thu thập từ node, qua TAILNET)
+Các node tự thu **MAC** + **latency ping giữa các node** rồi gửi về collector. Để khỏi cần token trên từng node, collector chạy **bên trong tailnet**: VPS tham gia chính tailnet của nó như 1 node tên **`collector`** (service `tailscale` sidecar), và `node-dedup` chạy trong network namespace của sidecar (`network_mode: service:tailscale`) → chỉ peer tailnet mới tới được `:8090`.
 
-- **Luồng:** node `tailscale ping` các peer → POST `{hostname, ipv4, mac, samples[]}` qua **`https://vpn2.hangocthanh.io.vn/metrics/report`** (Caddy `handle /metrics/*` → `node-dedup:8090`). Collector cập nhật cột `devices.mac` + ghi bảng `node_latency`. Xem tập trung: `GET /metrics/latency`.
-- **Xác thực:** Bearer token `METRICS_TOKEN` (node-dedup tự kiểm). **Token rỗng → collector TẮT**, chỉ chạy dedup (không lỗi).
-- **Bí mật:** secret `METRICS_TOKEN` (GitHub → Settings → Secrets). Deploy workflow ghi nó vào `.env`. **Cùng token này phải đặt trong `metrics.conf` trên từng node** (không nhúng vào bundle vì repo public).
+- **Luồng:** node đọc MAC + `tailscale ping` các peer → POST `{hostname, ipv4, mac, samples[]}` thẳng tới `http://<ip-tailnet-collector>:8090/metrics/report` **trong tailnet** (không token, không TLS — Tailscale đã mã hóa). Collector cập nhật `devices.mac` + ghi bảng `node_latency`.
+- **Xác thực = ở tailnet:** collector chỉ lắng nghe trên tailnet; handler còn kiểm IP nguồn thuộc dải Tailscale (`100.64/10`, `fd7a:115c:a1e0::/48`). Không có token nào cả. Node tự tìm peer tên `collector` trong `tailscale status` → **zero-config trên node**.
+- **Bí mật DUY NHẤT (trên server):** `TS_AUTHKEY` = preauth key headscale cho sidecar. Trống → sidecar không join → collector im (không lỗi).
   ```bash
-  # tao token 1 lan (vd):  openssl rand -hex 32
-  gh secret set METRICS_TOKEN --repo vanbienperu3107/deployHeadscale --body '<token>'
-  # roi dat dung token do vao metrics.conf moi node, va re-deploy.
+  # 1) Tao preauth key tren VPS (thay <user> = user headscale, vd hangocthanh3107@gmail.com)
+  docker exec headscale headscale users list
+  docker exec headscale headscale preauthkeys create --user <user> --reusable --expiration 8760h
+  # 2) Dat secret + deploy
+  gh secret set TS_AUTHKEY --repo vanbienperu3107/deployHeadscale --body '<preauth-key>'
+  gh workflow run deploy.yml --repo vanbienperu3107/deployHeadscale
   ```
-- **Xem nhanh trên server mới (sau khi có token):**
+- **Xem tập trung (từ một node trong tailnet):**
   ```bash
-  curl -s -H "Authorization: Bearer $METRICS_TOKEN" https://vpn2.hangocthanh.io.vn/metrics/latency | jq
+  curl -s http://collector:8090/metrics/latency        # qua MagicDNS, hoac dung IP 100.64.x
   ```
-- **Khi dựng server mới:** chỉ cần đặt lại secret `METRICS_TOKEN` (như các secret khác ở Bước 3/Phụ lục C) — phần code/Caddy/compose đã theo repo. Bảng `node_latency` nằm trong volume `dedup_data` (theo Phụ lục B nếu muốn giữ lịch sử).
+  (Node userspace như itop: đi qua SOCKS, vd `curl --socks5-hostname 127.0.0.1:7654 http://<ip-collector>:8090/metrics/latency`.)
+- **Khi dựng server mới:** đặt lại secret `TS_AUTHKEY` (tạo preauth key mới trên server mới). Code/Caddy/compose theo repo. Bảng `node_latency` ở volume `dedup_data`; state node collector ở volume `tailscale_collector` (Phụ lục B nếu muốn giữ).
 
 ---
 
@@ -314,8 +318,9 @@ Cùng service `node-dedup` còn mở 1 HTTP collector (cổng nội bộ `8090`)
 | `/admin` cứ đòi nhập key | Ô **URL** trong Settings phải là `https://vpn2.hangocthanh.io.vn` (không kèm `/admin`) |
 | `/admin` SSO lỗi "Authentication with the SSO provider failed"; log `invalid_client / The OAuth client was not found` | Headplane thiếu `oidc.token_endpoint_auth_method: client_secret_post` (Phụ lục C.1), hoặc thiếu redirect URI `/admin/oidc/callback` (C.2). Tạm vào bằng API key |
 | Một máy tạo ra nhiều node (tên có hậu tố lạ) | Mỗi lần state mới (giải nén bản build vào thư mục khác) = machine key mới = node mới. Giữ 1 thư mục cố định; node-dedup (Phụ lục C.4) tự gộp |
-| `/metrics/report` trả 401 | Sai/thiếu `METRICS_TOKEN`: token trong `metrics.conf` của node phải KHỚP secret `METRICS_TOKEN` trên server (Phụ lục C.5) |
-| Cột `mac` vẫn trống / không có latency | Node chưa chạy reporter, hoặc `METRICS_TOKEN` rỗng (collector tắt). `docker logs node-dedup` xem dòng "collector chay :8090" |
+| Cột `mac` trống / không có latency | (1) Chưa đặt `TS_AUTHKEY` → sidecar không join, không có node `collector`: `docker logs ts-collector`. (2) Node chưa thấy peer `collector` trong `tailscale status`. (3) `docker logs node-dedup` phải có "collector chay :8090" (Phụ lục C.5) |
+| `docker logs ts-collector` báo lỗi đăng nhập | `TS_AUTHKEY` sai/hết hạn → tạo preauth key mới (`headscale preauthkeys create ... --reusable`) rồi set lại secret + deploy |
+| Node `collector` bị trùng / nhiều bản | Mỗi lần volume `tailscale_collector` mất state → join lại = node mới. node-dedup tự gộp (C.4); preauth key nên `--reusable` |
 
 ---
 

@@ -19,20 +19,24 @@ Headscale KHONG luu MAC va KHONG do latency giua cac node. Nen moi node tu:
   - `tailscale ping` cac peer -> RTT + di thang/DERP
   - POST ve VPS: { hostname, ipv4, mac, samples:[{dst,dst_ip,rtt_ms,path,ok}] }
 Service nay mo 1 HTTP server nho (cung tien trinh, cung 1 connection SQLite) nhan
-POST /metrics/report (xac thuc Bearer METRICS_TOKEN) -> cap nhat devices.mac +
-ghi bang node_latency. Xem tap trung qua GET /metrics/latency (cung token).
+POST /metrics/report -> cap nhat devices.mac + ghi bang node_latency. Xem tap
+trung qua GET /metrics/latency.
+
+XAC THUC = KHONG dung token. Container nay chay trong network namespace cua
+tailscale sidecar (network_mode: service:tailscale), nen collector chi lang nghe
+TREN tailnet; chi peer tailnet (hoac loopback) toi duoc. Handler con kiem tra IP
+nguon thuoc dai Tailscale (100.64/10, fd7a:115c:a1e0::/48) cho chac.
 
 Bien moi truong:
-  HS_API_URL    (mac dinh http://headscale:8080)
+  HS_API_URL    (vi o trong netns tailscale -> dat = https://vpn2... domain cong khai)
   HS_API_KEY    (bat buoc) - headscale apikey
   POLL_INTERVAL (giay, mac dinh 30)
   DB_PATH       (mac dinh /data/devices.db)
   DRY_RUN       (true/false) - true = chi LOG ke hoach, khong xoa/doi ten that
-  METRICS_TOKEN (neu trong -> KHONG bat collector, chi chay dedup)
-  METRICS_PORT  (mac dinh 8090) - cong HTTP collector (sau Caddy /metrics/*)
+  METRICS_PORT  (mac dinh 8090) - cong HTTP collector (lang nghe trong tailnet)
 """
-import hmac
 import http.server
+import ipaddress
 import json
 import os
 import sqlite3
@@ -47,7 +51,6 @@ HS_API_KEY = os.environ.get("HS_API_KEY", "")
 POLL_INTERVAL = int(os.environ.get("POLL_INTERVAL", "30"))
 DB_PATH = os.environ.get("DB_PATH", "/data/devices.db")
 DRY_RUN = os.environ.get("DRY_RUN", "true").lower() in ("1", "true", "yes")
-METRICS_TOKEN = os.environ.get("METRICS_TOKEN", "")
 METRICS_PORT = int(os.environ.get("METRICS_PORT", "8090"))
 LATENCY_WINDOW = int(os.environ.get("LATENCY_WINDOW", "3600"))  # cua so tong hop GET
 
@@ -270,14 +273,30 @@ def query_latency(conn, window):
              "path": r[4], "ok": bool(r[5]), "ts": r[6]} for r in cur.fetchall()]
 
 
-def make_metrics_handler(conn, lock, token):
+_TAILNET_V4 = ipaddress.ip_network("100.64.0.0/10")
+_TAILNET_V6 = ipaddress.ip_network("fd7a:115c:a1e0::/48")
+
+
+def is_tailnet_ip(ip):
+    """PURE: True neu IP thuoc dai Tailscale (100.64/10, fd7a:115c:a1e0::/48)
+    hoac loopback. Dung lam 'auth' thay token (collector chi mo trong tailnet)."""
+    try:
+        a = ipaddress.ip_address(ip)
+    except ValueError:
+        return False
+    if a.is_loopback:
+        return True
+    return a in (_TAILNET_V4 if a.version == 4 else _TAILNET_V6)
+
+
+def make_metrics_handler(conn, lock):
     class Handler(http.server.BaseHTTPRequestHandler):
         def log_message(self, *a):  # im lang, dung spam log
             pass
 
         def _authed(self):
-            return bool(token) and hmac.compare_digest(
-                self.headers.get("Authorization", ""), "Bearer " + token)
+            # Khong token: chi chap nhan ket noi tu dai tailnet (hoac loopback).
+            return is_tailnet_ip(self.client_address[0])
 
         def _send(self, code, payload):
             body = json.dumps(payload).encode() if not isinstance(payload, bytes) else payload
@@ -321,13 +340,10 @@ def make_metrics_handler(conn, lock, token):
 
 
 def start_metrics_server(conn, lock):
-    if not METRICS_TOKEN:
-        log("METRICS_TOKEN trong -> KHONG bat collector (chi chay dedup).")
-        return
-    handler = make_metrics_handler(conn, lock, METRICS_TOKEN)
+    handler = make_metrics_handler(conn, lock)
     httpd = http.server.ThreadingHTTPServer(("0.0.0.0", METRICS_PORT), handler)
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
-    log("collector chay :%d (POST /metrics/report, GET /metrics/latency)" % METRICS_PORT)
+    log("collector chay :%d (tailnet-only; POST /metrics/report, GET /metrics/latency)" % METRICS_PORT)
 
 
 def main():
