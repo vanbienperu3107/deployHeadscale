@@ -26,6 +26,10 @@ oidc:
   issuer: "https://accounts.google.com"
   scope: "openid email profile"
   use_pkce: true
+  # Google chap nhan ca basic lan post, nhung openid-client v6 (Headplane) gui
+  # client_secret_basic bi Google tra "invalid_client/OAuth client not found".
+  # headscale dung client_secret_post (creds trong body) -> chay. Ep theo kieu do.
+  token_endpoint_auth_method: "client_secret_post"
   # Để false trong lúc dựng (vẫn cho login bằng API key làm fallback). Bật true
   # sau khi xác nhận login Google chạy → ép chỉ đăng nhập bằng Google.
   disable_api_key_login: false
