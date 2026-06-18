@@ -274,13 +274,13 @@ https://vpn2.hangocthanh.io.vn/admin/oidc/callback    (headplane - admin)
 ### C.4 — node-dedup (1 thiết bị = 1 node)
 - Service [`node-dedup/dedup.py`](../node-dedup/dedup.py) (trong `docker-compose.yml`) poll headscale API, gộp node trùng theo **hostname**: xoá bản trùng offline + đổi tên node giữ lại về hostname sạch. Lưu lịch sử vào SQLite (volume `dedup_data`).
 - Dùng `HEADPLANE_HS_API_KEY` sẵn có (không cần secret mới).
-- **An toàn:** chạy lần đầu ở `DRY_RUN=true` (chỉ LOG kế hoạch, không xoá). Xem log: `docker logs node-dedup`. Khi thấy kế hoạch đúng → bật thật:
+- **Mặc định chạy THẬT (live)** → tự gộp node trùng. Muốn kiểm tra trước (chỉ LOG kế hoạch, không xoá/đổi tên) thì set `DEDUP_DRY_RUN=true`:
   ```bash
-  # thêm vào /opt/deployHeadscale/.env (server) rồi recreate, HOẶC sửa default trong compose
-  echo 'DEDUP_DRY_RUN=false' >> /opt/deployHeadscale/.env
+  echo 'DEDUP_DRY_RUN=true' >> /opt/deployHeadscale/.env   # tren server
   docker compose up -d --force-recreate node-dedup
+  docker logs node-dedup     # xem dong [DRY] ...
   ```
-  (Lưu ý: deploy ghi lại `.env` từ secrets nên muốn cố định `false` thì để mặc định `false` trong `docker-compose.yml` hoặc thêm `DEDUP_DRY_RUN` vào bước ghi `.env` của `deploy.yml`.)
+  (Logic đã có **unit test pytest trong CI** chạy trước mỗi deploy, nên live mặc định là an toàn. Lưu ý deploy ghi lại `.env` từ secrets, nên cờ thêm tay vào `.env` sẽ bị ghi đè ở lần deploy sau.)
 
 ---
 

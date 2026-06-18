@@ -88,7 +88,8 @@ services:
   # trung dang OFFLINE + doi ten node giu lai ve hostname sach (bo hau to ngau
   # nhien headscale them khi machine key doi). Luu lich su thiet bi vao SQLite.
   # Dung HEADPLANE_HS_API_KEY (da co san trong .env) de goi headscale API.
-  # DRY_RUN=true: chi LOG ke hoach (an toan). Dat DEDUP_DRY_RUN=false de thuc thi.
+  # Chay THAT (live) mac dinh -> tu dong gop node trung. Muon chi-LOG-ke-hoach
+  # (an toan, khong xoa/doi ten) thi dat DEDUP_DRY_RUN=true.
   node-dedup:
     image: python:3.12-slim
     container_name: node-dedup
@@ -99,7 +100,7 @@ services:
       - HS_API_KEY=${HEADPLANE_HS_API_KEY:-}
       - POLL_INTERVAL=30
       - DB_PATH=/data/devices.db
-      - DRY_RUN=${DEDUP_DRY_RUN:-true}
+      - DRY_RUN=${DEDUP_DRY_RUN:-false}
     volumes:
       - ./node-dedup/dedup.py:/app/dedup.py:ro
       - dedup_data:/data
