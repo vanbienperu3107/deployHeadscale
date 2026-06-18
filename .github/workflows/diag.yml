@@ -41,5 +41,22 @@ jobs:
             echo ""
             echo "==> NODE-DEDUP: 15 dong cuoi"
             $SUDO docker logs --tail 15 node-dedup 2>&1 | tail -15 || true
+            echo ""
+            echo "==> SOCKET LocalAPI co chia se sang node-dedup khong?"
+            echo "--- node-dedup /var/run/tailscale ---"
+            $SUDO docker exec node-dedup ls -la /var/run/tailscale/ 2>&1 || true
+            echo "--- ts-collector /var/run/tailscale ---"
+            $SUDO docker exec ts-collector ls -la /var/run/tailscale/ 2>&1 || true
+            echo ""
+            echo "==> ts-collector: tailscale status (peer + reachable?)"
+            $SUDO docker exec ts-collector tailscale status 2>&1 | head -20 || true
+            echo ""
+            echo "==> ts-collector tu ping tung node (disco) + node-dedup goi LocalAPI"
+            for ip in $($SUDO docker exec headscale headscale nodes list -o json 2>/dev/null | grep -oE '"100\.64\.[0-9]+\.[0-9]+"' | tr -d '"' | sort -u); do
+              echo "--- $ip : tailscale ping (sidecar) ---"
+              $SUDO docker exec ts-collector tailscale ping -c 2 --timeout 6s "$ip" 2>&1 | head -3 || true
+              echo "--- $ip : LocalAPI ping (node-dedup qua socket) ---"
+              $SUDO docker exec node-dedup python3 -c "exec(open('/app/dedup.py').read().split('def main')[0]); print(parse_pingresult(localapi_ping('$ip')))" 2>&1 | tail -2 || true
+            done
         env:
           DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
