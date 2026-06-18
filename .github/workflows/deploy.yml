@@ -95,14 +95,17 @@ jobs:
             echo "==> Test Caddy -> collector /stats (HTML) - xem status + dau trang"
             $SUDO docker exec caddy wget -S -qO- --timeout=6 "http://tailscale:8090/stats" 2>&1 | head -c 500 || echo "FAIL: /stats loi"
             echo ""
-            echo "==> [DIAG A] Caddy reverse_proxy -> collector qua listener noi bo :8081 (FULL body, KHONG cookie)"
-            $SUDO docker exec caddy sh -c 'wget -S -O /tmp/s.html http://localhost:8081/_diag_stats 2>/tmp/h.txt; echo "exit=$?"; echo "--- resp headers ---"; cat /tmp/h.txt; echo "--- so byte body ---"; wc -c < /tmp/s.html 2>/dev/null || echo 0; echo "--- 160 byte cuoi (xem co </html> khong) ---"; tail -c 160 /tmp/s.html 2>/dev/null || true' 2>&1 || echo "DIAG A fail"
+            echo "==> [DIAG D] oauth2-proxy (forward_auth upstream) tu trong caddy"
+            $SUDO docker exec caddy sh -c 'echo "--- /ping (mong 200) ---"; wget -S -O /dev/null http://oauth2-proxy:4180/ping 2>&1 | head -6; echo "--- /oauth2/auth khong cookie (mong 401) ---"; wget -S -O /dev/null http://oauth2-proxy:4180/oauth2/auth 2>&1 | head -8' 2>&1 || echo "(non-2xx la binh thuong)"
             echo ""
-            echo "==> [DIAG B] Nhu DIAG A nhung kem Cookie ~6KB (mo phong cookie oauth2-proxy ma trinh duyet gui)"
-            $SUDO docker exec caddy sh -c 'C=$(yes a | head -c 6000 | tr -d "\n"); wget -S -O /tmp/s2.html --header="Cookie: _oauth2_proxy=$C" http://localhost:8081/_diag_stats 2>/tmp/h2.txt; echo "exit=$?"; echo "--- resp headers ---"; cat /tmp/h2.txt; echo "--- so byte body ---"; wc -c < /tmp/s2.html 2>/dev/null || echo 0' 2>&1 || echo "DIAG B fail"
+            echo "==> [DIAG E] REAL /stats qua Caddy public (CO forward_auth), KHONG cookie -> mong 302 -> /oauth2/start"
+            curl -k -sS -D - -o /dev/null --resolve vpn2.hangocthanh.io.vn:443:127.0.0.1 "https://vpn2.hangocthanh.io.vn/stats" 2>&1 | head -20 || echo "curl /stats FAIL"
             echo ""
-            echo "==> [DIAG C] Caddy logs tail 60 (loi reverse_proxy/upstream tu 2 request DIAG tren)"
-            $SUDO docker logs --tail 60 caddy 2>&1 | tail -60 || true
+            echo "==> [DIAG F] Caddy logs tail 45 (loi forward_auth tu request DIAG E)"
+            $SUDO docker logs --tail 45 caddy 2>&1 | tail -45 || true
+            echo ""
+            echo "==> [DIAG G] oauth2-proxy logs tail 25 (sau DIAG E)"
+            $SUDO docker logs --tail 25 oauth2-proxy 2>&1 | tail -25 || true
             echo ""
             echo "==> Trang thai container"
             $SUDO docker compose ps 2>&1 | tail -12 || true
