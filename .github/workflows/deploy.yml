@@ -85,6 +85,10 @@ jobs:
             $SUDO docker logs --tail 25 oauth2-proxy 2>&1 || true
             echo "==> Log headscale (chẩn đoán)"
             $SUDO docker logs --tail 25 headscale 2>&1 || true
+            echo "==> Log ts-collector (sidecar; 'collector' join tailnet?)"
+            $SUDO docker logs --tail 20 ts-collector 2>&1 || true
+            echo "==> Log node-dedup (collector :8090 + goi headscale API)"
+            $SUDO docker logs --tail 20 node-dedup 2>&1 || true
         env:
           DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
           REPO_URL: https://github.com/vanbienperu3107/deployHeadscale.git
