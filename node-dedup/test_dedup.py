@@ -4,8 +4,9 @@ import sqlite3
 import pytest
 
 from dedup import (aggregate_latency, init_db, init_latency_db, is_tailnet_ip,
-                   latency_series, normalize, plan_actions, query_devices,
-                   record_report, render_stats_html, validate_report)
+                   latency_series, normalize, parse_pingresult, plan_actions,
+                   query_devices, record_report, render_stats_html,
+                   validate_report)
 
 
 def mk(id, host, given, user="u", online=False, last=0):
@@ -151,6 +152,17 @@ def test_record_report_updates_mac_by_ipv4_and_inserts_samples():
     assert record_report(conn, rep, 123) == 1
     assert conn.execute("SELECT mac FROM devices WHERE hostname='itop'").fetchone()[0] == "AA:BB:CC"
     assert conn.execute("SELECT COUNT(*) FROM node_latency").fetchone()[0] == 1
+
+
+def test_parse_pingresult():
+    # SERVER ping qua LocalAPI -> PingResult
+    d = parse_pingresult({"LatencySeconds": 0.012, "Endpoint": "1.2.3.4:41641"})
+    assert d == {"ok": True, "rtt_ms": 12.0, "path": "direct"}
+    r = parse_pingresult({"LatencySeconds": 0.045, "DERPRegionCode": "myderp"})
+    assert r["ok"] and r["path"] == "derp:myderp" and r["rtt_ms"] == 45.0
+    assert parse_pingresult({"Err": "timeout"})["ok"] is False
+    assert parse_pingresult({"LatencySeconds": 0})["ok"] is False     # chua co RTT
+    assert parse_pingresult(None)["ok"] is False
 
 
 def test_is_tailnet_ip():

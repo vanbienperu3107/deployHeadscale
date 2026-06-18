@@ -36,10 +36,12 @@ Bien moi truong:
   METRICS_PORT  (mac dinh 8090) - cong HTTP collector (lang nghe trong tailnet)
 """
 import html
+import http.client
 import http.server
 import ipaddress
 import json
 import os
+import socket
 import sqlite3
 import sys
 import threading
@@ -54,6 +56,9 @@ DB_PATH = os.environ.get("DB_PATH", "/data/devices.db")
 DRY_RUN = os.environ.get("DRY_RUN", "true").lower() in ("1", "true", "yes")
 METRICS_PORT = int(os.environ.get("METRICS_PORT", "8090"))
 LATENCY_WINDOW = int(os.environ.get("LATENCY_WINDOW", "3600"))  # cua so tong hop GET
+# Socket LocalAPI cua tailscale sidecar (chia se qua volume) -> server tu ping node.
+TS_SOCKET = os.environ.get("TS_SOCKET", "/var/run/tailscale/tailscaled.sock")
+SRC_NAME = os.environ.get("SRC_NAME", "collector")  # ten "nguon" khi server ping
 
 # 1 connection SQLite dung chung giua main-loop va HTTP thread -> phai khoa.
 DB_LOCK = threading.Lock()
@@ -77,6 +82,73 @@ def _g(d, *keys, default=None):
         if k in d and d[k] is not None:
             return d[k]
     return default
+
+
+class _UnixHTTP(http.client.HTTPConnection):
+    """HTTPConnection qua unix socket - de goi LocalAPI cua tailscale sidecar."""
+
+    def __init__(self, path, timeout):
+        super().__init__("local-tailscaled.sock", timeout=timeout)
+        self._uds = path
+
+    def connect(self):
+        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        s.settimeout(self.timeout)
+        s.connect(self._uds)
+        self.sock = s
+
+
+def localapi_ping(ip, ptype="disco", timeout=8):
+    """SERVER tu ping 1 IP tailnet qua LocalAPI sidecar. None neu loi/chua san sang."""
+    try:
+        conn = _UnixHTTP(TS_SOCKET, timeout)
+        conn.request("POST", "/localapi/v0/ping?ip=%s&type=%s" % (ip, ptype))
+        resp = conn.getresponse()
+        body = resp.read()
+        conn.close()
+        return json.loads(body or b"{}") if resp.status == 200 else None
+    except Exception:  # noqa: BLE001 - socket chua co / peer offline -> coi nhu fail
+        return None
+
+
+def parse_pingresult(pr):
+    """PURE: PingResult (LocalAPI) -> {ok, rtt_ms, path}. Tach rieng de test."""
+    if not isinstance(pr, dict) or pr.get("Err"):
+        return {"ok": False, "rtt_ms": None, "path": ""}
+    lat = pr.get("LatencySeconds") or 0
+    if not lat:
+        return {"ok": False, "rtt_ms": None, "path": ""}
+    if pr.get("Endpoint"):
+        path = "direct"
+    else:
+        derp = pr.get("DERPRegionCode") or pr.get("DERPRegionID")
+        path = ("derp:%s" % derp) if derp else "direct"
+    return {"ok": True, "rtt_ms": round(float(lat) * 1000, 1), "path": path}
+
+
+def server_ping_all(nodes):
+    """Server (sidecar) tu ping MOI node -> list sample (src = SRC_NAME)."""
+    out = []
+    for n in nodes:
+        if not n["hostname"] or n["hostname"] == SRC_NAME:
+            continue
+        ip4 = next((ip for ip in n["ips"] if ":" not in ip), "")
+        if not ip4:
+            continue
+        r = parse_pingresult(localapi_ping(ip4))
+        out.append({"dst": n["hostname"], "dst_ip": ip4,
+                    "rtt_ms": r["rtt_ms"], "path": r["path"], "ok": r["ok"]})
+    return out
+
+
+def record_samples(conn, src, samples, now):
+    cur = conn.cursor()
+    for s in samples:
+        cur.execute(
+            "INSERT INTO node_latency(ts,src,dst,dst_ip,rtt_ms,path,ok) VALUES(?,?,?,?,?,?,?)",
+            (now, src, s["dst"], s["dst_ip"], s["rtt_ms"], s["path"], 1 if s["ok"] else 0))
+    conn.commit()
+    return len(samples)
 
 
 def normalize(raw_nodes):
@@ -473,6 +545,15 @@ def main():
             nodes = normalize(raw)
             with DB_LOCK:
                 upsert_db(conn, nodes)
+            # SERVER tu ping moi node (qua LocalAPI sidecar) - nguon chinh cua
+            # latency, KHONG phu thuoc node co chay reporter hay khong. Ping ngoai
+            # lock (cham), chi ghi DB trong lock.
+            samples = server_ping_all(nodes)
+            if samples:
+                with DB_LOCK:
+                    record_samples(conn, SRC_NAME, samples, int(time.time()))
+                up = sum(1 for s in samples if s["ok"])
+                log("server ping: %d/%d node OK" % (up, len(samples)))
             for a in plan_actions(nodes):
                 label = a.get("name") or a.get("from", "")
                 if a["action"] == "skip":

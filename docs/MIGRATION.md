@@ -282,8 +282,11 @@ https://vpn2.hangocthanh.io.vn/admin/oidc/callback    (headplane - admin)
   ```
   (Logic đã có **unit test pytest trong CI** chạy trước mỗi deploy, nên live mặc định là an toàn. Lưu ý deploy ghi lại `.env` từ secrets, nên cờ thêm tay vào `.env` sẽ bị ghi đè ở lần deploy sau.)
 
-### C.5 — Collector MAC + latency (thu thập từ node, qua TAILNET)
-Các node tự thu **MAC** + **latency ping giữa các node** rồi gửi về collector. Để khỏi cần token trên từng node, collector chạy **bên trong tailnet**: VPS tham gia chính tailnet của nó như 1 node tên **`collector`** (service `tailscale` sidecar), và `node-dedup` chạy trong network namespace của sidecar (`network_mode: service:tailscale`) → chỉ peer tailnet mới tới được `:8090`.
+### C.5 — Collector MAC + latency (qua TAILNET)
+VPS tham gia chính tailnet của nó như 1 node tên **`collector`** (service `tailscale` sidecar); `node-dedup` chạy trong network namespace của sidecar (`network_mode: service:tailscale`) và **chia sẻ socket LocalAPI** của sidecar.
+
+- **Nguồn latency CHÍNH = server tự ping:** mỗi vòng (`POLL_INTERVAL`), collector gọi **LocalAPI `POST /localapi/v0/ping`** của sidecar để **tự ping mọi node** (disco) → ghi `node_latency` với `src=collector`. **Không phụ thuộc node có chạy gì hay không.**
+- **Phần phụ độc lập = node tự báo cáo MAC:** node chạy reporter (bản portable v1.4+) gửi `{hostname, ipv4, mac, samples[]}` tới `http://<ip-collector>:8090/metrics/report` trong tailnet → cập nhật `devices.mac` (+ thêm góc nhìn latency từ node). Đây là cách DUY NHẤT lấy được MAC (headscale không có).
 
 - **Luồng:** node đọc MAC + `tailscale ping` các peer → POST `{hostname, ipv4, mac, samples[]}` thẳng tới `http://<ip-tailnet-collector>:8090/metrics/report` **trong tailnet** (không token, không TLS — Tailscale đã mã hóa). Collector cập nhật `devices.mac` + ghi bảng `node_latency`.
 - **Xác thực = ở tailnet:** collector chỉ lắng nghe trên tailnet; handler còn kiểm IP nguồn thuộc dải Tailscale (`100.64/10`, `fd7a:115c:a1e0::/48`). Không có token nào cả. Node tự tìm peer tên `collector` trong `tailscale status` → **zero-config trên node**.

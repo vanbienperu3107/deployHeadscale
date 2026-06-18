@@ -107,6 +107,8 @@ services:
       - TS_USERSPACE=false
     volumes:
       - tailscale_collector:/var/lib/tailscale
+      # Chia se socket LocalAPI -> node-dedup goi duoc `ping` tu phia server.
+      - ts_sock:/var/run/tailscale
     devices:
       - /dev/net/tun
     cap_add:
@@ -132,9 +134,12 @@ services:
       - DB_PATH=/data/devices.db
       - DRY_RUN=${DEDUP_DRY_RUN:-false}
       - METRICS_PORT=8090
+      # Socket LocalAPI cua sidecar -> SERVER tu ping moi node.
+      - TS_SOCKET=/var/run/tailscale/tailscaled.sock
     volumes:
       - ./node-dedup/dedup.py:/app/dedup.py:ro
       - dedup_data:/data
+      - ts_sock:/var/run/tailscale
     depends_on:
       - tailscale
 
@@ -161,5 +166,6 @@ volumes:
   headplane_data:
   dedup_data:
   tailscale_collector:
+  ts_sock:
   caddy_data:
   caddy_config:
