@@ -89,8 +89,11 @@ jobs:
             $SUDO docker logs --tail 20 ts-collector 2>&1 || true
             echo "==> Log node-dedup (collector :8090 + goi headscale API)"
             $SUDO docker logs --tail 20 node-dedup 2>&1 || true
-            echo "==> Test Caddy -> collector (tailscale:8090) [chan doan 502 /stats]"
-            $SUDO docker exec caddy wget -qO- --timeout=6 "http://tailscale:8090/metrics/latency" 2>&1 | head -c 300 || echo "FAIL: caddy KHONG toi duoc tailscale:8090"
+            echo "==> Test Caddy -> collector /metrics/latency"
+            $SUDO docker exec caddy wget -qO- --timeout=6 "http://tailscale:8090/metrics/latency" 2>&1 | head -c 200 || echo "FAIL latency"
+            echo ""
+            echo "==> Test Caddy -> collector /stats (HTML) - xem status + dau trang"
+            $SUDO docker exec caddy wget -S -qO- --timeout=6 "http://tailscale:8090/stats" 2>&1 | head -c 500 || echo "FAIL: /stats loi"
             echo ""
             echo "==> Trang thai container"
             $SUDO docker compose ps 2>&1 | tail -12 || true

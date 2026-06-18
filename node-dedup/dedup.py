@@ -459,6 +459,10 @@ def is_tailnet_ip(ip):
 
 def make_metrics_handler(conn, lock):
     class Handler(http.server.BaseHTTPRequestHandler):
+        # HTTP/1.1 + luon co Content-Length (da set) -> Caddy reverse_proxy on dinh,
+        # tranh 502 voi response lon nhu trang /stats.
+        protocol_version = "HTTP/1.1"
+
         def log_message(self, *a):  # im lang, dung spam log
             pass
 
