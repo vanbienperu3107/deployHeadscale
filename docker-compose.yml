@@ -118,15 +118,18 @@ services:
       - caddy
 
   # node-dedup — "1 thiet bi (theo hostname) = 1 node" + collector MAC/latency.
+  # QUAN TRONG: chay nhu container RIENG tren compose network (KHONG con dung
+  # network_mode: service:tailscale). Ly do: tailscale sidecar restart-loop khi
+  # thieu TS_AUTHKEY; neu node-dedup nam trong netns do thi moi lan sidecar restart
+  # se lam mat cong 8090 -> Caddy reverse_proxy bao "connection refused" -> /stats
+  # 502. Tach ra -> /stats LUON song (phuc vu tu SQLite), khong phu thuoc sidecar.
+  # SERVER tu ping node: van goi LocalAPI cua sidecar QUA SOCKET CHIA SE (volume
+  # ts_sock) -> khong can chung netns. Sidecar offline thi ping fail nhe nhang.
   node-dedup:
     image: python:3.12-slim
     container_name: node-dedup
     restart: unless-stopped
     command: ["python3", "/app/dedup.py"]
-    # Chay TRONG netns cua tailscale sidecar -> collector tren tailnet. Sidecar
-    # van o compose network + --accept-dns=false nen DNS Docker (127.0.0.11) con
-    # nguyen => van resolve duoc 'headscale' (khong can hairpin domain cong khai).
-    network_mode: "service:tailscale"
     environment:
       - HS_API_URL=http://headscale:8080
       - HS_API_KEY=${HEADPLANE_HS_API_KEY:-}
@@ -134,14 +137,14 @@ services:
       - DB_PATH=/data/devices.db
       - DRY_RUN=${DEDUP_DRY_RUN:-false}
       - METRICS_PORT=8090
-      # Socket LocalAPI cua sidecar -> SERVER tu ping moi node.
+      # Socket LocalAPI cua sidecar (volume chia se) -> SERVER tu ping moi node.
       - TS_SOCKET=/var/run/tailscale/tailscaled.sock
     volumes:
       - ./node-dedup/dedup.py:/app/dedup.py:ro
       - dedup_data:/data
       - ts_sock:/var/run/tailscale
     depends_on:
-      - tailscale
+      - headscale
 
   caddy:
     # Build Caddy kem plugin replace-response (chen nut "Thong ke" vao /admin).
@@ -153,6 +156,7 @@ services:
       - headscale-admin
       - oauth2-proxy
       - headplane
+      - node-dedup
     ports:
       - "80:80"
       - "443:443"

@@ -45,3 +45,16 @@ jobs:
             exit 1
           fi
           echo "OK: không tìm thấy private key trong repo."
+
+  stats-integration:
+    name: /stats integration (collector tach khoi sidecar)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Chung minh /stats tra 200 qua Caddy -> node-dedup KHI KHONG CO tailscale
+      # sidecar (kich ban tung gay 502 connection refused). Phai PASS sau khi tach
+      # node-dedup thanh container rieng.
+      - name: Integration test /stats (khong sidecar)
+        run: bash test/stats_integration.sh

@@ -282,15 +282,16 @@ https://vpn2.hangocthanh.io.vn/admin/oidc/callback    (headplane - admin)
   ```
   (Logic đã có **unit test pytest trong CI** chạy trước mỗi deploy, nên live mặc định là an toàn. Lưu ý deploy ghi lại `.env` từ secrets, nên cờ thêm tay vào `.env` sẽ bị ghi đè ở lần deploy sau.)
 
-### C.5 — Collector MAC + latency (qua TAILNET)
-VPS tham gia chính tailnet của nó như 1 node tên **`collector`** (service `tailscale` sidecar); `node-dedup` chạy trong network namespace của sidecar (`network_mode: service:tailscale`) và **chia sẻ socket LocalAPI** của sidecar.
+### C.5 — Collector MAC + latency
+**Kiến trúc (đã tách để chống lỗi 502):**
+- `node-dedup` là **container RIÊNG** trên compose network (KHÔNG còn `network_mode: service:tailscale`). Nó phục vụ `/stats` + `/metrics/latency` từ SQLite. Caddy `handle /stats*` → `reverse_proxy node-dedup:8090`.
+- `tailscale` sidecar tham gia tailnet như node **`collector`** và chỉ còn nhiệm vụ cung cấp **LocalAPI** cho việc server tự ping. `node-dedup` gọi LocalAPI qua **socket chia sẻ** (volume `ts_sock` mount ở `/var/run/tailscale` trên cả 2 container) — **không cần chung netns**.
+- ⚠️ **Vì sao tách:** trước kia `node-dedup` nằm trong netns của sidecar. Khi thiếu `TS_AUTHKEY`, sidecar **restart-loop** → mỗi lần restart làm mất cổng 8090 → Caddy báo `dial tcp ...:8090: connect: connection refused` → **`/stats` 502**. Tách ra: `/stats` LUÔN sống, độc lập với sức khỏe của sidecar. (CI có test `stats-integration` dựng stack KHÔNG có sidecar và khẳng định `/stats` vẫn 200.)
 
-- **Nguồn latency CHÍNH = server tự ping:** mỗi vòng (`POLL_INTERVAL`), collector gọi **LocalAPI `POST /localapi/v0/ping`** của sidecar để **tự ping mọi node** (disco) → ghi `node_latency` với `src=collector`. **Không phụ thuộc node có chạy gì hay không.**
-- **Phần phụ độc lập = node tự báo cáo MAC:** node chạy reporter (bản portable v1.4+) gửi `{hostname, ipv4, mac, samples[]}` tới `http://<ip-collector>:8090/metrics/report` trong tailnet → cập nhật `devices.mac` (+ thêm góc nhìn latency từ node). Đây là cách DUY NHẤT lấy được MAC (headscale không có).
-
-- **Luồng:** node đọc MAC + `tailscale ping` các peer → POST `{hostname, ipv4, mac, samples[]}` thẳng tới `http://<ip-tailnet-collector>:8090/metrics/report` **trong tailnet** (không token, không TLS — Tailscale đã mã hóa). Collector cập nhật `devices.mac` + ghi bảng `node_latency`.
-- **Xác thực = ở tailnet:** collector chỉ lắng nghe trên tailnet; handler còn kiểm IP nguồn thuộc dải Tailscale (`100.64/10`, `fd7a:115c:a1e0::/48`). Không có token nào cả. Node tự tìm peer tên `collector` trong `tailscale status` → **zero-config trên node**.
-- **Bí mật DUY NHẤT (trên server):** `TS_AUTHKEY` = preauth key headscale cho sidecar. Trống → sidecar không join → collector im (không lỗi).
+- **Nguồn latency CHÍNH = server tự ping:** mỗi vòng (`POLL_INTERVAL`), `node-dedup` gọi **LocalAPI `POST /localapi/v0/ping`** của sidecar (qua socket chia sẻ) để **tự ping mọi node** (disco) → ghi `node_latency` với `src=collector`. **Không phụ thuộc node có chạy gì hay không.** Cần `TS_AUTHKEY` để sidecar join (xem dưới); chưa có → ping fail nhẹ nhàng, `/stats` vẫn mở (chỉ trống số liệu).
+- **MAC (node tự báo cáo):** vì `node-dedup` đã rời tailnet, đường node POST `…/metrics/report` qua tailnet **tạm thời không nhận được** (cần thêm 1 forwarder nhỏ trong netns sidecar — việc làm sau nếu cần cột MAC). Latency vẫn đầy đủ từ server-ping.
+- **Xác thực POST = ở tailnet:** handler vẫn kiểm IP nguồn thuộc dải Tailscale (`100.64/10`, `fd7a:115c:a1e0::/48`) / loopback. GET `/stats`,`/metrics/latency` mở (đã gated SSO ở Caddy).
+- **Bí mật DUY NHẤT (trên server):** `TS_AUTHKEY` = preauth key headscale cho sidecar. Trống → sidecar không join (server-ping chưa chạy) nhưng `/stats` **vẫn 200**.
   ```bash
   # 1) Tao preauth key tren VPS (thay <user> = user headscale, vd hangocthanh3107@gmail.com)
   docker exec headscale headscale users list
@@ -299,7 +300,7 @@ VPS tham gia chính tailnet của nó như 1 node tên **`collector`** (service 
   gh secret set TS_AUTHKEY --repo vanbienperu3107/deployHeadscale --body '<preauth-key>'
   gh workflow run deploy.yml --repo vanbienperu3107/deployHeadscale
   ```
-- **GUI (khuyến nghị):** `https://vpn2.hangocthanh.io.vn/stats` — thẻ tổng quan + **biểu đồ** (Chart.js: avg latency mỗi cặp + RTT theo thời gian) + bảng latency + bảng thiết bị/MAC, tự refresh 30s. Đăng nhập **Google SSO** (oauth2-proxy) như `/admin`. Caddy `handle /stats*` → `tailscale:8090` (collector trong netns sidecar); chỉ GET, đã gated SSO.
+- **GUI (khuyến nghị):** `https://vpn2.hangocthanh.io.vn/stats` — thẻ tổng quan + **biểu đồ** (Chart.js: avg latency mỗi cặp + RTT theo thời gian) + bảng latency + bảng thiết bị/MAC, tự refresh 30s. Đăng nhập **Google SSO** (oauth2-proxy) như `/admin`. Caddy `handle /stats*` → `reverse_proxy node-dedup:8090` (container riêng, độc lập sidecar); chỉ GET, đã gated SSO.
 - **Nút trong panel:** trang `/admin` (Headplane) có 1 **nút nổi "📊 Thống kê"** góc dưới-phải → bấm mở `/stats`. Headplane không cho thêm link qua config, nên Caddy dùng plugin **replace-response** (xem `caddy/Dockerfile`) chèn nút vào HTML: `handle /admin*` có directive `replace </body> ...`. CI build image Caddy tùy biến này rồi mới `caddy validate`.
 - **Dòng lệnh (tuỳ chọn):**
   ```bash
@@ -324,7 +325,9 @@ VPS tham gia chính tailnet của nó như 1 node tên **`collector`** (service 
 | `/admin` cứ đòi nhập key | Ô **URL** trong Settings phải là `https://vpn2.hangocthanh.io.vn` (không kèm `/admin`) |
 | `/admin` SSO lỗi "Authentication with the SSO provider failed"; log `invalid_client / The OAuth client was not found` | Headplane thiếu `oidc.token_endpoint_auth_method: client_secret_post` (Phụ lục C.1), hoặc thiếu redirect URI `/admin/oidc/callback` (C.2). Tạm vào bằng API key |
 | Một máy tạo ra nhiều node (tên có hậu tố lạ) | Mỗi lần state mới (giải nén bản build vào thư mục khác) = machine key mới = node mới. Giữ 1 thư mục cố định; node-dedup (Phụ lục C.4) tự gộp |
-| Cột `mac` trống / không có latency | (1) Chưa đặt `TS_AUTHKEY` → sidecar không join, không có node `collector`: `docker logs ts-collector`. (2) Node chưa thấy peer `collector` trong `tailscale status`. (3) `docker logs node-dedup` phải có "collector chay :8090" (Phụ lục C.5) |
+| `/stats` lỗi **502** (`This page isn't working`) | Caddy không tới được collector. Xem `docker logs caddy` tìm `dial tcp ...:8090: connect: connection refused`. Nguyên nhân kinh điển: `node-dedup` từng nằm trong netns sidecar mà sidecar restart-loop (thiếu `TS_AUTHKEY`). **Đã sửa**: `node-dedup` là container riêng (Caddy → `node-dedup:8090`). Kiểm: `docker compose ps` (cả `node-dedup` lẫn `caddy` đều `Up`), `docker exec caddy wget -qO- http://node-dedup:8090/stats` |
+| Không có latency | (1) Chưa đặt `TS_AUTHKEY` → sidecar không join → server chưa ping được: `docker logs ts-collector`. (2) `docker logs node-dedup` phải có "collector chay :8090" và "server ping: x/y node OK". `/stats` vẫn mở (chỉ trống số) kể cả khi sidecar down |
+| Cột `mac` trống | Đường node-tự-báo-cáo qua tailnet tạm ngừng sau khi tách `node-dedup` khỏi tailnet (C.5). Latency vẫn đủ từ server-ping; cần cột MAC thì thêm forwarder trong netns sidecar |
 | `docker logs ts-collector` báo lỗi đăng nhập | `TS_AUTHKEY` sai/hết hạn → tạo preauth key mới (`headscale preauthkeys create ... --reusable`) rồi set lại secret + deploy |
 | Node `collector` bị trùng / nhiều bản | Mỗi lần volume `tailscale_collector` mất state → join lại = node mới. node-dedup tự gộp (C.4); preauth key nên `--reusable` |
 

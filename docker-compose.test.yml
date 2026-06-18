@@ -1,0 +1,42 @@
+# Stack TEST tich hop cho /stats — chay tren GitHub CI (job stats-integration).
+#
+# Muc tieu: chung minh /stats tra 200 QUA Caddy reverse_proxy toi node-dedup
+# NGAY CA KHI KHONG CO tailscale sidecar trong stack. Day chinh la kich ban tung
+# gay loi 502 "dial tcp ...:8090: connect: connection refused" (vi truoc kia
+# node-dedup nam trong netns cua sidecar, sidecar restart -> mat cong 8090).
+# Sau khi tach node-dedup ra container rieng, test nay phai PASS.
+services:
+  # STUB oauth2-proxy (khong dung Google): 202 neu co cookie testauth=1, nguoc lai 401.
+  oauth2-proxy:
+    image: python:3.12-slim
+    command: ["python3", "/app/auth-stub.py"]
+    volumes:
+      - ./test/auth-stub.py:/app/auth-stub.py:ro
+
+  # node-dedup THAT (dedup.py) - phuc vu /stats tu SQLite. Khong co headscale/
+  # tailscale that -> poll API & ping deu fail NHE NHANG (da try/except), /stats van song.
+  node-dedup:
+    image: python:3.12-slim
+    command: ["python3", "/app/dedup.py"]
+    environment:
+      - HS_API_KEY=test-dummy
+      - HS_API_URL=http://headscale-absent:8080
+      - POLL_INTERVAL=3600
+      - DB_PATH=/data/devices.db
+      - METRICS_PORT=8090
+      - TS_SOCKET=/nonexistent/tailscaled.sock
+    volumes:
+      - ./node-dedup/dedup.py:/app/dedup.py:ro
+
+  # Caddy THAT (image co plugin replace-response) + Caddyfile test.
+  # CHU Y: KHONG khai bao service 'tailscale' -> chung minh /stats doc lap sidecar.
+  caddy:
+    build: ./caddy
+    command: ["caddy", "run", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]
+    volumes:
+      - ./test/Caddyfile.test:/etc/caddy/Caddyfile:ro
+    ports:
+      - "8088:80"
+    depends_on:
+      - oauth2-proxy
+      - node-dedup

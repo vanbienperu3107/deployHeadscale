@@ -2,13 +2,11 @@
 {
 	# Plugin replace-response: cho phep dung directive `replace` (chen nut Thong ke).
 	order replace after encode
-	# DIAG TAM THOI: bat debug de log chi tiet loi reverse_proxy/forward_auth (502).
-	debug
 }
 
 vpn2.hangocthanh.io.vn {
-	# DIAG TAM THOI: log truy cap JSON ra stdout -> bat duoc status + loi upstream
-	# cua tung request that tu trinh duyet (vd 502 tren /stats). Se xoa sau.
+	# Log truy cap JSON ra stdout (docker logs caddy) — co status + loi upstream,
+	# rat huu ich khi chan doan 502/loi proxy. Cookie/Authorization tu dong REDACTED.
 	log {
 		output stdout
 		format json
@@ -41,9 +39,9 @@ vpn2.hangocthanh.io.vn {
 	}
 
 	# Trang thong ke (GUI) /stats - gated bang Google SSO (oauth2-proxy). Tro toi
-	# collector qua container tailscale sidecar (node-dedup nam trong netns do, bind
-	# :8090) tren compose network. CHI GET (xem); POST /metrics/report khong di qua
-	# day (chi trong tailnet). Chua dang nhap -> redirect sang Google.
+	# node-dedup (container RIENG, on dinh tren compose network) - KHONG phu thuoc
+	# tailscale sidecar nua (sidecar co the restart khi thieu authkey ma /stats van
+	# chay). CHI GET (xem). Chua dang nhap -> redirect sang Google.
 	handle /stats* {
 		forward_auth oauth2-proxy:4180 {
 			uri /oauth2/auth
@@ -53,36 +51,11 @@ vpn2.hangocthanh.io.vn {
 				redir * /oauth2/start?rd={http.request.uri}
 			}
 		}
-		reverse_proxy tailscale:8090
+		reverse_proxy node-dedup:8090
 	}
 
 	# Còn lại → Headscale control plane / API (xác thực bằng API key/node key)
 	handle {
 		reverse_proxy headscale:8080
-	}
-}
-
-# === DIAG TAM THOI (chan doan 502 /stats) — SE XOA sau khi tim ra nguyen nhan ===
-# Listener noi bo :8081 KHONG duoc publish ra ngoai (docker-compose khong map port
-# nay) -> chi truy cap duoc tu BEN TRONG container caddy / mang docker noi bo, KHONG
-# lo ra internet. Dung de test rieng duong reverse_proxy -> collector (bo qua
-# forward_auth/oauth2-proxy) voi FULL body, qua dung transport cua Caddy.
-:8081 {
-	handle /_diag_stats* {
-		rewrite * /stats
-		reverse_proxy tailscale:8090
-	}
-	# Mo phong duong DA DANG NHAP: forward_auth goi /ping (luon 200 = "da auth")
-	# roi di tiep sang reverse_proxy collector — y het flow that cua /stats sau auth.
-	handle /_diag_authed* {
-		forward_auth oauth2-proxy:4180 {
-			uri /ping
-			copy_headers X-Auth-Request-Email X-Auth-Request-User
-		}
-		rewrite * /stats
-		reverse_proxy tailscale:8090
-	}
-	handle {
-		respond "diag-ok" 200
 	}
 }

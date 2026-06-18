@@ -87,22 +87,15 @@ jobs:
             $SUDO docker logs --tail 25 headscale 2>&1 || true
             echo "==> Log ts-collector (sidecar; 'collector' join tailnet?)"
             $SUDO docker logs --tail 20 ts-collector 2>&1 || true
-            echo "==> Log node-dedup (collector :8090 + goi headscale API)"
+            echo "==> Log node-dedup (collector RIENG :8090 + goi headscale API)"
             $SUDO docker logs --tail 20 node-dedup 2>&1 || true
-            echo "==> Test Caddy -> collector /metrics/latency"
-            $SUDO docker exec caddy wget -qO- --timeout=6 "http://tailscale:8090/metrics/latency" 2>&1 | head -c 200 || echo "FAIL latency"
+            echo "==> Health: Caddy -> node-dedup:8090 /stats (upstream MOI, tach khoi sidecar)"
+            code=$($SUDO docker exec caddy sh -c 'wget -S -O /tmp/s.html http://node-dedup:8090/stats 2>&1 | awk "/HTTP\//{print \$2; exit}"; wc -c < /tmp/s.html' 2>&1)
+            echo "  status+bytes: $code"
+            $SUDO docker exec caddy sh -c 'tail -c 60 /tmp/s.html 2>/dev/null' 2>&1 || true
             echo ""
-            echo "==> Test Caddy -> collector /stats (HTML) - xem status + dau trang"
-            $SUDO docker exec caddy wget -S -qO- --timeout=6 "http://tailscale:8090/stats" 2>&1 | head -c 500 || echo "FAIL: /stats loi"
-            echo ""
-            echo "==> [DIAG E] REAL /stats unauth qua Caddy public -> mong 302 -> /oauth2/start (sanity)"
-            curl -k -sS -D - -o /dev/null --resolve vpn2.hangocthanh.io.vn:443:127.0.0.1 "https://vpn2.hangocthanh.io.vn/stats" 2>&1 | head -8 || echo "curl FAIL"
-            echo ""
-            echo "==> [DIAG H] Mo phong DA AUTH: forward_auth(2xx qua /ping) -> reverse_proxy collector (noi bo :8081)"
-            $SUDO docker exec caddy sh -c 'wget -S -O /tmp/a.html http://localhost:8081/_diag_authed 2>/tmp/ah.txt; echo "exit=$?"; echo "--- resp headers ---"; cat /tmp/ah.txt; echo "--- so byte ---"; wc -c < /tmp/a.html 2>/dev/null || echo 0; echo "--- 120 byte cuoi ---"; tail -c 120 /tmp/a.html 2>/dev/null || true' 2>&1 || echo "DIAG H fail"
-            echo ""
-            echo "==> [DIAG I] Caddy logs tail 45 (sau DIAG H - tim loi forward_auth/reverse_proxy)"
-            $SUDO docker logs --tail 45 caddy 2>&1 | tail -45 || true
+            echo "==> Health: /stats cong khai chua dang nhap -> mong 302 (Caddy forward_auth)"
+            curl -k -sS -o /dev/null -w "  http_code=%{http_code}\n" --resolve vpn2.hangocthanh.io.vn:443:127.0.0.1 "https://vpn2.hangocthanh.io.vn/stats" || echo "curl FAIL"
             echo ""
             echo "==> Trang thai container"
             $SUDO docker compose ps 2>&1 | tail -12 || true
