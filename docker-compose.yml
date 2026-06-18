@@ -105,6 +105,11 @@ services:
       - TS_EXTRA_ARGS=--login-server=https://vpn2.hangocthanh.io.vn --hostname=collector --accept-dns=false
       - TS_STATE_DIR=/var/lib/tailscale
       - TS_USERSPACE=false
+      # Mac dinh image dat socket o /tmp/tailscaled.sock (RIENG container) va chi
+      # symlink vao /var/run/tailscale -> node-dedup (container khac) khong toi duoc
+      # socket THAT => LocalAPI ping luon fail. Ep socket THAT nam trong volume
+      # chia se ts_sock -> node-dedup goi LocalAPI ping duoc.
+      - TS_SOCKET=/var/run/tailscale/tailscaled.sock
     volumes:
       - tailscale_collector:/var/lib/tailscale
       # Chia se socket LocalAPI -> node-dedup goi duoc `ping` tu phia server.

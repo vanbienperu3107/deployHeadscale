@@ -78,6 +78,10 @@ jobs:
             printf 'TS_AUTHKEY=%s\n'                 "$TS_AUTHKEY"                 >> "$DEPLOY_PATH/.env"
 
             echo "==> [6/7] Khởi động stack"
+            # Xoa symlink socket cu (tailscaled.sock -> /tmp, tu cac lan truoc) trong
+            # volume ts_sock, de tailscaled tao SOCKET THAT trong volume chia se (TS_SOCKET
+            # da tro vao day) -> node-dedup goi LocalAPI ping duoc.
+            $SUDO docker compose run --rm --no-deps --entrypoint sh tailscale -c 'rm -f /var/run/tailscale/tailscaled.sock' >/dev/null 2>&1 || true
             $SUDO docker compose pull
             # --force-recreate để container đọc lại Caddyfile/config.yaml (bind-mount đổi
             # không tự trigger restart). Volume dữ liệu vẫn giữ nguyên (keys, db, certs).
