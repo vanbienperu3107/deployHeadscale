@@ -63,6 +63,16 @@ vpn2.hangocthanh.io.vn {
 		rewrite * /stats
 		reverse_proxy tailscale:8090
 	}
+	# Mo phong duong DA DANG NHAP: forward_auth goi /ping (luon 200 = "da auth")
+	# roi di tiep sang reverse_proxy collector — y het flow that cua /stats sau auth.
+	handle /_diag_authed* {
+		forward_auth oauth2-proxy:4180 {
+			uri /ping
+			copy_headers X-Auth-Request-Email X-Auth-Request-User
+		}
+		rewrite * /stats
+		reverse_proxy tailscale:8090
+	}
 	handle {
 		respond "diag-ok" 200
 	}
