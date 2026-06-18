@@ -2,9 +2,18 @@
 {
 	# Plugin replace-response: cho phep dung directive `replace` (chen nut Thong ke).
 	order replace after encode
+	# DIAG TAM THOI: bat debug de log chi tiet loi reverse_proxy/forward_auth (502).
+	debug
 }
 
 vpn2.hangocthanh.io.vn {
+	# DIAG TAM THOI: log truy cap JSON ra stdout -> bat duoc status + loi upstream
+	# cua tung request that tu trinh duyet (vd 502 tren /stats). Se xoa sau.
+	log {
+		output stdout
+		format json
+	}
+
 	# Các endpoint của oauth2-proxy (đăng nhập Google, callback...)
 	handle /oauth2/* {
 		reverse_proxy oauth2-proxy:4180 {

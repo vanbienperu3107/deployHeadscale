@@ -1,0 +1,45 @@
+name: Diag
+
+# Chan doan READ-ONLY tren VPS. KHONG recreate container, KHONG sua gi -> giu
+# nguyen log caddy de bat loi 502 that tu trinh duyet. Chi chay tay (dispatch).
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  diag:
+    name: Diag VPS (read-only)
+    runs-on: ubuntu-latest
+    steps:
+      - name: SSH doc log (khong recreate)
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT || '22' }}
+          envs: DEPLOY_PATH
+          command_timeout: 10m
+          script: |
+            if [ "$(id -u)" -ne 0 ]; then SUDO="sudo"; else SUDO=""; fi
+            cd "$DEPLOY_PATH" 2>/dev/null || true
+
+            echo "==> docker compose ps"
+            $SUDO docker compose ps 2>&1 | tail -12 || true
+            echo ""
+            echo "==> CADDY: cac dong co /stats (status + loi) — 400 dong gan nhat"
+            $SUDO docker logs --tail 400 caddy 2>&1 | grep -iE "stats|502|\"error\"|level\":\"error|upstream|dial|refused|reset|EOF|aborting|forward_auth|reverseproxy|panic|h3|http3" | tail -80 || echo "(khong khop)"
+            echo ""
+            echo "==> CADDY: 40 dong cuoi (raw)"
+            $SUDO docker logs --tail 40 caddy 2>&1 | tail -40 || true
+            echo ""
+            echo "==> OAUTH2-PROXY: 40 dong cuoi"
+            $SUDO docker logs --tail 40 oauth2-proxy 2>&1 | tail -40 || true
+            echo ""
+            echo "==> NODE-DEDUP: 15 dong cuoi"
+            $SUDO docker logs --tail 15 node-dedup 2>&1 | tail -15 || true
+        env:
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
