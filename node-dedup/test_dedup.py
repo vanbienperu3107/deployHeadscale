@@ -5,15 +5,15 @@ import pytest
 
 from dedup import (aggregate_latency, init_db, init_latency_db,
                    is_allowed_report_src, is_tailnet_ip,
-                   latency_series, normalize, parse_pingresult, plan_actions,
-                   query_devices, record_report, render_stats_html,
-                   validate_report)
+                   latency_series, normalize, parse_pingresult, pingable_nodes,
+                   plan_actions, query_devices, record_report, render_stats_html,
+                   server_ping_all, validate_report)
 
 
-def mk(id, host, given, user="u", online=False, last=0):
+def mk(id, host, given, user="u", online=False, last=0, ips=None):
     return {"id": id, "hostname": host, "given_name": given,
             "user": user, "online": online, "last_seen": last,
-            "ips": [], "machine_key": ""}
+            "ips": ips or [], "machine_key": ""}
 
 
 def test_keep_online_delete_offline_rename_clean():
@@ -80,6 +80,39 @@ def test_normalize_camel_and_snake():
     assert out[0]["given_name"] == "votam-pc" and out[0]["user"] == "votam"
     assert out[0]["online"] is True and out[0]["last_seen"] == 123
     assert out[1]["given_name"] == "itop-x" and out[1]["last_seen"] == 99
+
+
+# ---------------- server ping: CHI giam sat node SONG ----------------
+
+def test_pingable_nodes_chi_online():
+    # Chi node ONLINE co IPv4 (khac 'collector') moi duoc ping. Offline / khong
+    # ipv4 / chinh la collector -> bo qua.
+    nodes = [
+        mk("1", "alive", "alive", online=True, ips=["100.64.0.2", "fd7a::2"]),
+        mk("2", "dead", "dead", online=False, ips=["100.64.0.3"]),      # offline -> bo
+        mk("3", "collector", "collector", online=True, ips=["100.64.0.1"]),  # nguon -> bo
+        mk("4", "noip", "noip", online=True, ips=["fd7a::9"]),          # khong co ipv4 -> bo
+    ]
+    assert pingable_nodes(nodes) == [("alive", "100.64.0.2")]
+
+
+def test_server_ping_all_khong_ping_node_chet():
+    # ping_fn gia: ghi lai IP da ping -> chung minh node offline KHONG bi ping
+    # (vong poll khong ton ~8s/node chet cho timeout).
+    pinged = []
+
+    def fake_ping(ip):
+        pinged.append(ip)
+        return {"LatencySeconds": 0.01, "Endpoint": "1.2.3.4:41641"}
+
+    nodes = [
+        mk("1", "alive", "alive", online=True, ips=["100.64.0.2"]),
+        mk("2", "dead", "dead", online=False, ips=["100.64.0.3"]),
+    ]
+    samples = server_ping_all(nodes, ping_fn=fake_ping)
+    assert pinged == ["100.64.0.2"]                       # KHONG ping node offline
+    assert len(samples) == 1
+    assert samples[0]["dst"] == "alive" and samples[0]["ok"] is True
 
 
 # ---------------- collector (MAC + latency) ----------------

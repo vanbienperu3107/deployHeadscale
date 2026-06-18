@@ -126,17 +126,33 @@ def parse_pingresult(pr):
     return {"ok": True, "rtt_ms": round(float(lat) * 1000, 1), "path": path}
 
 
-def server_ping_all(nodes):
-    """Server (sidecar) tu ping MOI node -> list sample (src = SRC_NAME)."""
+def pingable_nodes(nodes):
+    """PURE: chon node CAN ping -> list (hostname, ipv4). Chi GIAM SAT NODE SONG:
+    bo qua node OFFLINE hoan toan. Ly do: localapi_ping cho node chet phai cho het
+    timeout (~8s) MOI node, vong poll lai TUAN TU -> nhieu node chet keo dai vong
+    poll qua xa POLL_INTERVAL (tre ca ping node song lan dedup). Headscale da biet
+    node nao online (n['online']) nen loc thang o day. Cung bo qua node khong
+    hostname / chinh la 'collector' / khong co IPv4 tailnet."""
     out = []
     for n in nodes:
+        if not n["online"]:
+            continue
         if not n["hostname"] or n["hostname"] == SRC_NAME:
             continue
         ip4 = next((ip for ip in n["ips"] if ":" not in ip), "")
         if not ip4:
             continue
-        r = parse_pingresult(localapi_ping(ip4))
-        out.append({"dst": n["hostname"], "dst_ip": ip4,
+        out.append((n["hostname"], ip4))
+    return out
+
+
+def server_ping_all(nodes, ping_fn=localapi_ping):
+    """Server (sidecar) tu ping moi node SONG -> list sample (src = SRC_NAME).
+    ping_fn tach ra de test (mac dinh localapi_ping qua socket sidecar)."""
+    out = []
+    for hostname, ip4 in pingable_nodes(nodes):
+        r = parse_pingresult(ping_fn(ip4))
+        out.append({"dst": hostname, "dst_ip": ip4,
                     "rtt_ms": r["rtt_ms"], "path": r["path"], "ok": r["ok"]})
     return out
 
@@ -570,9 +586,10 @@ def main():
             nodes = normalize(raw)
             with DB_LOCK:
                 upsert_db(conn, nodes)
-            # SERVER tu ping moi node (qua LocalAPI sidecar) - nguon chinh cua
-            # latency, KHONG phu thuoc node co chay reporter hay khong. Ping ngoai
-            # lock (cham), chi ghi DB trong lock.
+            # SERVER tu ping moi node SONG (qua LocalAPI sidecar) - nguon chinh cua
+            # latency, KHONG phu thuoc node co chay reporter hay khong. Node offline
+            # bi bo qua (pingable_nodes) -> vong poll khong ket cho timeout. Ping
+            # ngoai lock (cham), chi ghi DB trong lock.
             samples = server_ping_all(nodes)
             if samples:
                 with DB_LOCK:
