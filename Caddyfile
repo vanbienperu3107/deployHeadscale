@@ -52,3 +52,18 @@ vpn2.hangocthanh.io.vn {
 		reverse_proxy headscale:8080
 	}
 }
+
+# === DIAG TAM THOI (chan doan 502 /stats) — SE XOA sau khi tim ra nguyen nhan ===
+# Listener noi bo :8081 KHONG duoc publish ra ngoai (docker-compose khong map port
+# nay) -> chi truy cap duoc tu BEN TRONG container caddy / mang docker noi bo, KHONG
+# lo ra internet. Dung de test rieng duong reverse_proxy -> collector (bo qua
+# forward_auth/oauth2-proxy) voi FULL body, qua dung transport cua Caddy.
+:8081 {
+	handle /_diag_stats* {
+		rewrite * /stats
+		reverse_proxy tailscale:8090
+	}
+	handle {
+		respond "diag-ok" 200
+	}
+}

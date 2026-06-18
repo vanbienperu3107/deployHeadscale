@@ -95,6 +95,15 @@ jobs:
             echo "==> Test Caddy -> collector /stats (HTML) - xem status + dau trang"
             $SUDO docker exec caddy wget -S -qO- --timeout=6 "http://tailscale:8090/stats" 2>&1 | head -c 500 || echo "FAIL: /stats loi"
             echo ""
+            echo "==> [DIAG A] Caddy reverse_proxy -> collector qua listener noi bo :8081 (FULL body, KHONG cookie)"
+            $SUDO docker exec caddy sh -c 'wget -S -O /tmp/s.html http://localhost:8081/_diag_stats 2>/tmp/h.txt; echo "exit=$?"; echo "--- resp headers ---"; cat /tmp/h.txt; echo "--- so byte body ---"; wc -c < /tmp/s.html 2>/dev/null || echo 0; echo "--- 160 byte cuoi (xem co </html> khong) ---"; tail -c 160 /tmp/s.html 2>/dev/null || true' 2>&1 || echo "DIAG A fail"
+            echo ""
+            echo "==> [DIAG B] Nhu DIAG A nhung kem Cookie ~6KB (mo phong cookie oauth2-proxy ma trinh duyet gui)"
+            $SUDO docker exec caddy sh -c 'C=$(yes a | head -c 6000 | tr -d "\n"); wget -S -O /tmp/s2.html --header="Cookie: _oauth2_proxy=$C" http://localhost:8081/_diag_stats 2>/tmp/h2.txt; echo "exit=$?"; echo "--- resp headers ---"; cat /tmp/h2.txt; echo "--- so byte body ---"; wc -c < /tmp/s2.html 2>/dev/null || echo 0' 2>&1 || echo "DIAG B fail"
+            echo ""
+            echo "==> [DIAG C] Caddy logs tail 60 (loi reverse_proxy/upstream tu 2 request DIAG tren)"
+            $SUDO docker logs --tail 60 caddy 2>&1 | tail -60 || true
+            echo ""
             echo "==> Trang thai container"
             $SUDO docker compose ps 2>&1 | tail -12 || true
         env:
