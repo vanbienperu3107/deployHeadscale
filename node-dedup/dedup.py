@@ -188,6 +188,9 @@ def validate_report(obj):
     ipv4 = str(obj.get("ipv4", "")).strip()
     mac = str(obj.get("mac", "")).strip()
     raw = obj.get("samples", []) or []
+    # PowerShell 5.1 serialize mang 1 phan tu thanh OBJECT -> chap nhan luon.
+    if isinstance(raw, dict):
+        raw = [raw]
     if not isinstance(raw, list):
         raise ValueError("samples phai la list")
     samples = []

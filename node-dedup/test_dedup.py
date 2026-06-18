@@ -97,6 +97,13 @@ def test_validate_report_missing_hostname():
         validate_report({"samples": []})
 
 
+def test_validate_report_single_sample_as_dict():
+    # PowerShell 5.1 gui 1 sample duoi dang object (khong phai list) -> van nhan.
+    r = validate_report({"hostname": "itop",
+                         "samples": {"dst": "votam", "rtt_ms": 9.0, "path": "direct", "ok": True}})
+    assert len(r["samples"]) == 1 and r["samples"][0]["dst"] == "votam"
+
+
 def test_validate_report_drops_bad_samples_and_defaults_ok():
     r = validate_report({"hostname": "h", "samples": [
         {"dst": "", "rtt_ms": 1},          # bo: thieu dst
