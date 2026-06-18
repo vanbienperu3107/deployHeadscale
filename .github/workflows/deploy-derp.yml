@@ -27,7 +27,7 @@ jobs:
           port: ${{ secrets.SSH_PORT || '22' }}
           envs: DEPLOY_PATH,REPO_URL
           script_stop: true
-          command_timeout: 15m
+          command_timeout: 30m
           script: |
             set -e
             if [ "$(id -u)" -ne 0 ]; then SUDO="sudo"; else SUDO=""; fi
