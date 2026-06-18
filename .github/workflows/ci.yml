@@ -23,6 +23,12 @@ jobs:
       - name: Validate config/acl.json (JSON)
         run: python3 -c "import json; json.load(open('config/acl.json')); print('acl.json OK')"
 
+      - name: Test node-dedup logic (pytest)
+        run: |
+          python3 -m venv /tmp/venv
+          /tmp/venv/bin/pip install --quiet pytest
+          cd node-dedup && /tmp/venv/bin/python -m pytest -q test_dedup.py
+
       - name: Validate Caddyfile
         run: |
           docker run --rm -v "${{ github.workspace }}/Caddyfile:/etc/caddy/Caddyfile:ro" \

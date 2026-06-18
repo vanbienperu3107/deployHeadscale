@@ -84,6 +84,28 @@ services:
     depends_on:
       - headscale
 
+  # node-dedup — "1 thiet bi (theo hostname) = 1 node". Gom node trung: xoa ban
+  # trung dang OFFLINE + doi ten node giu lai ve hostname sach (bo hau to ngau
+  # nhien headscale them khi machine key doi). Luu lich su thiet bi vao SQLite.
+  # Dung HEADPLANE_HS_API_KEY (da co san trong .env) de goi headscale API.
+  # DRY_RUN=true: chi LOG ke hoach (an toan). Dat DEDUP_DRY_RUN=false de thuc thi.
+  node-dedup:
+    image: python:3.12-slim
+    container_name: node-dedup
+    restart: unless-stopped
+    command: ["python3", "/app/dedup.py"]
+    environment:
+      - HS_API_URL=http://headscale:8080
+      - HS_API_KEY=${HEADPLANE_HS_API_KEY:-}
+      - POLL_INTERVAL=30
+      - DB_PATH=/data/devices.db
+      - DRY_RUN=${DEDUP_DRY_RUN:-true}
+    volumes:
+      - ./node-dedup/dedup.py:/app/dedup.py:ro
+      - dedup_data:/data
+    depends_on:
+      - headscale
+
   caddy:
     image: caddy:2
     container_name: caddy
@@ -105,5 +127,6 @@ volumes:
   headscale_data_027:
   headscale_run_027:
   headplane_data:
+  dedup_data:
   caddy_data:
   caddy_config:
