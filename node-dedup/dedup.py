@@ -43,6 +43,7 @@ import json
 import os
 import socket
 import sqlite3
+import ssl
 import sys
 import threading
 import time
@@ -59,6 +60,12 @@ LATENCY_WINDOW = int(os.environ.get("LATENCY_WINDOW", "3600"))  # cua so tong ho
 # Socket LocalAPI cua tailscale sidecar (chia se qua volume) -> server tu ping node.
 TS_SOCKET = os.environ.get("TS_SOCKET", "/var/run/tailscale/tailscaled.sock")
 SRC_NAME = os.environ.get("SRC_NAME", "collector")  # ten "nguon" khi server ping
+# DERP region nao can probe: "code=url,code2=url2". Mac dinh 2 region hien tai.
+DERP_PROBE_URLS = os.environ.get(
+    "DERP_PROBE_URLS",
+    "myderp=https://vpn2.hangocthanh.io.vn/derp/probe,"
+    "vpn3-vn=https://vpn3.hangocthanh.io.vn/derp/probe",
+)
 
 # 1 connection SQLite dung chung giua main-loop va HTTP thread -> phai khoa.
 DB_LOCK = threading.Lock()
@@ -457,6 +464,149 @@ def render_stats_html(pairs, series, devices, window_s, now):
     return _STATS_PAGE.replace("__DATA__", json.dumps(data))
 
 
+# ---- DERP status helpers ----
+
+def _parse_derp_regions(raw):
+    """PURE: "code=url,..." -> list of {code, url}. Test duoc."""
+    out = []
+    for part in (raw or "").split(","):
+        part = part.strip()
+        if "=" not in part:
+            continue
+        code, url = part.split("=", 1)
+        out.append({"code": code.strip(), "url": url.strip()})
+    return out
+
+
+def probe_derp_region(url, timeout=5):
+    """Probe /derp/probe cua 1 region. Returns {ok, latency_ms, error}. PURE (mockable)."""
+    try:
+        t0 = time.monotonic()
+        ctx = ssl.create_default_context()
+        with urllib.request.urlopen(urllib.request.Request(url), timeout=timeout, context=ctx) as r:
+            return {"ok": r.status == 200,
+                    "latency_ms": round((time.monotonic() - t0) * 1000, 1),
+                    "error": None}
+    except Exception as e:
+        return {"ok": False, "latency_ms": None, "error": str(e)[:80]}
+
+
+def query_current_relay(conn, window=180):
+    """PURE: relay hien tai cua tung node (lan ping moi nhat tu SRC_NAME trong cua so window s)."""
+    cur = conn.cursor()
+    cur.execute(
+        """SELECT l.dst, l.dst_ip, l.path, l.rtt_ms, l.ok, l.ts
+           FROM node_latency l
+           INNER JOIN (
+               SELECT dst, MAX(ts) AS max_ts FROM node_latency
+               WHERE src=? AND ts>=? GROUP BY dst
+           ) latest ON l.dst=latest.dst AND l.ts=latest.max_ts
+           ORDER BY l.dst""",
+        (SRC_NAME, int(time.time()) - window),
+    )
+    return [{"hostname": r[0], "ip": r[1], "relay": r[2] or "?",
+             "rtt_ms": r[3], "ok": bool(r[4]), "ts": r[5]} for r in cur.fetchall()]
+
+
+_DERP_PAGE = """<!doctype html><html lang="vi"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="refresh" content="30">
+<title>DERP Status</title>
+<style>
+:root{color-scheme:dark}
+body{font-family:system-ui,Segoe UI,Arial,sans-serif;margin:0;background:#0b1220;color:#e2e8f0}
+header{padding:18px 24px;background:#111a2e;border-bottom:1px solid #24304a;display:flex;align-items:center;gap:12px}
+h1{margin:0;font-size:18px}
+.btn{background:#1e293b;color:#94a3b8;padding:6px 14px;border-radius:8px;font-size:12px;text-decoration:none}
+.muted{color:#94a3b8;font-size:12px}
+main{padding:20px 24px;max-width:900px;margin:0 auto}
+.regions{display:flex;gap:14px;flex-wrap:wrap;margin-bottom:22px}
+.rcard{background:#131d33;border:1px solid #24304a;border-radius:12px;padding:14px 20px;min-width:180px}
+.rcard.ok{border-color:#065f46}.rcard.fail{border-color:#7f1d1d}
+.rcode{font-size:14px;font-weight:700}.rlat{font-size:26px;font-weight:700;margin:6px 0}
+.rurl{color:#475569;font-size:11px;word-break:break-all}.rerr{color:#fca5a5;font-size:11px;margin-top:4px}
+.dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px;vertical-align:middle}
+.dot.ok{background:#34d399}.dot.fail{background:#f87171}
+.panel{background:#131d33;border:1px solid #24304a;border-radius:12px;padding:14px;margin-bottom:22px}
+.panel h2{margin:2px 0 10px;font-size:14px;color:#cbd5e1}
+table{border-collapse:collapse;width:100%}
+th,td{border-bottom:1px solid #24304a;padding:7px 10px;text-align:left;font-size:13px}
+th{color:#94a3b8;font-weight:600}
+.tag{padding:2px 9px;border-radius:999px;font-size:11px;font-weight:600}
+.direct{background:#064e3b;color:#6ee7b7}.derp{background:#312e81;color:#a5b4fc}
+.bad{color:#fca5a5}.ago{color:#64748b;font-size:11px}
+</style></head><body>
+<header>
+  <h1>DERP Status</h1>
+  <a href="/stats" class="btn" style="margin-left:auto">&#128202; Th&#7889;ng k&#234;</a>
+  <a href="/admin" class="btn">&#128100; Admin</a>
+</header>
+<main>
+<p class="muted">C&#7853;p nh&#7853;t: __GENERATED__ &mdash; t&#7921; refresh 30s</p>
+<div class="regions">__REGIONS__</div>
+<div class="panel">
+  <h2>Node &#273;ang d&#249;ng DERP n&#224;o (180 gi&#226;y g&#7847;n nh&#7845;t)</h2>
+  <table><thead><tr>
+    <th>Node</th><th>Tailnet IP</th><th>Via</th><th>RTT</th><th>C&#7853;p nh&#7853;t</th>
+  </tr></thead><tbody>__ROWS__</tbody></table>
+</div>
+</main>
+</body></html>"""
+
+
+def render_derp_html(regions, nodes_relay, now):
+    """PURE: render HTML tu list region (da probe) + list node relay. Test duoc."""
+    gen = time.strftime("%H:%M:%S %d/%m/%Y", time.localtime(now))
+
+    def rcard(r):
+        cls = "ok" if r["ok"] else "fail"
+        lat = ("%sms" % r["latency_ms"]) if r["latency_ms"] is not None else "-"
+        err = ('<div class="rerr">%s</div>' % html.escape(r.get("error") or "")) if r.get("error") else ""
+        return ('<div class="rcard %s"><span class="dot %s"></span>'
+                '<span class="rcode">%s</span>'
+                '<div class="rlat">%s</div>'
+                '<div class="rurl">%s</div>%s</div>'
+                % (cls, cls, html.escape(r["code"]), lat, html.escape(r["url"]), err))
+
+    regions_html = "".join(rcard(r) for r in regions) if regions else (
+        '<p class="muted">Ch&#432;a c&#7845;u h&#236;nh DERP_PROBE_URLS</p>')
+
+    def relay_tag(relay):
+        if not relay or relay == "?":
+            return '<span class="bad">?</span>'
+        if relay.startswith("direct"):
+            return '<span class="tag direct">direct</span>'
+        return '<span class="tag derp">%s</span>' % html.escape(relay.replace("derp:", ""))
+
+    def ago(ts):
+        d = now - ts
+        if d < 5:
+            return "v&#7915;a xong"
+        if d < 90:
+            return "%ds" % d
+        return "%dm" % (d // 60)
+
+    if nodes_relay:
+        rows_html = "".join(
+            "<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td class='ago'>%s tr&#432;&#7899;c</td></tr>"
+            % (html.escape(n["hostname"]), html.escape(n["ip"] or "-"),
+               relay_tag(n["relay"]),
+               ("%sms" % n["rtt_ms"]) if n["rtt_ms"] is not None else "-",
+               ago(n["ts"]))
+            for n in nodes_relay)
+    else:
+        rows_html = ('<tr><td colspan="5" class="muted">'
+                     'Ch&#432;a c&#243; d&#7919; li&#7879;u &mdash; '
+                     'server ping c&#7853;p nh&#7853;t m&#7895;i 30s</td></tr>')
+
+    return (_DERP_PAGE
+            .replace("__GENERATED__", gen)
+            .replace("__REGIONS__", regions_html)
+            .replace("__ROWS__", rows_html))
+
+
+# ---- end DERP helpers ----
+
 _TAILNET_V4 = ipaddress.ip_network("100.64.0.0/10")
 _TAILNET_V6 = ipaddress.ip_network("fd7a:115c:a1e0::/48")
 
@@ -556,6 +706,15 @@ def make_metrics_handler(conn, lock):
                     devs = query_devices(conn)
                 page = render_stats_html(aggregate_latency(rows), latency_series(rows),
                                          devs, LATENCY_WINDOW, int(time.time()))
+                self._sendhtml(200, page.encode("utf-8"))
+                return
+            if p in ("/derp", "/derp-status"):
+                regions = _parse_derp_regions(DERP_PROBE_URLS)
+                for r in regions:
+                    r.update(probe_derp_region(r["url"]))
+                with lock:
+                    nodes_relay = query_current_relay(conn)
+                page = render_derp_html(regions, nodes_relay, int(time.time()))
                 self._sendhtml(200, page.encode("utf-8"))
                 return
             self._send(404, {"error": "not found"})

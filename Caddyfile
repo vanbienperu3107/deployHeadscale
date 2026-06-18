@@ -24,12 +24,13 @@ vpn2.hangocthanh.io.vn {
 	# KHÔNG cần forward_auth/oauth2-proxy ở đây nữa. Callback của Headplane là
 	# /admin/oidc/callback (vẫn nằm trong /admin → headplane).
 	handle /admin* {
-		# Chen 1 nut noi "Thong ke" vao cuoi trang Headplane (link sang /stats).
+		# Chen 2 nut co dinh vao goc phai duoi cua trang Headplane:
+		#   "DERP Status" (link sang /derp) va "Thong ke" (link sang /stats).
 		# Accept-Encoding identity de Headplane tra HTML khong nen -> replace khop.
 		reverse_proxy headplane:3000 {
 			header_up Accept-Encoding identity
 		}
-		replace `</body>` `<a href="/stats" target="_blank" title="Xem thong ke latency/MAC" style="position:fixed;z-index:99999;right:18px;bottom:18px;background:#2563eb;color:#fff;padding:10px 16px;border-radius:10px;font:600 13px system-ui,Arial,sans-serif;text-decoration:none;box-shadow:0 4px 14px rgba(0,0,0,.45)">&#128202; Th&#7889;ng k&#234;</a></body>`
+		replace `</body>` `<div style="position:fixed;z-index:99999;right:18px;bottom:18px;display:flex;gap:8px"><a href="/derp" target="_blank" title="DERP relay status" style="background:#7c3aed;color:#fff;padding:10px 16px;border-radius:10px;font:600 13px system-ui,Arial,sans-serif;text-decoration:none;box-shadow:0 4px 14px rgba(0,0,0,.45)">&#127760; DERP</a><a href="/stats" target="_blank" title="Xem thong ke latency/MAC" style="background:#2563eb;color:#fff;padding:10px 16px;border-radius:10px;font:600 13px system-ui,Arial,sans-serif;text-decoration:none;box-shadow:0 4px 14px rgba(0,0,0,.45)">&#128202; Th&#7889;ng k&#234;</a></div></body>`
 	}
 
 	# Captive-portal probe cua client (fork dung domain rieng thay tailscale.com)
@@ -43,6 +44,20 @@ vpn2.hangocthanh.io.vn {
 	# tailscale sidecar nua (sidecar co the restart khi thieu authkey ma /stats van
 	# chay). CHI GET (xem). Chua dang nhap -> redirect sang Google.
 	handle /stats* {
+		forward_auth oauth2-proxy:4180 {
+			uri /oauth2/auth
+			copy_headers X-Auth-Request-Email X-Auth-Request-User
+			@unauth status 401
+			handle_response @unauth {
+				redir * /oauth2/start?rd={http.request.uri}
+			}
+		}
+		reverse_proxy node-dedup:8090
+	}
+
+	# Trang DERP status (/derp) - gated bang Google SSO. Hien thi health cua tung
+	# DERP region va node dang relay qua region nao. Du lieu tu node_latency DB.
+	handle /derp* {
 		forward_auth oauth2-proxy:4180 {
 			uri /oauth2/auth
 			copy_headers X-Auth-Request-Email X-Auth-Request-User

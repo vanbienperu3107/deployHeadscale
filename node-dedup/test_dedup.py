@@ -1,13 +1,17 @@
 """Unit test cho logic dedup + collector (chay trong CI truoc khi deploy)."""
 import sqlite3
+import time
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from dedup import (aggregate_latency, init_db, init_latency_db,
                    is_allowed_report_src, is_tailnet_ip,
                    latency_series, normalize, parse_pingresult, pingable_nodes,
-                   plan_actions, query_devices, record_report, render_stats_html,
-                   server_ping_all, validate_report)
+                   plan_actions, probe_derp_region, query_current_relay,
+                   query_devices, record_report, render_derp_html,
+                   render_stats_html, server_ping_all, validate_report,
+                   _parse_derp_regions)
 
 
 def mk(id, host, given, user="u", online=False, last=0, ips=None):
@@ -268,3 +272,94 @@ def test_record_report_mac_fallback_by_hostname():
     rep = validate_report({"hostname": "votam", "ipv4": "100.64.0.9", "mac": "11:22:33", "samples": []})
     record_report(conn, rep, 1)
     assert conn.execute("SELECT mac FROM devices WHERE hostname='votam'").fetchone()[0] == "11:22:33"
+
+
+# ---------------- DERP status ----------------
+
+def test_parse_derp_regions_two_regions():
+    regions = _parse_derp_regions(
+        "myderp=https://vpn2.hangocthanh.io.vn/derp/probe,"
+        "vpn3-vn=https://vpn3.hangocthanh.io.vn/derp/probe"
+    )
+    assert len(regions) == 2
+    assert regions[0] == {"code": "myderp", "url": "https://vpn2.hangocthanh.io.vn/derp/probe"}
+    assert regions[1]["code"] == "vpn3-vn"
+
+
+def test_parse_derp_regions_empty():
+    assert _parse_derp_regions("") == []
+    assert _parse_derp_regions(None) == []
+
+
+def test_probe_derp_region_ok():
+    mock_resp = MagicMock()
+    mock_resp.status = 200
+    mock_resp.__enter__ = lambda s: s
+    mock_resp.__exit__ = MagicMock(return_value=False)
+    with patch("urllib.request.urlopen", return_value=mock_resp):
+        r = probe_derp_region("https://example.com/derp/probe")
+    assert r["ok"] is True and r["error"] is None
+    assert r["latency_ms"] is not None and r["latency_ms"] >= 0
+
+
+def test_probe_derp_region_fail():
+    with patch("urllib.request.urlopen", side_effect=OSError("connection refused")):
+        r = probe_derp_region("https://example.com/derp/probe")
+    assert r["ok"] is False
+    assert "connection refused" in (r["error"] or "")
+
+
+def test_query_current_relay_picks_latest():
+    conn = _mem_db()
+    now = int(time.time())
+    conn.executemany(
+        "INSERT INTO node_latency(ts,src,dst,dst_ip,rtt_ms,path,ok) VALUES(?,?,?,?,?,?,?)",
+        [
+            (now - 5, "collector", "server1", "100.64.0.5", 20.0, "derp:myderp", 1),
+            (now,     "collector", "server1", "100.64.0.5", 15.0, "derp:vpn3-vn", 1),  # moi nhat
+            (now,     "collector", "phone1",  "100.64.0.6",  2.0, "direct", 1),
+        ],
+    )
+    conn.commit()
+    rows = query_current_relay(conn, window=300)
+    by_host = {r["hostname"]: r for r in rows}
+    assert by_host["server1"]["relay"] == "derp:vpn3-vn"   # lan moi nhat
+    assert by_host["phone1"]["relay"] == "direct"
+
+
+def test_query_current_relay_respects_window():
+    conn = _mem_db()
+    now = int(time.time())
+    conn.execute(
+        "INSERT INTO node_latency(ts,src,dst,dst_ip,rtt_ms,path,ok) VALUES(?,?,?,?,?,?,?)",
+        (now - 500, "collector", "old-node", "100.64.0.9", 8.0, "direct", 1),
+    )
+    conn.commit()
+    rows = query_current_relay(conn, window=60)   # cua so nho -> khong thay
+    assert not any(r["hostname"] == "old-node" for r in rows)
+
+
+def test_render_derp_html_smoke():
+    regions = [
+        {"code": "myderp",  "url": "https://vpn2.../probe", "ok": True,  "latency_ms": 12.0, "error": None},
+        {"code": "vpn3-vn", "url": "https://vpn3.../probe", "ok": False, "latency_ms": None, "error": "timeout"},
+    ]
+    nodes = [
+        {"hostname": "server1", "ip": "100.64.0.5", "relay": "derp:vpn3-vn", "rtt_ms": 15.0, "ok": True,  "ts": 1000},
+        {"hostname": "phone1",  "ip": "100.64.0.6", "relay": "direct",       "rtt_ms": 2.0,  "ok": True,  "ts": 1010},
+    ]
+    page = render_derp_html(regions, nodes, 1200)
+    assert "<html" in page
+    assert "myderp" in page and "vpn3-vn" in page
+    assert "server1" in page and "phone1" in page
+    assert "direct" in page
+    # placeholder khong con ton tai
+    assert "__GENERATED__" not in page
+    assert "__REGIONS__" not in page
+    assert "__ROWS__" not in page
+
+
+def test_render_derp_html_empty_nodes():
+    regions = [{"code": "myderp", "url": "https://x/probe", "ok": True, "latency_ms": 5.0, "error": None}]
+    page = render_derp_html(regions, [], 1000)
+    assert "chua co du" in page.lower() or "Ch" in page   # thong bao "chua co du lieu"
