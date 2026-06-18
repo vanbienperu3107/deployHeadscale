@@ -121,11 +121,12 @@ services:
     container_name: node-dedup
     restart: unless-stopped
     command: ["python3", "/app/dedup.py"]
-    # Chay TRONG netns cua tailscale sidecar -> collector tren tailnet. Vi vay
-    # KHONG resolve duoc service name 'headscale' nua => goi API qua domain cong khai.
+    # Chay TRONG netns cua tailscale sidecar -> collector tren tailnet. Sidecar
+    # van o compose network + --accept-dns=false nen DNS Docker (127.0.0.11) con
+    # nguyen => van resolve duoc 'headscale' (khong can hairpin domain cong khai).
     network_mode: "service:tailscale"
     environment:
-      - HS_API_URL=https://vpn2.hangocthanh.io.vn
+      - HS_API_URL=http://headscale:8080
       - HS_API_KEY=${HEADPLANE_HS_API_KEY:-}
       - POLL_INTERVAL=30
       - DB_PATH=/data/devices.db

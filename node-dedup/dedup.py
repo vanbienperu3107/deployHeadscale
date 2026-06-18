@@ -28,7 +28,7 @@ TREN tailnet; chi peer tailnet (hoac loopback) toi duoc. Handler con kiem tra IP
 nguon thuoc dai Tailscale (100.64/10, fd7a:115c:a1e0::/48) cho chac.
 
 Bien moi truong:
-  HS_API_URL    (vi o trong netns tailscale -> dat = https://vpn2... domain cong khai)
+  HS_API_URL    (http://headscale:8080 - resolve qua DNS Docker ngay trong netns)
   HS_API_KEY    (bat buoc) - headscale apikey
   POLL_INTERVAL (giay, mac dinh 30)
   DB_PATH       (mac dinh /data/devices.db)
