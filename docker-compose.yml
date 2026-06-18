@@ -101,6 +101,13 @@ services:
       - POLL_INTERVAL=30
       - DB_PATH=/data/devices.db
       - DRY_RUN=${DEDUP_DRY_RUN:-false}
+      # Collector latency/MAC: cac node POST ve qua Caddy /metrics/* (xac thuc
+      # bang token nay). Trong -> collector TAT, chi chay dedup. Token lay tu
+      # .env (workflow ghi tu GitHub Secret METRICS_TOKEN), KHONG nam trong repo.
+      - METRICS_TOKEN=${METRICS_TOKEN:-}
+      - METRICS_PORT=8090
+    expose:
+      - "8090"   # chi noi bo (Caddy reverse_proxy node-dedup:8090), khong map ra host
     volumes:
       - ./node-dedup/dedup.py:/app/dedup.py:ro
       - dedup_data:/data
@@ -116,6 +123,7 @@ services:
       - headscale-admin
       - oauth2-proxy
       - headplane
+      - node-dedup
     ports:
       - "80:80"
       - "443:443"

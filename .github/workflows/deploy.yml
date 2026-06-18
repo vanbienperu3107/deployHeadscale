@@ -28,7 +28,7 @@ jobs:
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_KEY }}
           port: ${{ secrets.SSH_PORT || '22' }}
-          envs: DEPLOY_PATH,REPO_URL,OAUTH2_PROXY_CLIENT_ID,OAUTH2_PROXY_CLIENT_SECRET,OAUTH2_PROXY_COOKIE_SECRET,HEADPLANE_COOKIE_SECRET,HEADPLANE_HS_API_KEY
+          envs: DEPLOY_PATH,REPO_URL,OAUTH2_PROXY_CLIENT_ID,OAUTH2_PROXY_CLIENT_SECRET,OAUTH2_PROXY_COOKIE_SECRET,HEADPLANE_COOKIE_SECRET,HEADPLANE_HS_API_KEY,METRICS_TOKEN
           script_stop: true
           command_timeout: 20m
           script: |
@@ -69,6 +69,9 @@ jobs:
             printf 'OAUTH2_PROXY_COOKIE_SECRET=%s\n' "$OAUTH2_PROXY_COOKIE_SECRET" >> "$DEPLOY_PATH/.env"
             printf 'HEADPLANE_COOKIE_SECRET=%s\n'    "$HEADPLANE_COOKIE_SECRET"    >> "$DEPLOY_PATH/.env"
             printf 'HEADPLANE_HS_API_KEY=%s\n'       "$HEADPLANE_HS_API_KEY"       >> "$DEPLOY_PATH/.env"
+            # Token collector latency/MAC. Neu secret chua dat -> rong -> collector
+            # TAT (chi chay dedup), khong gay loi. Dat secret METRICS_TOKEN de bat.
+            printf 'METRICS_TOKEN=%s\n'              "$METRICS_TOKEN"              >> "$DEPLOY_PATH/.env"
 
             echo "==> [6/6] Khởi động stack"
             $SUDO docker compose pull
@@ -89,3 +92,4 @@ jobs:
           OAUTH2_PROXY_COOKIE_SECRET: ${{ secrets.OAUTH2_PROXY_COOKIE_SECRET }}
           HEADPLANE_COOKIE_SECRET: ${{ secrets.HEADPLANE_COOKIE_SECRET }}
           HEADPLANE_HS_API_KEY: ${{ secrets.HEADPLANE_HS_API_KEY }}
+          METRICS_TOKEN: ${{ secrets.METRICS_TOKEN }}

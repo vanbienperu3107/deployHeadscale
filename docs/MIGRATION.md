@@ -282,6 +282,23 @@ https://vpn2.hangocthanh.io.vn/admin/oidc/callback    (headplane - admin)
   ```
   (Logic đã có **unit test pytest trong CI** chạy trước mỗi deploy, nên live mặc định là an toàn. Lưu ý deploy ghi lại `.env` từ secrets, nên cờ thêm tay vào `.env` sẽ bị ghi đè ở lần deploy sau.)
 
+### C.5 — Collector MAC + latency (thu thập từ node)
+Cùng service `node-dedup` còn mở 1 HTTP collector (cổng nội bộ `8090`) để các node tự gửi về **MAC** và **latency ping giữa các node** (headscale không có sẵn 2 thứ này).
+
+- **Luồng:** node `tailscale ping` các peer → POST `{hostname, ipv4, mac, samples[]}` qua **`https://vpn2.hangocthanh.io.vn/metrics/report`** (Caddy `handle /metrics/*` → `node-dedup:8090`). Collector cập nhật cột `devices.mac` + ghi bảng `node_latency`. Xem tập trung: `GET /metrics/latency`.
+- **Xác thực:** Bearer token `METRICS_TOKEN` (node-dedup tự kiểm). **Token rỗng → collector TẮT**, chỉ chạy dedup (không lỗi).
+- **Bí mật:** secret `METRICS_TOKEN` (GitHub → Settings → Secrets). Deploy workflow ghi nó vào `.env`. **Cùng token này phải đặt trong `metrics.conf` trên từng node** (không nhúng vào bundle vì repo public).
+  ```bash
+  # tao token 1 lan (vd):  openssl rand -hex 32
+  gh secret set METRICS_TOKEN --repo vanbienperu3107/deployHeadscale --body '<token>'
+  # roi dat dung token do vao metrics.conf moi node, va re-deploy.
+  ```
+- **Xem nhanh trên server mới (sau khi có token):**
+  ```bash
+  curl -s -H "Authorization: Bearer $METRICS_TOKEN" https://vpn2.hangocthanh.io.vn/metrics/latency | jq
+  ```
+- **Khi dựng server mới:** chỉ cần đặt lại secret `METRICS_TOKEN` (như các secret khác ở Bước 3/Phụ lục C) — phần code/Caddy/compose đã theo repo. Bảng `node_latency` nằm trong volume `dedup_data` (theo Phụ lục B nếu muốn giữ lịch sử).
+
 ---
 
 ## Khắc phục sự cố
@@ -297,6 +314,8 @@ https://vpn2.hangocthanh.io.vn/admin/oidc/callback    (headplane - admin)
 | `/admin` cứ đòi nhập key | Ô **URL** trong Settings phải là `https://vpn2.hangocthanh.io.vn` (không kèm `/admin`) |
 | `/admin` SSO lỗi "Authentication with the SSO provider failed"; log `invalid_client / The OAuth client was not found` | Headplane thiếu `oidc.token_endpoint_auth_method: client_secret_post` (Phụ lục C.1), hoặc thiếu redirect URI `/admin/oidc/callback` (C.2). Tạm vào bằng API key |
 | Một máy tạo ra nhiều node (tên có hậu tố lạ) | Mỗi lần state mới (giải nén bản build vào thư mục khác) = machine key mới = node mới. Giữ 1 thư mục cố định; node-dedup (Phụ lục C.4) tự gộp |
+| `/metrics/report` trả 401 | Sai/thiếu `METRICS_TOKEN`: token trong `metrics.conf` của node phải KHỚP secret `METRICS_TOKEN` trên server (Phụ lục C.5) |
+| Cột `mac` vẫn trống / không có latency | Node chưa chạy reporter, hoặc `METRICS_TOKEN` rỗng (collector tắt). `docker logs node-dedup` xem dòng "collector chay :8090" |
 
 ---
 

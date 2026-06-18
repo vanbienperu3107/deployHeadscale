@@ -21,6 +21,13 @@ vpn2.hangocthanh.io.vn {
 		respond 204
 	}
 
+	# Collector MAC/latency: cac node POST ket qua ping ve day; xem tap trung qua
+	# GET /metrics/latency. Xac thuc bang Bearer METRICS_TOKEN do chinh node-dedup
+	# kiem tra (khong phai Caddy). node-dedup nhan nguyen path /metrics/*.
+	handle /metrics/* {
+		reverse_proxy node-dedup:8090
+	}
+
 	# Còn lại → Headscale control plane / API (xác thực bằng API key/node key)
 	handle {
 		reverse_proxy headscale:8080
