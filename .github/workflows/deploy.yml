@@ -87,7 +87,7 @@ jobs:
             if [ -z "$TS_AUTHKEY" ]; then
               echo "  Chua co TS_AUTHKEY -> tu tao tren headscale (key KHONG in ra log)"
               for _ in $(seq 1 30); do
-                $SUDO docker exec headscale headscale users list -o json >/dev/null 2>&1 && break
+                if $SUDO docker exec headscale headscale users list -o json >/dev/null 2>&1; then break; fi
                 sleep 2
               done
               USERS_JSON=$($SUDO docker exec headscale headscale users list -o json 2>/dev/null || echo '[]')
@@ -96,10 +96,10 @@ jobs:
               echo "  user headscale dau tien: id=${U_ID:-?} name=${U_NAME:-?}"
               NEWKEY=""
               for SEL in "$U_ID" "$U_NAME"; do
-                [ -z "$SEL" ] && continue
+                if [ -z "$SEL" ]; then continue; fi
                 OUT=$($SUDO docker exec headscale headscale preauthkeys create --user "$SEL" --reusable --expiration 8760h -o json 2>/tmp/pkerr || true)
                 NEWKEY=$(printf '%s' "$OUT" | grep -oE '"key":[ ]*"[^"]+"' | head -1 | sed -E 's/.*"key":[ ]*"([^"]+)".*/\1/' || true)
-                [ -n "$NEWKEY" ] && { echo "  Tao key OK voi --user $SEL"; break; }
+                if [ -n "$NEWKEY" ]; then echo "  Tao key OK voi --user $SEL"; break; fi
                 echo "  --user $SEL chua duoc, thu cach khac. Loi:"; cat /tmp/pkerr 2>/dev/null || true
               done
               if [ -n "$NEWKEY" ]; then
@@ -128,7 +128,7 @@ jobs:
               up=$($SUDO docker logs --tail 40 node-dedup 2>&1 | grep -oE 'server ping: [0-9]+/[0-9]+' | tail -1 || true)
               n=$(printf '%s' "$up" | grep -oE '[0-9]+' | head -1 || echo 0)
               echo "  $up"
-              [ -n "$n" ] && [ "$n" != "0" ] && { echo "  -> /stats da co latency that!"; break; }
+              if [ -n "$n" ] && [ "$n" != "0" ]; then echo "  -> /stats da co latency that!"; break; fi
               sleep 3
             done
             echo "==> Log node-dedup (collector RIENG :8090 + goi headscale API)"
