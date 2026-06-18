@@ -3,7 +3,8 @@ import sqlite3
 
 import pytest
 
-from dedup import (aggregate_latency, init_db, init_latency_db, is_tailnet_ip,
+from dedup import (aggregate_latency, init_db, init_latency_db,
+                   is_allowed_report_src, is_tailnet_ip,
                    latency_series, normalize, parse_pingresult, plan_actions,
                    query_devices, record_report, render_stats_html,
                    validate_report)
@@ -174,6 +175,19 @@ def test_is_tailnet_ip():
     assert is_tailnet_ip("8.8.8.8") is False            # internet -> tu choi
     assert is_tailnet_ip("100.128.0.1") is False        # ngoai 100.64/10
     assert is_tailnet_ip("khong-phai-ip") is False
+
+
+def test_is_allowed_report_src():
+    # tailnet + loopback van duoc
+    assert is_allowed_report_src("100.64.0.3") is True
+    assert is_allowed_report_src("127.0.0.1") is True
+    # mang docker noi bo (node bao cao qua forwarder ts-forward) -> duoc
+    assert is_allowed_report_src("172.18.0.7") is True   # dai docker bridge
+    assert is_allowed_report_src("10.0.0.5") is True
+    assert is_allowed_report_src("192.168.1.10") is True
+    # internet -> tu choi
+    assert is_allowed_report_src("8.8.8.8") is False
+    assert is_allowed_report_src("khong-phai-ip") is False
 
 
 def test_latency_series_groups_sorts_drops_bad():

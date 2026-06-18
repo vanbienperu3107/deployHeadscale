@@ -49,4 +49,19 @@ else
   echo "  PASS (khong co sidecar ma /stats van 200)"
 fi
 
+echo "==> TEST 4: POST /metrics/report tu IP mang noi bo (gia lap node bao cao qua forwarder) -> mong 200 ok"
+post_out=$($COMPOSE run --rm --no-deps -T node-dedup python3 -c '
+import urllib.request, json
+d = json.dumps({"hostname": "t", "ipv4": "100.64.0.9", "mac": "AA:BB:CC:DD:EE:FF", "samples": []}).encode()
+req = urllib.request.Request("http://node-dedup:8090/metrics/report", data=d, headers={"Content-Type": "application/json"})
+r = urllib.request.urlopen(req, timeout=10)
+print(r.status, r.read().decode())
+' 2>&1 || true)
+echo "  $post_out"
+if printf '%s' "$post_out" | grep -q '200' && printf '%s' "$post_out" | grep -q '"ok": true'; then
+  echo "  PASS (POST 200 ok tu IP noi bo)"
+else
+  echo "  FAIL: POST khong duoc chap nhan"; fail=1
+fi
+
 if [ "$fail" = "0" ]; then echo "==> TAT CA PASS"; else echo "==> CO TEST FAIL"; $COMPOSE logs caddy node-dedup oauth2-proxy; exit 1; fi

@@ -457,6 +457,26 @@ def is_tailnet_ip(ip):
     return a in (_TAILNET_V4 if a.version == 4 else _TAILNET_V6)
 
 
+_PRIV_V4 = [ipaddress.ip_network(c) for c in
+            ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")]
+
+
+def is_allowed_report_src(ip):
+    """PURE: 'auth' cho POST /metrics/report. Chap nhan:
+    - tailnet/loopback (node bao cao truc tiep, hoac tren VPS), HOAC
+    - mang docker noi bo (10/8, 172.16/12, 192.168/16): node bao cao QUA forwarder
+      'ts-forward' (socat trong netns sidecar) -> socat lam mat IP tailnet goc,
+      node-dedup chi thay IP compose. Compose network la noi bo (khong publish) nen
+      van an toan."""
+    if is_tailnet_ip(ip):
+        return True
+    try:
+        a = ipaddress.ip_address(ip)
+    except ValueError:
+        return False
+    return a.version == 4 and any(a in n for n in _PRIV_V4)
+
+
 def make_metrics_handler(conn, lock):
     class Handler(http.server.BaseHTTPRequestHandler):
         # HTTP/1.1 + luon co Content-Length (da set) -> Caddy reverse_proxy on dinh,
@@ -467,8 +487,9 @@ def make_metrics_handler(conn, lock):
             pass
 
         def _authed(self):
-            # Khong token: chi chap nhan ket noi tu dai tailnet (hoac loopback).
-            return is_tailnet_ip(self.client_address[0])
+            # Khong token: chap nhan tu tailnet/loopback HOAC mang docker noi bo
+            # (node bao cao qua forwarder ts-forward). Xem is_allowed_report_src.
+            return is_allowed_report_src(self.client_address[0])
 
         def _send(self, code, payload):
             body = json.dumps(payload).encode() if not isinstance(payload, bytes) else payload

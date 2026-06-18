@@ -146,6 +146,21 @@ services:
     depends_on:
       - headscale
 
+  # ts-forward — cau noi cho node TU BAO CAO MAC (qua tailnet). node-dedup da tach
+  # khoi netns sidecar nen KHONG con dia chi tailnet; forwarder nay chay TRONG netns
+  # sidecar (co IP tailnet 'collector') va day cong 8090 -> node-dedup:8090. Nho vay
+  # node gui POST /metrics/report toi peer 'collector' van toi duoc node-dedup.
+  # Neu sidecar/forwarder chet thi chi MAC-report tam ngung, /stats van song.
+  ts-forward:
+    image: alpine/socat:latest
+    container_name: ts-forward
+    restart: unless-stopped
+    network_mode: "service:tailscale"
+    command: ["TCP-LISTEN:8090,fork,reuseaddr", "TCP:node-dedup:8090"]
+    depends_on:
+      - tailscale
+      - node-dedup
+
   caddy:
     # Build Caddy kem plugin replace-response (chen nut "Thong ke" vao /admin).
     build: ./caddy
