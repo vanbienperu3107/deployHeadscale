@@ -35,6 +35,7 @@ Bien moi truong:
   DRY_RUN       (true/false) - true = chi LOG ke hoach, khong xoa/doi ten that
   METRICS_PORT  (mac dinh 8090) - cong HTTP collector (lang nghe trong tailnet)
 """
+import html
 import http.server
 import ipaddress
 import json
@@ -273,6 +274,101 @@ def query_latency(conn, window):
              "path": r[4], "ok": bool(r[5]), "ts": r[6]} for r in cur.fetchall()]
 
 
+def query_devices(conn):
+    cur = conn.cursor()
+    cur.execute("SELECT hostname,mac,ipv4,last_seen,seen_count FROM devices ORDER BY hostname")
+    return [{"hostname": r[0], "mac": r[1], "ipv4": r[2],
+             "last_seen": r[3], "seen_count": r[4]} for r in cur.fetchall()]
+
+
+def latency_series(rows):
+    """PURE: gom raw rows -> chuoi thoi gian theo cap (cho bieu do duong)."""
+    series = {}
+    for r in rows:
+        if not r["ok"] or r["rtt_ms"] is None:
+            continue
+        key = r["src"] + " -> " + r["dst"]
+        series.setdefault(key, []).append({"t": r["ts"], "rtt": r["rtt_ms"]})
+    out = []
+    for k in sorted(series):
+        pts = sorted(series[k], key=lambda x: x["t"])
+        out.append({"pair": k, "points": pts})
+    return out
+
+
+# Trang dashboard: render het o client tu bien D (nhung server-side). Dung
+# .replace (khong .format/%) de khoi dung do CSS/JS co dau { } va %.
+_STATS_PAGE = """<!doctype html><html lang="vi"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="refresh" content="30">
+<title>Tailnet - Thong ke</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<style>
+:root{color-scheme:dark}
+body{font-family:system-ui,Segoe UI,Arial,sans-serif;margin:0;background:#0b1220;color:#e2e8f0}
+header{padding:18px 24px;background:#111a2e;border-bottom:1px solid #24304a}
+h1{margin:0;font-size:18px}.muted{color:#94a3b8;font-size:12px}
+main{padding:20px 24px;max-width:1100px;margin:0 auto}
+.cards{display:flex;gap:14px;flex-wrap:wrap;margin-bottom:20px}
+.card{background:#131d33;border:1px solid #24304a;border-radius:12px;padding:14px 18px;min-width:130px}
+.card .v{font-size:26px;font-weight:700}.card .l{color:#94a3b8;font-size:12px;margin-top:4px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-bottom:22px}
+@media(max-width:820px){.grid{grid-template-columns:1fr}}
+.panel{background:#131d33;border:1px solid #24304a;border-radius:12px;padding:14px}
+.panel h2{margin:2px 0 10px;font-size:14px;color:#cbd5e1}
+table{border-collapse:collapse;width:100%}
+th,td{border-bottom:1px solid #24304a;padding:7px 10px;text-align:left;font-size:13px}
+th{color:#94a3b8;font-weight:600}
+.tag{padding:1px 8px;border-radius:999px;font-size:11px}
+.direct{background:#064e3b;color:#6ee7b7}.derp{background:#4a2d0b;color:#fcd34d}
+.bad{color:#fca5a5}
+</style></head><body>
+<header><h1>Tailnet - Latency &amp; Devices</h1>
+<div class="muted" id="sub"></div></header>
+<main>
+<div class="cards" id="cards"></div>
+<div class="grid">
+  <div class="panel"><h2>Avg latency moi cap (ms)</h2><canvas id="bar" height="160"></canvas></div>
+  <div class="panel"><h2>RTT theo thoi gian</h2><canvas id="line" height="160"></canvas></div>
+</div>
+<div class="panel" style="margin-bottom:22px"><h2>Chi tiet latency</h2>
+<table><thead><tr><th>src</th><th>dst</th><th>min</th><th>avg</th><th>max</th><th>last</th><th>path</th><th>%direct</th><th>mau</th></tr></thead><tbody id="lat"></tbody></table></div>
+<div class="panel"><h2>Thiet bi (MAC tu node bao cao)</h2>
+<table><thead><tr><th>hostname</th><th>MAC</th><th>tailnet ip</th><th>lan thay</th></tr></thead><tbody id="dev"></tbody></table></div>
+</main>
+<script>
+const D = __DATA__;
+const esc = s => String(s==null?"":s).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+const fmt = v => v==null?"-":v;
+const ts = D.pairs.reduce((a,p)=>a+p.count,0);
+const wd = ts? D.pairs.reduce((a,p)=>a+p.direct_pct*p.count,0)/ts : 0;
+document.getElementById("sub").textContent =
+  "Cua so "+D.window_min+" phut - cap nhat "+new Date(D.generated*1000).toLocaleString()+" - tu refresh 30s";
+const cards=[[D.devices.length,"thiet bi"],[D.pairs.length,"cap node"],[ts,"mau ("+D.window_min+"p)"],[wd.toFixed(0)+"%","di thang"]];
+document.getElementById("cards").innerHTML = cards.map(c=>
+  '<div class="card"><div class="v">'+esc(c[0])+'</div><div class="l">'+esc(c[1])+'</div></div>').join("");
+document.getElementById("lat").innerHTML = D.pairs.length? D.pairs.map(p=>
+  "<tr><td>"+esc(p.src)+"</td><td>"+esc(p.dst)+"</td><td>"+fmt(p.min_ms)+"</td><td>"+fmt(p.avg_ms)+"</td><td>"+fmt(p.max_ms)+"</td><td>"+fmt(p.last_ms)+"</td><td>"+esc(p.last_path||"")+"</td><td>"+p.direct_pct+"%</td><td>"+p.count+"</td></tr>").join("")
+  : '<tr><td colspan="9" class="muted">chua co du lieu - kiem tra node da chay reporter + thay peer collector chua</td></tr>';
+document.getElementById("dev").innerHTML = D.devices.length? D.devices.map(d=>
+  "<tr><td>"+esc(d.hostname)+"</td><td>"+(d.mac?esc(d.mac):'<span class="bad">(chua bao cao)</span>')+"</td><td>"+esc(d.ipv4)+"</td><td>"+(d.seen_count||0)+"</td></tr>").join("")
+  : '<tr><td colspan="4" class="muted">chua co thiet bi</td></tr>';
+const palette=["#38bdf8","#f472b6","#a3e635","#fbbf24","#c084fc","#fb7185","#34d399"];
+new Chart(document.getElementById("bar"),{type:"bar",
+  data:{labels:D.pairs.map(p=>p.src+"->"+p.dst),datasets:[{label:"avg ms",data:D.pairs.map(p=>p.avg_ms),backgroundColor:"#38bdf8"}]},
+  options:{plugins:{legend:{display:false}},scales:{y:{title:{display:true,text:"ms"},beginAtZero:true}}}});
+new Chart(document.getElementById("line"),{type:"line",
+  data:{datasets:D.series.map((s,i)=>({label:s.pair,data:s.points.map(pt=>({x:pt.t*1000,y:pt.rtt})),borderColor:palette[i%palette.length],backgroundColor:palette[i%palette.length],tension:.3,pointRadius:2}))},
+  options:{scales:{x:{type:"linear",ticks:{callback:v=>new Date(v).toLocaleTimeString()}},y:{title:{display:true,text:"ms"},beginAtZero:true}}}});
+</script></body></html>"""
+
+
+def render_stats_html(pairs, series, devices, window_s, now):
+    data = {"generated": now, "window_min": max(1, window_s // 60),
+            "pairs": pairs, "series": series, "devices": devices}
+    return _STATS_PAGE.replace("__DATA__", json.dumps(data))
+
+
 _TAILNET_V4 = ipaddress.ip_network("100.64.0.0/10")
 _TAILNET_V6 = ipaddress.ip_network("fd7a:115c:a1e0::/48")
 
@@ -306,6 +402,13 @@ def make_metrics_handler(conn, lock):
             self.end_headers()
             self.wfile.write(body)
 
+        def _sendhtml(self, code, body):
+            self.send_response(code)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
         def do_POST(self):
             if not self._authed():
                 self._send(401, {"error": "unauthorized"})
@@ -325,16 +428,24 @@ def make_metrics_handler(conn, lock):
             self._send(200, {"ok": True, "stored": stored})
 
         def do_GET(self):
-            if not self._authed():
-                self._send(401, {"error": "unauthorized"})
+            # GET = chi doc -> mo (tailnet truc tiep, hoac Caddy /stats da gated SSO).
+            # Ghi (POST) van bat buoc tu tailnet.
+            p = self.path.split("?")[0].rstrip("/")
+            if p == "/metrics/latency":
+                with lock:
+                    rows = query_latency(conn, LATENCY_WINDOW)
+                self._send(200, {"window_s": LATENCY_WINDOW,
+                                 "pairs": aggregate_latency(rows)})
                 return
-            if self.path.split("?")[0].rstrip("/") != "/metrics/latency":
-                self._send(404, {"error": "not found"})
+            if p in ("/stats", "/metrics/stats", "/metrics/dashboard", ""):
+                with lock:
+                    rows = query_latency(conn, LATENCY_WINDOW)
+                    devs = query_devices(conn)
+                page = render_stats_html(aggregate_latency(rows), latency_series(rows),
+                                         devs, LATENCY_WINDOW, int(time.time()))
+                self._sendhtml(200, page.encode("utf-8"))
                 return
-            with lock:
-                rows = query_latency(conn, LATENCY_WINDOW)
-            self._send(200, {"window_s": LATENCY_WINDOW,
-                             "pairs": aggregate_latency(rows)})
+            self._send(404, {"error": "not found"})
 
     return Handler
 

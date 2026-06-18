@@ -21,8 +21,21 @@ vpn2.hangocthanh.io.vn {
 		respond 204
 	}
 
-	# (Collector MAC/latency KHONG con o day: no chay TREN tailnet qua tailscale
-	#  sidecar - node-dedup network_mode service:tailscale - khong expose cong khai.)
+	# Trang thong ke (GUI) /stats - gated bang Google SSO (oauth2-proxy). Tro toi
+	# collector qua container tailscale sidecar (node-dedup nam trong netns do, bind
+	# :8090) tren compose network. CHI GET (xem); POST /metrics/report khong di qua
+	# day (chi trong tailnet). Chua dang nhap -> redirect sang Google.
+	handle /stats* {
+		forward_auth oauth2-proxy:4180 {
+			uri /oauth2/auth
+			copy_headers X-Auth-Request-Email X-Auth-Request-User
+			@unauth status 401
+			handle_response @unauth {
+				redir * /oauth2/start?rd={http.request.uri}
+			}
+		}
+		reverse_proxy tailscale:8090
+	}
 
 	# Còn lại → Headscale control plane / API (xác thực bằng API key/node key)
 	handle {

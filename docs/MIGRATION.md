@@ -296,11 +296,13 @@ Các node tự thu **MAC** + **latency ping giữa các node** rồi gửi về 
   gh secret set TS_AUTHKEY --repo vanbienperu3107/deployHeadscale --body '<preauth-key>'
   gh workflow run deploy.yml --repo vanbienperu3107/deployHeadscale
   ```
-- **Xem tập trung (từ một node trong tailnet):**
+- **GUI (khuyến nghị):** `https://vpn2.hangocthanh.io.vn/stats` — thẻ tổng quan + **biểu đồ** (Chart.js: avg latency mỗi cặp + RTT theo thời gian) + bảng latency + bảng thiết bị/MAC, tự refresh 30s. Đăng nhập **Google SSO** (oauth2-proxy) như `/admin`. Caddy `handle /stats*` → `tailscale:8090` (collector trong netns sidecar); chỉ GET, đã gated SSO.
+- **Dòng lệnh (tuỳ chọn):**
   ```bash
-  curl -s http://collector:8090/metrics/latency        # qua MagicDNS, hoac dung IP 100.64.x
+  # tren VPS (loopback duoc collector chap nhan):
+  docker exec node-dedup python3 -c "import urllib.request;print(urllib.request.urlopen('http://127.0.0.1:8090/metrics/latency').read().decode())"
+  # tu 1 node trong tailnet: curl http://collector:8090/metrics/latency (userspace: them --socks5-hostname 127.0.0.1:7654)
   ```
-  (Node userspace như itop: đi qua SOCKS, vd `curl --socks5-hostname 127.0.0.1:7654 http://<ip-collector>:8090/metrics/latency`.)
 - **Khi dựng server mới:** đặt lại secret `TS_AUTHKEY` (tạo preauth key mới trên server mới). Code/Caddy/compose theo repo. Bảng `node_latency` ở volume `dedup_data`; state node collector ở volume `tailscale_collector` (Phụ lục B nếu muốn giữ).
 
 ---

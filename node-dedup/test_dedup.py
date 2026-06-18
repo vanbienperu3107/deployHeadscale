@@ -4,7 +4,8 @@ import sqlite3
 import pytest
 
 from dedup import (aggregate_latency, init_db, init_latency_db, is_tailnet_ip,
-                   normalize, plan_actions, record_report, validate_report)
+                   latency_series, normalize, plan_actions, query_devices,
+                   record_report, render_stats_html, validate_report)
 
 
 def mk(id, host, given, user="u", online=False, last=0):
@@ -161,6 +162,43 @@ def test_is_tailnet_ip():
     assert is_tailnet_ip("8.8.8.8") is False            # internet -> tu choi
     assert is_tailnet_ip("100.128.0.1") is False        # ngoai 100.64/10
     assert is_tailnet_ip("khong-phai-ip") is False
+
+
+def test_latency_series_groups_sorts_drops_bad():
+    rows = [
+        {"src": "itop", "dst": "votam", "rtt_ms": 10.0, "path": "direct", "ok": True, "ts": 3},
+        {"src": "itop", "dst": "votam", "rtt_ms": 12.0, "path": "direct", "ok": True, "ts": 1},
+        {"src": "itop", "dst": "votam", "rtt_ms": None, "path": "", "ok": False, "ts": 2},
+    ]
+    s = latency_series(rows)
+    assert len(s) == 1 and s[0]["pair"] == "itop -> votam"
+    assert [p["t"] for p in s[0]["points"]] == [1, 3]   # sorted, bad dropped
+
+
+def test_query_devices():
+    conn = _mem_db()
+    conn.execute("INSERT INTO devices(user,hostname,mac,node_id,ipv4,machine_key,first_seen,last_seen,seen_count)"
+                 " VALUES('u','itop','AA:BB','1','100.64.0.1','mk',0,0,5)")
+    conn.commit()
+    d = query_devices(conn)
+    assert len(d) == 1 and d[0]["hostname"] == "itop"
+    assert d[0]["mac"] == "AA:BB" and d[0]["seen_count"] == 5
+
+
+def test_render_stats_html_smoke():
+    import json as _j
+    pairs = [{"src": "itop", "dst": "votam", "count": 2, "min_ms": 10.0, "avg_ms": 11.0,
+              "max_ms": 12.0, "ok_pct": 100.0, "direct_pct": 100.0,
+              "last_ms": 12.0, "last_path": "direct", "last_ts": 2}]
+    series = [{"pair": "itop -> votam", "points": [{"t": 1, "rtt": 10.0}, {"t": 2, "rtt": 12.0}]}]
+    devices = [{"hostname": "itop", "mac": "AA:BB", "ipv4": "100.64.0.1", "last_seen": 0, "seen_count": 2}]
+    page = render_stats_html(pairs, series, devices, 3600, 1000)
+    assert "<html" in page and "Chart" in page
+    assert "__DATA__" not in page          # placeholder da thay
+    assert "itop" in page and "votam" in page
+    frag = page.split("const D = ", 1)[1].split(";", 1)[0]
+    data = _j.loads(frag)
+    assert data["pairs"][0]["src"] == "itop" and data["window_min"] == 60
 
 
 def test_record_report_mac_fallback_by_hostname():
