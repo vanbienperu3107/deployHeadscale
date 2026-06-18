@@ -1,0 +1,30 @@
+services:
+  derper:
+    build:
+      context: .
+      dockerfile: Dockerfile.derper
+    container_name: derper
+    restart: unless-stopped
+    # derper tu quan ly TLS qua Let's Encrypt (chung chi luu vao volume derper_certs).
+    # Truoc khi deploy: DNS vpn3.hangocthanh.io.vn phai tro dung IP VPS nay.
+    # --verify-clients=false: DERP relay mo (du lieu van ma hoa WireGuard, relay
+    # khong doc duoc noi dung). Neu muon chi cho node trong tailnet su dung, set
+    # verify-clients=true va them --verify-clients-url=https://vpn2.hangocthanh.io.vn
+    command:
+      - --hostname=vpn3.hangocthanh.io.vn
+      - --a=:443
+      - --http-port=80
+      - --certmode=letsencrypt
+      - --certdir=/data/derper-certs
+      - --stun
+      - --stun-port=3478
+      - --verify-clients=false
+    ports:
+      - "80:80"          # ACME challenge (Let's Encrypt)
+      - "443:443"        # HTTPS / DERP WebSocket
+      - "3478:3478/udp"  # STUN
+    volumes:
+      - derper_certs:/data/derper-certs
+
+volumes:
+  derper_certs:

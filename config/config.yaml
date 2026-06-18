@@ -28,9 +28,14 @@ derp:
     ipv4: 165.22.12.169    # IP public VPS (vpn2.hangocthanh.io.vn)
     # ipv6: YOUR_IPV6              # ← nếu có
 
-  # Tắt DERP servers của Tailscale (full self-host)
+  # DERP map bo sung: vpn3 (region 1000) tu file ngoai. Region 999 (embedded, vpn2)
+  # duoc gop tu dong boi automatically_add_embedded_derp_region. Client thay 2 region
+  # -> tu do latency. Neu 1 region chet, tailscale tu chuyen sang region con lai.
+  paths:
+    - /etc/headscale/derp.yaml   # -> config/derp.yaml (volume ./config:/etc/headscale)
+
+  # Tat DERP servers cua Tailscale (full self-host)
   urls: []
-  paths: []
   auto_update_enabled: false
 
 # === Node ===

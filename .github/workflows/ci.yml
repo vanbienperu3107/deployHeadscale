@@ -46,6 +46,35 @@ jobs:
           fi
           echo "OK: không tìm thấy private key trong repo."
 
+  derp-config:
+    name: DERP config validate (derp.yaml + failover setup)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate config/derp.yaml (YAML syntax)
+        run: python3 -c "import yaml; yaml.safe_load(open('config/derp.yaml')); print('derp.yaml OK')"
+
+      - name: Validate derp-vpn3/docker-compose.yml
+        run: docker compose -f derp-vpn3/docker-compose.yml config --quiet && echo "derp-vpn3/docker-compose.yml OK"
+
+      - name: Test DERP config structure + failover (pytest)
+        run: |
+          python3 -m venv /tmp/venv-derp
+          /tmp/venv-derp/bin/pip install --quiet pytest pyyaml
+          /tmp/venv-derp/bin/python -m pytest -q test/test_derp_config.py
+
+  derp-integration:
+    name: DERP integration (build derper + health probe)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build derper + kiem tra /derp/probe
+        run: bash test/derp_integration.sh
+
   stats-integration:
     name: /stats integration (collector tach khoi sidecar)
     runs-on: ubuntu-latest

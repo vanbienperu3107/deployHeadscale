@@ -1,0 +1,77 @@
+name: Deploy DERP (vpn3)
+
+# Chay sau khi CI pass tren main. Co the chay tay.
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-derp-vpn3
+  cancel-in-progress: false
+
+jobs:
+  deploy-derp:
+    name: Deploy DERP relay to vpn3
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    steps:
+      - name: SSH vao vpn3 va deploy DERP relay
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SSH_HOST_VPN3 }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT || '22' }}
+          envs: DEPLOY_PATH,REPO_URL
+          script_stop: true
+          command_timeout: 15m
+          script: |
+            set -e
+            if [ "$(id -u)" -ne 0 ]; then SUDO="sudo"; else SUDO=""; fi
+
+            echo "==> [1/4] Cai git + docker neu thieu"
+            if ! command -v git >/dev/null 2>&1; then
+              $SUDO apt-get update -y && $SUDO apt-get install -y git
+            fi
+            if ! command -v docker >/dev/null 2>&1; then
+              curl -fsSL https://get.docker.com | $SUDO sh
+            fi
+
+            echo "==> [2/4] Clone/cap nhat repo"
+            if [ ! -d "$DEPLOY_PATH/.git" ]; then
+              $SUDO mkdir -p "$DEPLOY_PATH"
+              $SUDO git clone "$REPO_URL" "$DEPLOY_PATH"
+              $SUDO chown -R "$(id -un):$(id -gn)" "$DEPLOY_PATH"
+            fi
+            cd "$DEPLOY_PATH"
+            git config --global --add safe.directory "$DEPLOY_PATH" || true
+            git fetch --all --prune
+            git reset --hard origin/main
+
+            echo "==> [3/4] Khoi dong DERP relay"
+            cd "$DEPLOY_PATH/derp-vpn3"
+            $SUDO docker compose pull 2>/dev/null || true
+            $SUDO docker compose up -d --build --force-recreate --remove-orphans
+
+            echo "==> [4/4] Kiem tra health"
+            sleep 8
+            $SUDO docker compose ps
+            $SUDO docker logs --tail 20 derper 2>&1 || true
+
+            # /derp/probe tra 200 khi DERP san sang (HTTPS qua Let's Encrypt).
+            # Let's Encrypt mat ~30s lan dau lay cert -> cho toi da 90s.
+            echo "  Doi DERP san sang (toi da 90s, lan dau lay cert Let's Encrypt)..."
+            for _ in $(seq 1 15); do
+              CODE=$(curl -sk -o /dev/null -w "%{http_code}" \
+                "https://vpn3.hangocthanh.io.vn/derp/probe" 2>/dev/null || echo 000)
+              echo "  /derp/probe: HTTP $CODE"
+              [ "$CODE" = "200" ] && break
+              sleep 6
+            done
+            echo "  Ket qua cuoi: HTTP $CODE"
+        env:
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          REPO_URL: https://github.com/vanbienperu3107/deployHeadscale.git
