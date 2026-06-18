@@ -1,4 +1,9 @@
 # Reverse proxy + auto TLS (Let's Encrypt) cho Headscale.
+{
+	# Plugin replace-response: cho phep dung directive `replace` (chen nut Thong ke).
+	order replace after encode
+}
+
 vpn2.hangocthanh.io.vn {
 	# Các endpoint của oauth2-proxy (đăng nhập Google, callback...)
 	handle /oauth2/* {
@@ -12,7 +17,12 @@ vpn2.hangocthanh.io.vn {
 	# KHÔNG cần forward_auth/oauth2-proxy ở đây nữa. Callback của Headplane là
 	# /admin/oidc/callback (vẫn nằm trong /admin → headplane).
 	handle /admin* {
-		reverse_proxy headplane:3000
+		# Chen 1 nut noi "Thong ke" vao cuoi trang Headplane (link sang /stats).
+		# Accept-Encoding identity de Headplane tra HTML khong nen -> replace khop.
+		reverse_proxy headplane:3000 {
+			header_up Accept-Encoding identity
+		}
+		replace `</body>` `<a href="/stats" target="_blank" title="Xem thong ke latency/MAC" style="position:fixed;z-index:99999;right:18px;bottom:18px;background:#2563eb;color:#fff;padding:10px 16px;border-radius:10px;font:600 13px system-ui,Arial,sans-serif;text-decoration:none;box-shadow:0 4px 14px rgba(0,0,0,.45)">&#128202; Th&#7889;ng k&#234;</a></body>`
 	}
 
 	# Captive-portal probe cua client (fork dung domain rieng thay tailscale.com)

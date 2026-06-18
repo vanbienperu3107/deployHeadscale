@@ -144,7 +144,8 @@ services:
       - tailscale
 
   caddy:
-    image: caddy:2
+    # Build Caddy kem plugin replace-response (chen nut "Thong ke" vao /admin).
+    build: ./caddy
     container_name: caddy
     restart: unless-stopped
     depends_on:

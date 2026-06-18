@@ -300,6 +300,7 @@ VPS tham gia chính tailnet của nó như 1 node tên **`collector`** (service 
   gh workflow run deploy.yml --repo vanbienperu3107/deployHeadscale
   ```
 - **GUI (khuyến nghị):** `https://vpn2.hangocthanh.io.vn/stats` — thẻ tổng quan + **biểu đồ** (Chart.js: avg latency mỗi cặp + RTT theo thời gian) + bảng latency + bảng thiết bị/MAC, tự refresh 30s. Đăng nhập **Google SSO** (oauth2-proxy) như `/admin`. Caddy `handle /stats*` → `tailscale:8090` (collector trong netns sidecar); chỉ GET, đã gated SSO.
+- **Nút trong panel:** trang `/admin` (Headplane) có 1 **nút nổi "📊 Thống kê"** góc dưới-phải → bấm mở `/stats`. Headplane không cho thêm link qua config, nên Caddy dùng plugin **replace-response** (xem `caddy/Dockerfile`) chèn nút vào HTML: `handle /admin*` có directive `replace </body> ...`. CI build image Caddy tùy biến này rồi mới `caddy validate`.
 - **Dòng lệnh (tuỳ chọn):**
   ```bash
   # tren VPS (loopback duoc collector chap nhan):

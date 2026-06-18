@@ -29,10 +29,13 @@ jobs:
           /tmp/venv/bin/pip install --quiet pytest
           cd node-dedup && /tmp/venv/bin/python -m pytest -q test_dedup.py
 
-      - name: Validate Caddyfile
+      - name: Validate Caddyfile (custom caddy w/ replace-response plugin)
         run: |
+          # Build image Caddy co plugin replace-response de directive `replace`
+          # duoc nhan dien khi validate (caddy:2 stock se bao loi directive la).
+          docker build -t caddy-custom ./caddy
           docker run --rm -v "${{ github.workspace }}/Caddyfile:/etc/caddy/Caddyfile:ro" \
-            caddy:2 caddy validate --adapter caddyfile --config /etc/caddy/Caddyfile
+            caddy-custom caddy validate --adapter caddyfile --config /etc/caddy/Caddyfile
 
       - name: Scan secret bị commit nhầm
         # Bỏ qua *.md (tài liệu được phép nhắc tới chuỗi này), vẫn quét file config/key thật.

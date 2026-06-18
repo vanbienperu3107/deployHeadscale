@@ -78,7 +78,7 @@ jobs:
             $SUDO docker compose pull
             # --force-recreate để container đọc lại Caddyfile/config.yaml (bind-mount đổi
             # không tự trigger restart). Volume dữ liệu vẫn giữ nguyên (keys, db, certs).
-            $SUDO docker compose up -d --force-recreate --remove-orphans
+            $SUDO docker compose up -d --build --force-recreate --remove-orphans
             $SUDO docker compose ps
             echo "==> Log oauth2-proxy (chẩn đoán; oauth2-proxy không in secret)"
             sleep 3
