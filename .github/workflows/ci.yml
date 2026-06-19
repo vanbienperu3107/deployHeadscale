@@ -198,6 +198,19 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Setup Go 1.24
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+          cache-dependency-path: relay-vpn5/go.mod
+
+      - name: go mod tidy (tao go.sum truoc docker build)
+        working-directory: relay-vpn5
+        env:
+          GONOSUMDB: "*"
+          GOTELEMETRY: "off"
+        run: go mod tidy
+
       - name: Build image + start relay + kiem tra health probe
         run: bash test/relay_vpn5_integration.sh
 
