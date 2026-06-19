@@ -558,6 +558,29 @@ def query_current_relay(conn, window=180):
              "rtt_ms": r[3], "ok": bool(r[4]), "ts": r[5]} for r in cur.fetchall()]
 
 
+def query_all_server_pings(conn, window=180):
+    """PURE: lan ping moi nhat per (src, dst) trong window s. Returns {src: [peers]}. Test duoc."""
+    cur = conn.cursor()
+    cur.execute(
+        """SELECT l.src, l.dst, l.dst_ip, l.path, l.rtt_ms, l.ok, l.ts
+           FROM node_latency l
+           INNER JOIN (
+               SELECT src, dst, MAX(ts) AS max_ts FROM node_latency
+               WHERE ts>=? GROUP BY src, dst
+           ) latest ON l.src=latest.src AND l.dst=latest.dst AND l.ts=latest.max_ts
+           ORDER BY l.src, l.dst""",
+        (int(time.time()) - window,),
+    )
+    result = {}
+    for row in cur.fetchall():
+        src, dst, ip, path, rtt, ok, ts = row
+        result.setdefault(src, []).append({
+            "hostname": dst, "ip": ip, "relay": path or "?",
+            "rtt_ms": rtt, "ok": bool(ok), "ts": ts,
+        })
+    return result
+
+
 def record_netcheck(conn, client, preferred_derp, region_latency_json, now):
     """Luu ket qua tailscale netcheck tu 1 client. PURE (test voi conn :memory:). Test duoc."""
     conn.execute(
@@ -663,12 +686,14 @@ tr.off td{opacity:.45}
 </body></html>"""
 
 
-def render_derp_html(regions, peers, now, server_pings=None):
-    """PURE: render HTML tu list region (da probe) + peer + server pings. Test duoc.
+def render_derp_html(regions, peers, now, all_pings=None):
+    """PURE: render HTML tu list region (da probe) + peer + ping tu moi server. Test duoc.
 
-    regions:      [{code, url, ok, latency_ms, error}]
-    peers:        [{hostname, ip, relay, direct, online}]  -- tu peer_relay_from_status
-    server_pings: [{hostname, ip, relay(path), rtt_ms, ok, ts}] -- tu query_current_relay (src=collector=vpn2)
+    regions:   [{code, url, ok, latency_ms, error}]
+    peers:     [{hostname, ip, relay, direct, online}]  -- tu peer_relay_from_status
+    all_pings: {src_name: [{hostname, ip, relay(path), rtt_ms, ok, ts}]}
+               src_name: "collector" (vpn2), "vpn3", "vpn4", ...
+               Lay tu query_all_server_pings(conn).
     """
     gen = time.strftime("%H:%M:%S %d/%m/%Y", time.localtime(now))
 
@@ -719,7 +744,7 @@ def render_derp_html(regions, peers, now, server_pings=None):
                      'Ch&#432;a c&#243; d&#7919; li&#7879;u — '
                      'collector ch&#432;a join tailnet</td></tr>')
 
-    # --- Server pings grouped by source (vpn2 from DB; vpn3/vpn4 placeholder) ---
+    # --- Server pings grouped by source (all_pings dict: {src: [peers]}) ---
     def path_tag(p):
         path = p.get("relay", "") or ""
         if not p.get("ok"):
@@ -733,37 +758,42 @@ def render_derp_html(regions, peers, now, server_pings=None):
         return '<span class="bad">%s</span>' % html.escape(path or "?")
 
     def _src_label(code):
+        """DERP region code -> nhan hien thi (vpn2/vpn3/vpn4...)."""
         if code == "myderp":
             return "vpn2"
         return code[:-3] if code.endswith("-vn") else code
 
-    # Other DERP regions (not myderp/vpn2) that will be ping sources once they have collectors
-    other_regions = [r for r in regions if r["code"] != "myderp"]
+    def _code_to_src(code):
+        """DERP region code -> src_name trong DB node_latency (khop REPORTER_NAME)."""
+        if code == "myderp":
+            return "collector"
+        return code[:-3] if code.endswith("-vn") else code
 
     trows = ""
-    if server_pings:
-        for p in server_pings:
-            age = now - p.get("ts", now)
-            age_str = ("%ds" % age) if age < 60 else ("%dm" % (age // 60))
-            rtt = ("%sms" % p["rtt_ms"]) if p.get("rtt_ms") is not None else "-"
+    pings = all_pings or {}
+    for r in (regions or [{"code": "myderp", "url": ""}]):
+        src_key = _code_to_src(r["code"])
+        src_label = _src_label(r["code"])
+        peers_data = pings.get(src_key, [])
+        if peers_data:
+            for p in peers_data:
+                age = now - p.get("ts", now)
+                age_str = ("%ds" % age) if age < 60 else ("%dm" % (age // 60))
+                rtt = ("%sms" % p["rtt_ms"]) if p.get("rtt_ms") is not None else "-"
+                trows += (
+                    "<tr><td class='src-badge'>%s</td><td>%s</td><td>%s</td>"
+                    "<td>%s</td><td>%s</td>"
+                    "<td class='note'>%s tr&#432;&#7899;c</td></tr>"
+                ) % (html.escape(src_label), html.escape(p["hostname"]),
+                     html.escape(p["ip"] or "-"), rtt, path_tag(p), age_str)
+        else:
+            msg = ("ch&#432;a c&#243; d&#7919; li&#7879;u &#8212; "
+                   "ping-reporter ch&#432;a ch&#7841;y" if src_key != "collector"
+                   else "ch&#432;a c&#243; d&#7919; li&#7879;u")
             trows += (
-                "<tr><td class='src-badge'>vpn2</td><td>%s</td><td>%s</td>"
-                "<td>%s</td><td>%s</td>"
-                "<td class='note'>%s tr&#432;&#7899;c</td></tr>"
-            ) % (html.escape(p["hostname"]), html.escape(p["ip"] or "-"),
-                 rtt, path_tag(p), age_str)
-    else:
-        trows += ("<tr class='off'><td class='src-badge'>vpn2</td>"
-                  "<td colspan='5' class='muted'>ch&#432;a c&#243; d&#7919; li&#7879;u "
-                  "&#8212; server ch&#432;a ping &#273;&#432;&#7907;c node n&#224;o</td></tr>")
-
-    for r in other_regions:
-        sname = _src_label(r["code"])
-        trows += (
-            "<tr class='off'><td class='src-badge'>%s</td>"
-            "<td colspan='5' class='muted'>ch&#432;a c&#243; d&#7919; li&#7879;u "
-            "&#8212; c&#7847;n c&#224;i tailscale collector tr&#234;n server n&#224;y</td></tr>"
-        ) % html.escape(sname)
+                "<tr class='off'><td class='src-badge'>%s</td>"
+                "<td colspan='5' class='muted'>%s</td></tr>"
+            ) % (html.escape(src_label), msg)
 
     pings_html = (
         "<table><thead><tr>"
@@ -915,9 +945,9 @@ def make_metrics_handler(conn, lock):
                 status = localapi_status()
                 peers = peer_relay_from_status(status)
                 with lock:
-                    server_pings = query_current_relay(conn) or None
+                    all_pings = query_all_server_pings(conn) or {}
                 page = render_derp_html(regions, peers, int(time.time()),
-                                        server_pings=server_pings)
+                                        all_pings=all_pings)
                 self._sendhtml(200, page.encode("utf-8"))
                 return
             self._send(404, {"error": "not found"})

@@ -26,5 +26,49 @@ services:
     volumes:
       - derper_certs:/data/derper-certs
 
+  # Tailscale sidecar: vpn3 join tailnet -> ping-reporter co the dung LocalAPI
+  # de ping cac peer va tim dia chi IP cua collector (vpn2).
+  # TS_AUTHKEY lay tu .env (do deploy workflow ghi tu headscale API).
+  tailscale:
+    image: tailscale/tailscale:latest
+    container_name: ts-vpn3
+    hostname: vpn3
+    restart: unless-stopped
+    environment:
+      - TS_AUTHKEY=${TS_AUTHKEY:-}
+      - TS_EXTRA_ARGS=--login-server=https://vpn2.hangocthanh.io.vn --hostname=vpn3 --accept-dns=false
+      - TS_STATE_DIR=/var/lib/tailscale
+      - TS_USERSPACE=false
+      - TS_SOCKET=/var/run/tailscale/tailscaled.sock
+    volumes:
+      - tailscale_vpn3:/var/lib/tailscale
+      - ts_sock:/var/run/tailscale
+    devices:
+      - /dev/net/tun
+    cap_add:
+      - NET_ADMIN
+
+  # Ping-reporter: moi 30s ping tung peer online qua LocalAPI, POST ket qua
+  # len collector (vpn2) tai collector_ip:8090/metrics/report (qua tailnet).
+  # Du lieu luu vao DB voi src='vpn3' -> hien thi tren /derp page.
+  ping-reporter:
+    image: python:3.12-slim
+    container_name: ping-reporter-vpn3
+    restart: unless-stopped
+    command: ["python3", "/app/reporter.py"]
+    environment:
+      - REPORTER_NAME=vpn3
+      - TS_SOCKET=/var/run/tailscale/tailscaled.sock
+      - POLL_INTERVAL=30
+      - COLLECTOR_PORT=8090
+      - PING_TIMEOUT=8
+    volumes:
+      - ../ping-reporter/reporter.py:/app/reporter.py:ro
+      - ts_sock:/var/run/tailscale
+    depends_on:
+      - tailscale
+
 volumes:
   derper_certs:
+  tailscale_vpn3:
+  ts_sock:

@@ -11,8 +11,8 @@ from dedup import (aggregate_latency, init_db, init_latency_db,
                    is_allowed_report_src, is_tailnet_ip,
                    latency_series, normalize, parse_pingresult,
                    peer_relay_from_status, pingable_nodes, plan_actions,
-                   probe_derp_region, query_current_relay, query_devices,
-                   query_latest_netcheck, record_netcheck, record_report,
+                   probe_derp_region, query_all_server_pings, query_current_relay,
+                   query_devices, query_latest_netcheck, record_netcheck, record_report,
                    render_derp_html, render_stats_html,
                    server_ping_all, validate_report, _parse_derp_regions)
 
@@ -472,49 +472,108 @@ def test_query_latest_netcheck_latest_per_client():
     assert rows[0]["preferred_derp"] == "vpn4-vn"
 
 
-def test_render_derp_html_server_pings_source_column():
-    """server_pings hien thi cot Nguon=vpn2, RTT, path tag."""
+def test_render_derp_html_all_pings_source_column():
+    """all_pings hien thi cot Nguon (vpn2/vpn3/vpn4) voi RTT va path tag."""
     regions = [
         {"code": "myderp",  "url": "https://vpn2.../probe", "ok": True, "latency_ms": 12.0, "error": None},
         {"code": "vpn3-vn", "url": "https://vpn3.../probe", "ok": True, "latency_ms": 30.0, "error": None},
         {"code": "vpn4-vn", "url": "https://vpn4.../probe", "ok": True, "latency_ms": 25.0, "error": None},
     ]
-    pings = [
-        {"hostname": "itop",  "ip": "100.64.0.2", "relay": "derp:vpn4-vn",
-         "rtt_ms": 95.6, "ok": True, "ts": 1000},
-        {"hostname": "votam", "ip": "100.64.0.3", "relay": "derp:vpn4-vn",
-         "rtt_ms": 148.9, "ok": True, "ts": 1000},
-    ]
-    page = render_derp_html(regions, [], 1000, server_pings=pings)
-    assert "vpn2" in page                  # cot Nguon = vpn2
-    assert "itop" in page and "95.6ms" in page
-    assert "votam" in page and "148.9ms" in page
-    assert "via vpn4-vn" in page
-    assert "vpn3" in page                  # placeholder vpn3
-    assert "vpn4" in page                  # placeholder vpn4
+    all_pings = {
+        "collector": [
+            {"hostname": "itop",  "ip": "100.64.0.2", "relay": "derp:vpn4-vn",
+             "rtt_ms": 95.6, "ok": True, "ts": 1000},
+            {"hostname": "votam", "ip": "100.64.0.3", "relay": "derp:vpn4-vn",
+             "rtt_ms": 148.9, "ok": True, "ts": 1000},
+        ],
+        "vpn3": [
+            {"hostname": "itop",  "ip": "100.64.0.2", "relay": "direct",
+             "rtt_ms": 25.3, "ok": True, "ts": 1000},
+        ],
+        # vpn4: no data yet
+    }
+    page = render_derp_html(regions, [], 1000, all_pings=all_pings)
+    assert "vpn2" in page                  # row nguon vpn2
+    assert "vpn3" in page                  # row nguon vpn3 (co data)
+    assert "vpn4" in page                  # row nguon vpn4 (placeholder)
+    assert "95.6ms" in page and "148.9ms" in page   # vpn2 data
+    assert "25.3ms" in page                # vpn3 data
+    assert "via vpn4-vn" in page           # path tag vpn2->itop
+    assert "direct" in page                # path tag vpn3->itop
     assert "__PINGS__" not in page
 
 
-def test_render_derp_html_other_srcs_placeholder():
-    """Cac DERP region khac myderp hien row placeholder 'chua co du lieu'."""
+def test_render_derp_html_all_pings_empty():
+    """all_pings={}: tat ca nguon hien placeholder 'chua co du lieu'."""
     regions = [
         {"code": "myderp",  "url": "https://vpn2.../probe", "ok": True, "latency_ms": 12.0, "error": None},
         {"code": "vpn3-vn", "url": "https://vpn3.../probe", "ok": False,"latency_ms": None, "error": "timeout"},
         {"code": "vpn4-vn", "url": "https://vpn4.../probe", "ok": True, "latency_ms": 25.0, "error": None},
     ]
-    page = render_derp_html(regions, [], 1000, server_pings=None)
-    assert "vpn3" in page     # placeholder vpn3
-    assert "vpn4" in page     # placeholder vpn4
+    page = render_derp_html(regions, [], 1000, all_pings={})
+    assert "vpn2" in page and "vpn3" in page and "vpn4" in page
     assert "__PINGS__" not in page
 
 
 def test_render_derp_html_no_pings():
-    """server_pings=None: vpn2 row van hien placeholder 'chua co du lieu'."""
-    regions = [{"code": "myderp", "url": "https://x/probe",
-                "ok": True, "latency_ms": 5.0, "error": None}]
-    page = render_derp_html(regions, [], 1000, server_pings=None)
-    assert "vpn2" in page
+    """all_pings=None: vpn2/vpn3/vpn4 row van hien placeholder."""
+    regions = [
+        {"code": "myderp",  "url": "https://x/probe", "ok": True, "latency_ms": 5.0, "error": None},
+        {"code": "vpn3-vn", "url": "https://x/probe", "ok": True, "latency_ms": 5.0, "error": None},
+    ]
+    page = render_derp_html(regions, [], 1000, all_pings=None)
+    assert "vpn2" in page and "vpn3" in page
     assert "__PINGS__" not in page
+
+
+def test_query_all_server_pings_multi_src():
+    """query_all_server_pings tra ve dict {src: [peers]} cho moi src."""
+    conn = _mem_db()
+    now = int(time.time())
+    conn.executemany(
+        "INSERT INTO node_latency(ts,src,dst,dst_ip,rtt_ms,path,ok) VALUES(?,?,?,?,?,?,?)",
+        [
+            (now, "collector", "itop",  "100.64.0.2", 95.6,  "derp:vpn4-vn", 1),
+            (now, "collector", "votam", "100.64.0.3", 148.9, "derp:vpn4-vn", 1),
+            (now, "vpn3",      "itop",  "100.64.0.2", 25.3,  "direct",       1),
+            (now, "vpn4",      "votam", "100.64.0.3", 28.0,  "direct",       1),
+        ],
+    )
+    conn.commit()
+    result = query_all_server_pings(conn, window=300)
+    assert set(result.keys()) == {"collector", "vpn3", "vpn4"}
+    assert len(result["collector"]) == 2
+    assert result["vpn3"][0]["hostname"] == "itop" and result["vpn3"][0]["rtt_ms"] == 25.3
+    assert result["vpn4"][0]["hostname"] == "votam"
+
+
+def test_query_all_server_pings_picks_latest():
+    """Chi lay lan ping moi nhat per (src, dst)."""
+    conn = _mem_db()
+    now = int(time.time())
+    conn.executemany(
+        "INSERT INTO node_latency(ts,src,dst,dst_ip,rtt_ms,path,ok) VALUES(?,?,?,?,?,?,?)",
+        [
+            (now - 10, "vpn3", "itop", "100.64.0.2", 50.0, "derp:myderp", 1),
+            (now,      "vpn3", "itop", "100.64.0.2", 25.3, "direct",      1),  # moi hon
+        ],
+    )
+    conn.commit()
+    result = query_all_server_pings(conn, window=300)
+    assert result["vpn3"][0]["relay"] == "direct"    # moi nhat
+    assert result["vpn3"][0]["rtt_ms"] == 25.3
+
+
+def test_query_all_server_pings_window():
+    """Row ngoai window khong duoc tra ve."""
+    conn = _mem_db()
+    now = int(time.time())
+    conn.execute(
+        "INSERT INTO node_latency(ts,src,dst,dst_ip,rtt_ms,path,ok) VALUES(?,?,?,?,?,?,?)",
+        (now - 500, "vpn3", "itop", "100.64.0.2", 25.0, "direct", 1),
+    )
+    conn.commit()
+    assert query_all_server_pings(conn, window=60) == {}
 
 
 def test_render_derp_html_ajax_refresh():

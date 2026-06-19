@@ -1,7 +1,7 @@
 services:
   derper:
     build:
-      context: ../derp-vpn3
+      context: ../derp-vpn3   # dung Dockerfile.derper cua vpn3 (giong nhau)
       dockerfile: Dockerfile.derper
     container_name: derper
     restart: unless-stopped
@@ -20,5 +20,46 @@ services:
       - "3478:3478/udp"
     volumes:
       - derper_certs:/data/derper-certs
+
+  # Tailscale sidecar: vpn4 join tailnet voi hostname=vpn4.
+  tailscale:
+    image: tailscale/tailscale:latest
+    container_name: ts-vpn4
+    hostname: vpn4
+    restart: unless-stopped
+    environment:
+      - TS_AUTHKEY=${TS_AUTHKEY:-}
+      - TS_EXTRA_ARGS=--login-server=https://vpn2.hangocthanh.io.vn --hostname=vpn4 --accept-dns=false
+      - TS_STATE_DIR=/var/lib/tailscale
+      - TS_USERSPACE=false
+      - TS_SOCKET=/var/run/tailscale/tailscaled.sock
+    volumes:
+      - tailscale_vpn4:/var/lib/tailscale
+      - ts_sock:/var/run/tailscale
+    devices:
+      - /dev/net/tun
+    cap_add:
+      - NET_ADMIN
+
+  # Ping-reporter: moi 30s ping tung peer, POST ket qua len collector voi src='vpn4'.
+  ping-reporter:
+    image: python:3.12-slim
+    container_name: ping-reporter-vpn4
+    restart: unless-stopped
+    command: ["python3", "/app/reporter.py"]
+    environment:
+      - REPORTER_NAME=vpn4
+      - TS_SOCKET=/var/run/tailscale/tailscaled.sock
+      - POLL_INTERVAL=30
+      - COLLECTOR_PORT=8090
+      - PING_TIMEOUT=8
+    volumes:
+      - ../ping-reporter/reporter.py:/app/reporter.py:ro
+      - ts_sock:/var/run/tailscale
+    depends_on:
+      - tailscale
+
 volumes:
   derper_certs:
+  tailscale_vpn4:
+  ts_sock:
