@@ -472,59 +472,48 @@ def test_query_latest_netcheck_latest_per_client():
     assert rows[0]["preferred_derp"] == "vpn4-vn"
 
 
-def test_render_derp_html_nc_data_matrix():
-    """nc_data hien thi matrix client x region voi latency va preferred star."""
+def test_render_derp_html_server_pings_source_column():
+    """server_pings hien thi cot Nguon=vpn2, RTT, path tag."""
     regions = [
-        {"code": "vpn4-vn", "url": "https://vpn4.../probe", "ok": True, "latency_ms": 5.0, "error": None},
-        {"code": "myderp",  "url": "https://vpn2.../probe", "ok": True, "latency_ms": 100.0, "error": None},
+        {"code": "myderp",  "url": "https://vpn2.../probe", "ok": True, "latency_ms": 12.0, "error": None},
+        {"code": "vpn3-vn", "url": "https://vpn3.../probe", "ok": True, "latency_ms": 30.0, "error": None},
+        {"code": "vpn4-vn", "url": "https://vpn4.../probe", "ok": True, "latency_ms": 25.0, "error": None},
     ]
-    nc_data = [{
-        "client": "itop",
-        "preferred_derp": "vpn4-vn",
-        "region_latency": {"vpn4-vn": 25.3, "myderp": 137.7},
-        "ts": 1000,
-    }]
-    page = render_derp_html(regions, [], 1000, nc_data=nc_data)
-    assert "itop" in page
-    assert "25.3ms" in page
-    assert "137.7ms" in page
-    assert "9733" in page      # preferred star &#9733;
-    assert "__NETCHECK__" not in page
-    assert "__PINGS__" not in page
-
-
-def test_render_derp_html_nc_data_none_shows_placeholder():
-    """nc_data=None: section van hien, placeholder reporter.ps1."""
-    regions = [{"code": "myderp", "url": "https://x/probe",
-                "ok": True, "latency_ms": 5.0, "error": None}]
-    page = render_derp_html(regions, [], 1000, nc_data=None)
-    assert "__NETCHECK__" not in page
-    assert "reporter" in page   # goi y chay reporter.ps1
-
-
-def test_render_derp_html_server_pings():
-    """server_pings hien thi RTT va path tag cho moi peer."""
-    regions = [{"code": "myderp", "url": "https://vpn2.../probe",
-                "ok": True, "latency_ms": 12.0, "error": None}]
     pings = [
-        {"hostname": "itop", "ip": "100.64.0.2", "relay": "direct",
-         "rtt_ms": 45.0, "ok": True, "ts": 1000},
-        {"hostname": "votam", "ip": "100.64.0.3", "relay": "derp:myderp",
-         "rtt_ms": 12.0, "ok": True, "ts": 1000},
+        {"hostname": "itop",  "ip": "100.64.0.2", "relay": "derp:vpn4-vn",
+         "rtt_ms": 95.6, "ok": True, "ts": 1000},
+        {"hostname": "votam", "ip": "100.64.0.3", "relay": "derp:vpn4-vn",
+         "rtt_ms": 148.9, "ok": True, "ts": 1000},
     ]
     page = render_derp_html(regions, [], 1000, server_pings=pings)
-    assert "itop" in page and "45.0ms" in page
-    assert "votam" in page and "12.0ms" in page
-    assert "direct" in page
+    assert "vpn2" in page                  # cot Nguon = vpn2
+    assert "itop" in page and "95.6ms" in page
+    assert "votam" in page and "148.9ms" in page
+    assert "via vpn4-vn" in page
+    assert "vpn3" in page                  # placeholder vpn3
+    assert "vpn4" in page                  # placeholder vpn4
     assert "__PINGS__" not in page
 
 
-def test_render_derp_html_no_pings_no_nc():
-    """Khi ca server_pings va nc_data deu None: placeholder hien, khong co placeholder raw."""
+def test_render_derp_html_other_srcs_placeholder():
+    """Cac DERP region khac myderp hien row placeholder 'chua co du lieu'."""
+    regions = [
+        {"code": "myderp",  "url": "https://vpn2.../probe", "ok": True, "latency_ms": 12.0, "error": None},
+        {"code": "vpn3-vn", "url": "https://vpn3.../probe", "ok": False,"latency_ms": None, "error": "timeout"},
+        {"code": "vpn4-vn", "url": "https://vpn4.../probe", "ok": True, "latency_ms": 25.0, "error": None},
+    ]
+    page = render_derp_html(regions, [], 1000, server_pings=None)
+    assert "vpn3" in page     # placeholder vpn3
+    assert "vpn4" in page     # placeholder vpn4
+    assert "__PINGS__" not in page
+
+
+def test_render_derp_html_no_pings():
+    """server_pings=None: vpn2 row van hien placeholder 'chua co du lieu'."""
     regions = [{"code": "myderp", "url": "https://x/probe",
                 "ok": True, "latency_ms": 5.0, "error": None}]
-    page = render_derp_html(regions, [], 1000, nc_data=None, server_pings=None)
-    assert "__NETCHECK__" not in page
+    page = render_derp_html(regions, [], 1000, server_pings=None)
+    assert "vpn2" in page
     assert "__PINGS__" not in page
 
 

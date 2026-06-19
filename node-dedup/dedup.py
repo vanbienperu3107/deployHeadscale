@@ -617,7 +617,7 @@ tr.off td{opacity:.45}
 .offline{background:#1e293b;color:#64748b}
 .bad{color:#fca5a5}
 .note{color:#64748b;font-size:11px}
-.star{color:#fbbf24}
+.src-badge{font-family:monospace;font-weight:700;color:#38bdf8;font-size:12px;white-space:nowrap}
 </style></head><body>
 <header>
   <h1>DERP Status</h1>
@@ -628,11 +628,7 @@ tr.off td{opacity:.45}
 <main id="derp-main">
 <div class="regions">__REGIONS__</div>
 <div class="panel">
-  <h2>STUN t&#7915; m&#7895;i client &#8594; DERP (gi&#7889;ng <code style="font-size:11px">tailscale netcheck</code>) &nbsp;<span class="note">&#8212; client POST d&#7919; li&#7879;u v&#7873; m&#7895;i 60s; &#9733; = nearest DERP c&#7911;a client &#273;&#243;</span></h2>
-  __NETCHECK__
-</div>
-<div class="panel">
-  <h2>vpn2 ping &#8594; t&#7915;ng node (RTT &#273;o &#273;&#432;&#7907;c, l&#432;u DB) &nbsp;<span class="note">&#8212; direct = P2P WireGuard UDP; via DERP = relay (UDP/TCP)</span></h2>
+  <h2>Ping t&#7915; t&#7915;ng server &#8594; node &nbsp;<span class="note">&#8212; RTT &#273;o l&#432;u DB m&#7895;i 30s; direct = UDP P2P; via DERP = relay</span></h2>
   __PINGS__
 </div>
 <div class="panel">
@@ -667,13 +663,12 @@ tr.off td{opacity:.45}
 </body></html>"""
 
 
-def render_derp_html(regions, peers, now, nc_data=None, server_pings=None):
-    """PURE: render HTML tu list region (da probe) + peer + client netcheck. Test duoc.
+def render_derp_html(regions, peers, now, server_pings=None):
+    """PURE: render HTML tu list region (da probe) + peer + server pings. Test duoc.
 
     regions:      [{code, url, ok, latency_ms, error}]
     peers:        [{hostname, ip, relay, direct, online}]  -- tu peer_relay_from_status
-    nc_data:      [{client, preferred_derp, region_latency:{code:ms}, ts}] -- tu query_latest_netcheck
-    server_pings: [{hostname, ip, relay(path), rtt_ms, ok, ts}]           -- tu query_current_relay
+    server_pings: [{hostname, ip, relay(path), rtt_ms, ok, ts}] -- tu query_current_relay (src=collector=vpn2)
     """
     gen = time.strftime("%H:%M:%S %d/%m/%Y", time.localtime(now))
 
@@ -724,33 +719,7 @@ def render_derp_html(regions, peers, now, nc_data=None, server_pings=None):
                      'Ch&#432;a c&#243; d&#7919; li&#7879;u — '
                      'collector ch&#432;a join tailnet</td></tr>')
 
-    # --- Client netcheck matrix (nc_data) ---
-    codes = [r["code"] for r in regions]
-    if nc_data:
-        th = "".join("<th>%s</th>" % html.escape(c) for c in codes)
-        nc_body = ""
-        for row in nc_data:
-            rl = row.get("region_latency") or {}
-            pref = row.get("preferred_derp", "")
-            age = now - row.get("ts", now)
-            age_str = ("%ds" % age) if age < 60 else ("%dm" % (age // 60))
-            cells = ""
-            for c in codes:
-                ms = rl.get(c)
-                star = ' <span class="star">&#9733;</span>' if c == pref else ""
-                cells += "<td>%s%s</td>" % (
-                    ("%sms" % ms) if ms is not None else '<span class="muted">-</span>',
-                    star)
-            nc_body += "<tr><td><b>%s</b><br><span class='note'>%s tr&#432;&#7899;c</span></td>%s</tr>" % (
-                html.escape(row["client"]), age_str, cells)
-        nc_html = ('<table><thead><tr><th>Client</th>%s</tr></thead>'
-                   '<tbody>%s</tbody></table>') % (th, nc_body)
-    else:
-        nc_html = ('<p class="muted">Ch&#432;a c&#243; d&#7919; li&#7879;u '
-                   '&#8212; ch&#7841;y <code>reporter.ps1</code> tr&#234;n m&#7895;i node r&#7891;i POST '
-                   'v&#7873; <code>/metrics/netcheck</code></p>')
-
-    # --- Server pings (vpn2 -> peer, from DB) ---
+    # --- Server pings grouped by source (vpn2 from DB; vpn3/vpn4 placeholder) ---
     def path_tag(p):
         path = p.get("relay", "") or ""
         if not p.get("ok"):
@@ -763,27 +732,53 @@ def render_derp_html(regions, peers, now, nc_data=None, server_pings=None):
             return '<span class="tag %s">via %s</span>' % (css, html.escape(code))
         return '<span class="bad">%s</span>' % html.escape(path or "?")
 
+    def _src_label(code):
+        if code == "myderp":
+            return "vpn2"
+        return code[:-3] if code.endswith("-vn") else code
+
+    # Other DERP regions (not myderp/vpn2) that will be ping sources once they have collectors
+    other_regions = [r for r in regions if r["code"] != "myderp"]
+
+    trows = ""
     if server_pings:
-        ping_rows = ""
         for p in server_pings:
             age = now - p.get("ts", now)
             age_str = ("%ds" % age) if age < 60 else ("%dm" % (age // 60))
             rtt = ("%sms" % p["rtt_ms"]) if p.get("rtt_ms") is not None else "-"
-            ping_rows += ("<tr><td>%s</td><td>%s</td><td>%s</td>"
-                          "<td>%s <span class='note'>%s tr&#432;&#7899;c</span></td></tr>") % (
-                html.escape(p["hostname"]), html.escape(p["ip"] or "-"),
-                rtt, path_tag(p), age_str)
-        pings_html = ('<table><thead><tr><th>Node</th><th>Tailnet IP</th>'
-                      '<th>RTT t&#7915; vpn2</th><th>Path</th></tr></thead>'
-                      '<tbody>%s</tbody></table>') % ping_rows
+            trows += (
+                "<tr><td class='src-badge'>vpn2</td><td>%s</td><td>%s</td>"
+                "<td>%s</td><td>%s</td>"
+                "<td class='note'>%s tr&#432;&#7899;c</td></tr>"
+            ) % (html.escape(p["hostname"]), html.escape(p["ip"] or "-"),
+                 rtt, path_tag(p), age_str)
     else:
-        pings_html = ('<p class="muted">Ch&#432;a c&#243; d&#7919; li&#7879;u '
-                      '&#8212; server ch&#432;a ping &#273;&#432;&#7907;c node n&#224;o</p>')
+        trows += ("<tr class='off'><td class='src-badge'>vpn2</td>"
+                  "<td colspan='5' class='muted'>ch&#432;a c&#243; d&#7919; li&#7879;u "
+                  "&#8212; server ch&#432;a ping &#273;&#432;&#7907;c node n&#224;o</td></tr>")
+
+    for r in other_regions:
+        sname = _src_label(r["code"])
+        trows += (
+            "<tr class='off'><td class='src-badge'>%s</td>"
+            "<td colspan='5' class='muted'>ch&#432;a c&#243; d&#7919; li&#7879;u "
+            "&#8212; c&#7847;n c&#224;i tailscale collector tr&#234;n server n&#224;y</td></tr>"
+        ) % html.escape(sname)
+
+    pings_html = (
+        "<table><thead><tr>"
+        "<th>Ngu&#7891;n</th><th>Node</th><th>Tailnet IP</th>"
+        "<th>RTT</th><th>Path</th><th>Last ping</th>"
+        "</tr></thead><tbody>%s</tbody></table>"
+        "<p class='note' style='margin-top:8px'>"
+        "<b>direct</b> = P2P WireGuard UDP &nbsp;&bull;&nbsp;"
+        "<b>via DERP</b> = relay qua DERP server"
+        "</p>"
+    ) % trows
 
     return (_DERP_PAGE
             .replace("__GENERATED__", gen)
             .replace("__REGIONS__", regions_html)
-            .replace("__NETCHECK__", nc_html)
             .replace("__PINGS__", pings_html)
             .replace("__ROWS__", rows_html))
 
@@ -920,10 +915,9 @@ def make_metrics_handler(conn, lock):
                 status = localapi_status()
                 peers = peer_relay_from_status(status)
                 with lock:
-                    nc_data = query_latest_netcheck(conn) or None
                     server_pings = query_current_relay(conn) or None
                 page = render_derp_html(regions, peers, int(time.time()),
-                                        nc_data=nc_data, server_pings=server_pings)
+                                        server_pings=server_pings)
                 self._sendhtml(200, page.encode("utf-8"))
                 return
             self._send(404, {"error": "not found"})
