@@ -190,3 +190,23 @@ jobs:
             exit 1
           fi
           echo "OK: khong tim thay private key trong relay-vpn5."
+
+  relay-vpn5-integration:
+    name: relay-vpn5 — integration (build image + /relay/probe)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build image + start relay + kiem tra health probe
+        run: bash test/relay_vpn5_integration.sh
+
+  relay-vpn5-traefik-migration:
+    name: relay-vpn5 — Traefik migration (deploy step 4)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Mo phong buoc migration traefik_config filename->directory
+        run: bash test/relay_vpn5_traefik_migration.sh
