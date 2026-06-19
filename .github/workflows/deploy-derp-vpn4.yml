@@ -71,38 +71,59 @@ jobs:
               echo "  Dung .ts_authkey da luu"
             fi
             # 2. Tu tao via headscale API tren vpn2 neu chua co key
-            if [ -z "$TS_AUTHKEY" ] && [ -n "$HS_API_KEY" ]; then
-              echo "  Chua co key -> tu tao via headscale API"
-              EXPIRY=$(date -d '+365 days' -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo "")
-              # Dung -o file thay vi $() de tranh set-e exit khi curl tra ve HTTP error
-              curl -sf -m 10 -H "Authorization: Bearer $HS_API_KEY" \
-                "https://vpn2.hangocthanh.io.vn/api/v1/user" \
-                -o /tmp/hs_users.json 2>/dev/null \
-                || printf '{"users":[]}' > /tmp/hs_users.json
-              echo "  DEBUG users=$(head -c 150 /tmp/hs_users.json 2>/dev/null)"
-              U_NAME=$(grep -oE '"name":"[^"]+"' /tmp/hs_users.json 2>/dev/null \
-                | head -1 | sed -E 's/"name":"//;s/"$//' || true)
-              echo "  DEBUG U_NAME='$U_NAME' EXPIRY='$EXPIRY'"
-              if [ -n "$U_NAME" ] && [ -n "$EXPIRY" ]; then
-                curl -sf -m 10 -X POST \
-                  -H "Authorization: Bearer $HS_API_KEY" \
-                  -H "Content-Type: application/json" \
-                  -d "{\"user\":\"$U_NAME\",\"reusable\":true,\"expiration\":\"$EXPIRY\"}" \
-                  "https://vpn2.hangocthanh.io.vn/api/v1/preauthkey" \
-                  -o /tmp/hs_preauthkey.json 2>/dev/null \
-                  || printf '{}' > /tmp/hs_preauthkey.json
-                echo "  DEBUG preauthkey=$(head -c 150 /tmp/hs_preauthkey.json 2>/dev/null)"
-                TS_AUTHKEY=$(grep -oE '"key":"[^"]+"' /tmp/hs_preauthkey.json 2>/dev/null \
-                  | head -1 | sed -E 's/"key":"//;s/"$//' || true)
-                if [ -n "$TS_AUTHKEY" ]; then
-                  printf '%s' "$TS_AUTHKEY" > "$DEPLOY_PATH/.ts_authkey"
-                  chmod 600 "$DEPLOY_PATH/.ts_authkey"
-                  echo "  Tao key OK (user=$U_NAME)"
+            if [ -z "$TS_AUTHKEY" ]; then
+              if [ -n "$HS_API_KEY" ]; then
+                echo "  Chua co key -> tu tao via headscale API"
+                EXPIRY=$(date -d '+365 days' -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo "")
+                curl -sf -m 10 -H "Authorization: Bearer $HS_API_KEY" \
+                  "https://vpn2.hangocthanh.io.vn/api/v1/user" \
+                  -o /tmp/hs_users.json 2>/dev/null \
+                  || printf '{"users":[]}' > /tmp/hs_users.json
+                echo "  DEBUG users=$(head -c 200 /tmp/hs_users.json 2>/dev/null)"
+                python3 -c "
+import json,sys
+try:
+    d=json.load(open('/tmp/hs_users.json'))
+    u=d.get('users',d.get('user',[]))
+    if isinstance(u,list) and u: print(u[0].get('name',''))
+    elif isinstance(u,dict): print(u.get('name',''))
+    else: print('')
+except Exception as e:
+    sys.stderr.write(str(e)+'\n'); print('')
+" > /tmp/hs_uname.txt 2>/dev/null || printf '' > /tmp/hs_uname.txt
+                U_NAME=$(cat /tmp/hs_uname.txt 2>/dev/null | tr -d '\n\r')
+                echo "  DEBUG U_NAME='$U_NAME' EXPIRY='$EXPIRY'"
+                if [ -n "$U_NAME" ]; then
+                  if [ -n "$EXPIRY" ]; then
+                    curl -sf -m 10 -X POST \
+                      -H "Authorization: Bearer $HS_API_KEY" \
+                      -H "Content-Type: application/json" \
+                      -d "{\"user\":\"$U_NAME\",\"reusable\":true,\"expiration\":\"$EXPIRY\"}" \
+                      "https://vpn2.hangocthanh.io.vn/api/v1/preauthkey" \
+                      -o /tmp/hs_preauthkey.json 2>/dev/null \
+                      || printf '{}' > /tmp/hs_preauthkey.json
+                    echo "  DEBUG preauthkey=$(head -c 200 /tmp/hs_preauthkey.json 2>/dev/null)"
+                    python3 -c "
+import json,sys
+try:
+    d=json.load(open('/tmp/hs_preauthkey.json'))
+    k=d.get('preAuthKey',{}).get('key','') or d.get('key','')
+    print(k)
+except Exception as e:
+    sys.stderr.write(str(e)+'\n'); print('')
+" > /tmp/hs_key.txt 2>/dev/null || printf '' > /tmp/hs_key.txt
+                    TS_AUTHKEY=$(cat /tmp/hs_key.txt 2>/dev/null | tr -d '\n\r')
+                    if [ -n "$TS_AUTHKEY" ]; then
+                      printf '%s' "$TS_AUTHKEY" > "$DEPLOY_PATH/.ts_authkey"
+                      chmod 600 "$DEPLOY_PATH/.ts_authkey"
+                      echo "  Tao key OK (user=$U_NAME)"
+                    else
+                      echo "  CANH BAO: khong tao duoc key - $(head -c 100 /tmp/hs_preauthkey.json 2>/dev/null)"
+                    fi
+                  fi
                 else
-                  echo "  CANH BAO: khong tao duoc key - $(head -c 100 /tmp/hs_preauthkey.json 2>/dev/null)"
+                  echo "  CANH BAO: khong tim thay user trong headscale"
                 fi
-              else
-                echo "  CANH BAO: U_NAME hoac EXPIRY trong"
               fi
             fi
 
