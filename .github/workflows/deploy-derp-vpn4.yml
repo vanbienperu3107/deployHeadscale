@@ -73,30 +73,35 @@ jobs:
             # 2. Tu tao via headscale API tren vpn2 neu chua co key
             if [ -z "$TS_AUTHKEY" ] && [ -n "$HS_API_KEY" ]; then
               echo "  Chua co key -> tu tao via headscale API"
-              EXPIRY=$(date -d '+365 days' -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || \
-                       date -u -v +365d +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo "")
-              USERS=$(curl -sf -H "Authorization: Bearer $HS_API_KEY" \
-                "https://vpn2.hangocthanh.io.vn/api/v1/user" 2>/dev/null || echo '{}')
-              U_NAME=$(printf '%s' "$USERS" | grep -oE '"name":"[^"]+"' | head -1 | \
-                sed -E 's/"name":"//;s/"$//' || true)
+              set +e  # Khong exit neu API call loi
+              EXPIRY=$(date -d '+365 days' -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo "")
+              USERS=$(curl -sf -m 10 -H "Authorization: Bearer $HS_API_KEY" \
+                "https://vpn2.hangocthanh.io.vn/api/v1/user" 2>/dev/null)
+              USERS_EXIT=$?
+              echo "  DEBUG curl users exit=$USERS_EXIT resp=$(printf '%s' "${USERS:-EMPTY}" | head -c 120)"
+              U_NAME=$(printf '%s' "${USERS:-}" | grep -oE '"name":"[^"]+"' | head -1 | \
+                sed -E 's/"name":"//;s/"$//')
+              echo "  DEBUG U_NAME='$U_NAME' EXPIRY='$EXPIRY'"
               if [ -n "$U_NAME" ] && [ -n "$EXPIRY" ]; then
-                RESP=$(curl -sf -X POST \
+                RESP=$(curl -sf -m 10 -X POST \
                   -H "Authorization: Bearer $HS_API_KEY" \
                   -H "Content-Type: application/json" \
                   -d "{\"user\":\"$U_NAME\",\"reusable\":true,\"expiration\":\"$EXPIRY\"}" \
-                  "https://vpn2.hangocthanh.io.vn/api/v1/preauthkey" 2>/dev/null || echo '{}')
-                TS_AUTHKEY=$(printf '%s' "$RESP" | grep -oE '"key":"[^"]+"' | head -1 | \
-                  sed -E 's/"key":"//;s/"$//' || true)
+                  "https://vpn2.hangocthanh.io.vn/api/v1/preauthkey" 2>/dev/null)
+                echo "  DEBUG preauthkey resp=$(printf '%s' "${RESP:-EMPTY}" | head -c 120)"
+                TS_AUTHKEY=$(printf '%s' "${RESP:-}" | grep -oE '"key":"[^"]+"' | head -1 | \
+                  sed -E 's/"key":"//;s/"$//')
                 if [ -n "$TS_AUTHKEY" ]; then
                   printf '%s' "$TS_AUTHKEY" > "$DEPLOY_PATH/.ts_authkey"
                   chmod 600 "$DEPLOY_PATH/.ts_authkey"
                   echo "  Tao key OK (user=$U_NAME), da luu .ts_authkey"
                 else
-                  echo "  CANH BAO: khong tao duoc key"
+                  echo "  CANH BAO: khong tao duoc key tu API"
                 fi
               else
                 echo "  CANH BAO: khong lay duoc user name tu headscale API"
               fi
+              set -e
             fi
 
             # Ghi .env cho compose
