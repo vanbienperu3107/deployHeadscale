@@ -8,9 +8,9 @@ COPY go.mod go.sum* ./
 
 # GONOSUMDB=* skips checksum DB (no committed go.sum in CI).
 # GOTELEMETRY=off avoids telemetry writes in build environment.
-ENV GONOSUMDB=* GOTELEMETRY=off
+ENV GONOSUMDB=* GOTELEMETRY=off GOFLAGS=-mod=mod
 
-RUN go mod tidy
+RUN go mod download
 
 COPY *.go ./
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /relay .
