@@ -7,11 +7,11 @@ import pytest
 
 from dedup import (aggregate_latency, init_db, init_latency_db,
                    is_allowed_report_src, is_tailnet_ip,
-                   latency_series, normalize, parse_pingresult, peer_relay_from_status,
-                   pingable_nodes, plan_actions, probe_derp_region, query_current_relay,
-                   query_devices, record_report, render_derp_html,
-                   render_stats_html, server_ping_all, validate_report,
-                   _parse_derp_regions)
+                   latency_series, normalize, parse_netcheck, parse_pingresult,
+                   peer_relay_from_status, pingable_nodes, plan_actions,
+                   probe_derp_region, query_current_relay, query_devices,
+                   record_report, render_derp_html, render_stats_html,
+                   server_ping_all, validate_report, _parse_derp_regions)
 
 
 def mk(id, host, given, user="u", online=False, last=0, ips=None):
@@ -431,3 +431,87 @@ def test_render_derp_html_empty_peers():
     regions = [{"code": "myderp", "url": "https://x/probe", "ok": True, "latency_ms": 5.0, "error": None}]
     page = render_derp_html(regions, [], 1000)
     assert "collector" in page.lower() or "Ch" in page
+
+
+# ---------------- parse_netcheck ----------------
+
+def test_parse_netcheck_basic():
+    report = {
+        "PreferredDERP": 999,
+        "RegionLatency": {"999": 5200000, "1000": 298500000, "1001": 301000000},
+    }
+    derp_map = {"Regions": {
+        "999":  {"RegionID": 999,  "RegionCode": "myderp"},
+        "1000": {"RegionID": 1000, "RegionCode": "vpn3-vn"},
+        "1001": {"RegionID": 1001, "RegionCode": "vpn4-vn"},
+    }}
+    result = parse_netcheck(report, derp_map)
+    assert len(result) == 3
+    assert result[0]["code"] == "myderp"
+    assert result[0]["preferred"] is True
+    assert result[0]["latency_ms"] == 5.2
+    assert result[1]["code"] == "vpn3-vn"
+    assert result[1]["preferred"] is False
+    assert result[2]["code"] == "vpn4-vn"
+
+
+def test_parse_netcheck_none_input():
+    assert parse_netcheck(None, None) == []
+    assert parse_netcheck({}, None) == []
+
+
+def test_parse_netcheck_no_derp_map_falls_back_to_id():
+    report = {"PreferredDERP": 999, "RegionLatency": {"999": 5200000}}
+    result = parse_netcheck(report, None)
+    assert len(result) == 1
+    assert result[0]["code"] == "999"
+    assert result[0]["latency_ms"] == 5.2
+    assert result[0]["preferred"] is True
+
+
+def test_parse_netcheck_zero_ns_gives_none_latency():
+    report = {"PreferredDERP": 0, "RegionLatency": {"999": 0}}
+    result = parse_netcheck(report, None)
+    assert result[0]["latency_ms"] is None
+
+
+def test_parse_netcheck_sorted_by_latency():
+    report = {"PreferredDERP": 0,
+              "RegionLatency": {"1001": 300000000, "999": 5000000, "1000": 150000000}}
+    result = parse_netcheck(report, None)
+    lats = [r["latency_ms"] for r in result]
+    assert lats == sorted(lats)
+
+
+def test_render_derp_html_with_netcheck():
+    regions = [{"code": "myderp", "url": "https://vpn2.../probe",
+                "ok": True, "latency_ms": 12.0, "error": None}]
+    netcheck = [
+        {"region_id": 999,  "code": "myderp",  "latency_ms": 5.2,   "preferred": True},
+        {"region_id": 1000, "code": "vpn3-vn", "latency_ms": 298.5, "preferred": False},
+    ]
+    page = render_derp_html(regions, [], 1000, netcheck_regions=netcheck)
+    assert "STUN" in page
+    assert "5.2ms" in page
+    assert "9733" in page          # preferred star &#9733;
+    assert "298.5ms" in page
+    assert "__NETCHECK__" not in page
+
+
+def test_render_derp_html_netcheck_none_shows_placeholder_text():
+    regions = [{"code": "myderp", "url": "https://x/probe",
+                "ok": True, "latency_ms": 5.0, "error": None}]
+    page = render_derp_html(regions, [], 1000, netcheck_regions=None)
+    assert "__NETCHECK__" not in page
+    assert "STUN" in page          # section tiep tuc hien, chi thieu du lieu
+
+
+def test_render_derp_html_ajax_refresh():
+    """Trang /derp dung AJAX fetch moi 5s thay vi meta refresh."""
+    regions = [{"code": "myderp", "url": "https://x/probe",
+                "ok": True, "latency_ms": 5.0, "error": None}]
+    page = render_derp_html(regions, [], 1000)
+    assert "meta http-equiv" not in page    # khong dung meta refresh
+    assert "setInterval" in page            # dung JS setInterval
+    assert "5000" in page                   # interval 5 giay
+    assert "fetch(" in page                 # AJAX fetch

@@ -531,6 +531,59 @@ def probe_derp_region(url, timeout=5):
         return {"ok": False, "latency_ms": None, "error": str(e)[:80]}
 
 
+def localapi_derp_map(timeout=5):
+    """Goi /localapi/v0/derp-map tu sidecar -> DERP map JSON. None neu loi."""
+    try:
+        conn = _UnixHTTP(TS_SOCKET, timeout)
+        conn.request("GET", "/localapi/v0/derp-map")
+        resp = conn.getresponse()
+        body = resp.read()
+        conn.close()
+        return json.loads(body or b"{}") if resp.status == 200 else None
+    except Exception:
+        return None
+
+
+def localapi_netcheck(timeout=12):
+    """POST /localapi/v0/debug-netcheck -> NetCheckReport (STUN latency toi moi DERP region).
+    Returns raw JSON dict hoac None neu loi / khong ho tro."""
+    try:
+        conn = _UnixHTTP(TS_SOCKET, timeout)
+        conn.request("POST", "/localapi/v0/debug-netcheck",
+                     b"", {"Content-Length": "0"})
+        resp = conn.getresponse()
+        body = resp.read()
+        conn.close()
+        return json.loads(body or b"{}") if resp.status == 200 else None
+    except Exception:
+        return None
+
+
+def parse_netcheck(report, derp_map):
+    """PURE: NetCheckReport + DERP map -> [{region_id, code, latency_ms, preferred}].
+    RegionLatency la nanoseconds (Go time.Duration). Sap xep latency tang dan. Test duoc."""
+    if not isinstance(report, dict):
+        return []
+    region_latency = report.get("RegionLatency") or {}
+    preferred_id = int(report.get("PreferredDERP") or 0)
+    rid_to_code = {}
+    if isinstance(derp_map, dict):
+        for k, v in (derp_map.get("Regions") or {}).items():
+            if isinstance(v, dict):
+                rid = int(v.get("RegionID") or k)
+                rid_to_code[rid] = v.get("RegionCode") or str(rid)
+    out = []
+    for rid_str, ns in region_latency.items():
+        rid = int(rid_str)
+        out.append({
+            "region_id": rid,
+            "code": rid_to_code.get(rid) or str(rid),
+            "latency_ms": round(float(ns) / 1e6, 1) if ns else None,
+            "preferred": rid == preferred_id,
+        })
+    return sorted(out, key=lambda x: (x["latency_ms"] is None, x["latency_ms"] or 0))
+
+
 def query_current_relay(conn, window=180):
     """PURE: relay hien tai cua tung node (lan ping moi nhat tu SRC_NAME trong cua so window s)."""
     cur = conn.cursor()
@@ -550,7 +603,6 @@ def query_current_relay(conn, window=180):
 
 _DERP_PAGE = """<!doctype html><html lang="vi"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta http-equiv="refresh" content="15">
 <title>DERP Status</title>
 <style>
 :root{color-scheme:dark}
@@ -580,15 +632,20 @@ tr.off td{opacity:.45}
 .offline{background:#1e293b;color:#64748b}
 .bad{color:#fca5a5}
 .note{color:#64748b;font-size:11px}
+.star{color:#fbbf24}
 </style></head><body>
 <header>
   <h1>DERP Status</h1>
-  <span class="note" style="margin-left:8px">c&#7853;p nh&#7853;t: __GENERATED__ &bull; t&#7921; refresh 15s</span>
+  <span class="note ts-label" style="margin-left:8px">c&#7853;p nh&#7853;t: __GENERATED__ &bull; t&#7921; refresh 5s</span>
   <a href="/stats" class="btn" style="margin-left:auto">&#128202; Th&#7889;ng k&#234;</a>
   <a href="/admin" class="btn">&#128100; Admin</a>
 </header>
-<main>
+<main id="derp-main">
 <div class="regions">__REGIONS__</div>
+<div class="panel">
+  <h2>STUN t&#7915; collector (vpn2) &#8594; m&#7895;i DERP &nbsp;<span class="note">&#8212; ph&#233;p &#273;o UDP th&#7921;c s&#7921; tailscale d&#249;ng; ITOP t&#7841;i H&#224; N&#7897;i th&#7845;y vpn3/vpn4 g&#7847;n h&#417;n nhi&#7873;u</span></h2>
+  __NETCHECK__
+</div>
 <div class="panel">
   <h2>Node &#273;ang d&#249;ng DERP n&#224;o (real-time t&#7915; tailscale LocalAPI)</h2>
   <table><thead><tr>
@@ -600,14 +657,33 @@ tr.off td{opacity:.45}
   </p>
 </div>
 </main>
+<script>
+(function(){
+  function refresh(){
+    fetch(location.pathname,{cache:'no-store'})
+      .then(function(r){return r.text();})
+      .then(function(html){
+        var doc=new DOMParser().parseFromString(html,'text/html');
+        var nm=doc.getElementById('derp-main');
+        var cm=document.getElementById('derp-main');
+        if(nm&&cm)cm.innerHTML=nm.innerHTML;
+        var nl=doc.querySelector('.ts-label');
+        var cl=document.querySelector('.ts-label');
+        if(nl&&cl)cl.textContent=nl.textContent;
+      }).catch(function(){});
+  }
+  setInterval(refresh,5000);
+})();
+</script>
 </body></html>"""
 
 
-def render_derp_html(regions, peers, now):
+def render_derp_html(regions, peers, now, netcheck_regions=None):
     """PURE: render HTML tu list region (da probe) + list peer tu LocalAPI. Test duoc.
 
-    regions: [{code, url, ok, latency_ms, error}]
-    peers:   [{hostname, ip, relay, direct, online}]  -- tu peer_relay_from_status
+    regions:          [{code, url, ok, latency_ms, error}]
+    peers:            [{hostname, ip, relay, direct, online}]  -- tu peer_relay_from_status
+    netcheck_regions: [{region_id, code, latency_ms, preferred}] -- tu parse_netcheck, None neu chua co
     """
     gen = time.strftime("%H:%M:%S %d/%m/%Y", time.localtime(now))
 
@@ -658,9 +734,26 @@ def render_derp_html(regions, peers, now):
                      'Ch&#432;a c&#243; d&#7919; li&#7879;u — '
                      'collector ch&#432;a join tailnet</td></tr>')
 
+    if netcheck_regions:
+        nc_rows = "".join(
+            "<tr><td>%s</td><td>%s%s</td></tr>" % (
+                html.escape(r["code"]),
+                ("%sms" % r["latency_ms"]) if r["latency_ms"] is not None else "-",
+                ' <span class="star">&#9733;</span>' if r["preferred"] else "",
+            )
+            for r in netcheck_regions
+        )
+        nc_html = ('<table><thead><tr><th>Region</th>'
+                   '<th>STUN latency (UDP :3478)</th></tr></thead>'
+                   '<tbody>%s</tbody></table>' % nc_rows)
+    else:
+        nc_html = ('<p class="muted">Ch&#432;a c&#243; d&#7919; li&#7879;u '
+                   '&#8212; tailscale sidecar ch&#432;a s&#7861;n s&#224;ng</p>')
+
     return (_DERP_PAGE
             .replace("__GENERATED__", gen)
             .replace("__REGIONS__", regions_html)
+            .replace("__NETCHECK__", nc_html)
             .replace("__ROWS__", rows_html))
 
 
@@ -773,7 +866,11 @@ def make_metrics_handler(conn, lock):
                     r.update(probe_derp_region(r["url"]))
                 status = localapi_status()
                 peers = peer_relay_from_status(status)
-                page = render_derp_html(regions, peers, int(time.time()))
+                nc_report = localapi_netcheck()
+                derp_map = localapi_derp_map() if nc_report else None
+                netcheck = parse_netcheck(nc_report, derp_map) or None
+                page = render_derp_html(regions, peers, int(time.time()),
+                                        netcheck_regions=netcheck)
                 self._sendhtml(200, page.encode("utf-8"))
                 return
             self._send(404, {"error": "not found"})
