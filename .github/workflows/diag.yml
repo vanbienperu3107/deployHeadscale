@@ -60,3 +60,25 @@ jobs:
             done
         env:
           DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+
+      - name: SSH vpn4 — log ping-reporter + tailscale status
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SSH_HOST_VPN4 }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT || '22' }}
+          envs: DEPLOY_PATH
+          command_timeout: 5m
+          script: |
+            if [ "$(id -u)" -ne 0 ]; then SUDO="sudo"; else SUDO=""; fi
+            echo "==> docker compose ps (derp-vpn4)"
+            cd "$DEPLOY_PATH/derp-vpn4" 2>/dev/null && $SUDO docker compose ps 2>&1 || true
+            echo ""
+            echo "==> ts-vpn4: tailscale status (thay collector khong?)"
+            $SUDO docker exec ts-vpn4 tailscale status 2>&1 | head -30 || true
+            echo ""
+            echo "==> ping-reporter-vpn4: 60 dong log cuoi"
+            $SUDO docker logs --tail 60 ping-reporter-vpn4 2>&1 || true
+        env:
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}

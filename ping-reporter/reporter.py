@@ -62,18 +62,22 @@ def get_peers_and_collector():
         return [], None
     peers = []
     collector_ip = None
+    debug_online = []
+    debug_offline = []
     for _, peer in (status.get("Peer") or {}).items():
-        if not peer.get("Online"):
-            continue
         ips = peer.get("TailscaleIPs") or []
         ip4 = next((ip for ip in ips if ":" not in ip), "")
         if not ip4:
             continue
         host = (peer.get("HostName") or (peer.get("DNSName") or "").split(".")[0]).lower()
+        online = bool(peer.get("Online"))
         if host == COLLECTOR_HOSTNAME:
-            collector_ip = ip4
-        else:
+            collector_ip = ip4  # lay IP du Online hay khong
+        elif online:
             peers.append((host, ip4))
+        (debug_online if online else debug_offline).append(host)
+    if not collector_ip:
+        log("DEBUG peers Online=%s Offline=%s" % (debug_online, debug_offline))
     return peers, collector_ip
 
 
