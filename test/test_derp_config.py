@@ -262,14 +262,17 @@ def test_relay_vpn4_expose_udp_41641():
     assert "41641" in ports_str, "relay-vpn4 phai expose UDP 41641 (WireGuard outbound)"
 
 
-def test_relay_vpn4_join_pangolin_network():
+def test_relay_vpn4_co_caddy_tls():
+    """vpn4 khong co Pangolin — dung Caddy tu xu ly TLS thay Traefik."""
     compose = ROOT / "relay-vpn4" / "docker-compose.yml"
     data = yaml.safe_load(compose.read_text())
-    nets = data.get("networks", {})
-    assert "pangolin_net" in nets, "relay-vpn4 phai join pangolin_net"
-    assert nets["pangolin_net"].get("external") is True, (
-        "pangolin_net phai la external network"
+    svcs = data.get("services", {})
+    assert "caddy" in svcs, (
+        "relay-vpn4 compose phai co service 'caddy' (TLS termination, thay the Traefik)"
     )
+    ports = svcs["caddy"].get("ports", [])
+    ports_str = " ".join(str(p) for p in ports)
+    assert "443" in ports_str, "caddy phai expose port 443"
 
 
 def test_relay_vpn4_dockerfile_ton_tai():

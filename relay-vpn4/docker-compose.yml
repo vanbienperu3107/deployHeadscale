@@ -1,8 +1,24 @@
 services:
 
-  # Custom hybrid DERP relay on vpn4 — replaces standard derper.
-  # - TCP side (port 8080, via Traefik): accepts DERP connections from any client
-  # - UDP side (port 41641): sends WireGuard packets to UDP-capable peers
+  # Caddy: TLS termination cho vpn4.hangocthanh.io.vn:443 -> relay:8080.
+  # Auto Let's Encrypt, khong can Pangolin/Traefik.
+  caddy:
+    image: caddy:2-alpine
+    container_name: caddy-vpn4
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+    command: caddy reverse-proxy --from vpn4.hangocthanh.io.vn --to http://relay:8080
+    networks:
+      - relay_net
+    depends_on:
+      - relay
+
+  # Custom hybrid DERP relay — replaces standard derper.
   relay:
     build:
       context: .
@@ -15,17 +31,16 @@ services:
       - -key-file=/data/relay.key
       - -cache-ttl=5s
     ports:
-      - "41641:41641/udp"   # WireGuard UDP — relay→peer outbound + peer→relay inbound
+      - "41641:41641/udp"
     volumes:
       - relay_data:/data
       - ts_sock:/var/run/tailscale
     networks:
-      - pangolin_net
+      - relay_net
     depends_on:
       - tailscale
 
-  # Tailscale sidecar: joins the tailnet as node "vpn4-relay".
-  # Relay queries its LocalAPI to discover which peers have reachable UDP endpoints.
+  # Tailscale sidecar — joins tailnet as "vpn4", relay queries LocalAPI for peer UDP endpoints.
   tailscale:
     image: tailscale/tailscale:latest
     container_name: ts-vpn4
@@ -45,14 +60,15 @@ services:
     cap_add:
       - NET_ADMIN
     networks:
-      - pangolin_net
+      - relay_net
 
-  # Ping reporter — reports relay latency per peer.
+  # Ping reporter — reports relay latency per peer via WireGuard.
   ping-reporter:
     image: python:3.12-slim
     container_name: ping-reporter-vpn4
     restart: unless-stopped
     command: ["python3", "/app/reporter.py"]
+    network_mode: "service:tailscale"
     environment:
       - REPORTER_NAME=vpn4
       - TS_SOCKET=/var/run/tailscale/tailscaled.sock
@@ -64,15 +80,14 @@ services:
       - ts_sock:/var/run/tailscale
     depends_on:
       - tailscale
-    networks:
-      - pangolin_net
 
 networks:
-  pangolin_net:
-    external: true
-    name: pangolin_network
+  relay_net:
+    driver: bridge
 
 volumes:
   relay_data:
   tailscale_vpn4:
   ts_sock:
+  caddy_data:
+  caddy_config:

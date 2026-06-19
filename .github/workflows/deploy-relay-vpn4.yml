@@ -102,15 +102,9 @@ jobs:
             printf 'TS_AUTHKEY=%s\n' "${TS_AUTHKEY:-}" > "$DEPLOY_PATH/relay-vpn4/.env"
             echo "  .env da ghi"
 
-            echo "==> [5/7] Diagnostic Traefik + env"
-            echo "  HOME=$HOME"
-            echo "  DEPLOY_PATH=${DEPLOY_PATH:-NOT_SET}"
-            echo "  Containers:"
-            docker ps --format "    {{.Names}}" 2>/dev/null || echo "  (docker ps failed)"
-            echo "  Pangolin dirs:"
-            ls -d "$HOME/opt/pangolin" 2>/dev/null && echo "    found HOME/opt/pangolin" || true
-            ls -d "/opt/pangolin" 2>/dev/null && echo "    found /opt/pangolin" || true
-            echo "  Done diagnostic"
+            echo "==> [5/7] Chuan bi network"
+            echo "  vpn4 dung Caddy (tu xu ly TLS), khong can Pangolin/Traefik"
+            echo "  Containers dang chay: $(docker ps --format '{{.Names}}' 2>/dev/null | tr '\n' ' ')"
 
             echo "==> [6/7] Khoi dong relay + tailscale + ping-reporter"
             cd "$DEPLOY_PATH/relay-vpn4"
