@@ -27,29 +27,31 @@ jobs:
             -H "Authorization: Bearer $HS_API_KEY" \
             "https://vpn2.hangocthanh.io.vn/api/v1/user" 2>/dev/null \
             || echo '{"users":[]}')
-          USER=$(echo "$RESPONSE" | python3 -c \
+          # headscale v0.23+: user field la uint64 ID, khong phai ten
+          USER_ID=$(echo "$RESPONSE" | python3 -c \
+            "import json,sys; d=json.load(sys.stdin); u=d.get('users',d.get('user',[])); print(int(u[0].get('id',0)) if isinstance(u,list) and u else '')" \
+            2>/dev/null || echo "")
+          USER_NAME=$(echo "$RESPONSE" | python3 -c \
             "import json,sys; d=json.load(sys.stdin); u=d.get('users',d.get('user',[])); print(u[0].get('name','') if isinstance(u,list) and u else '')" \
             2>/dev/null || echo "")
-          echo "headscale user: '$USER'"
+          echo "headscale user: '$USER_NAME' (id=$USER_ID)"
           EXPIRY=$(date -d '+365 days' -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo "")
           KEY=""
-          if [ -n "$USER" ]; then
-            # Khong dung -f de thay duoc ca error response (debug)
-            PKEY_RESP=$(curl -s -m 15 -X POST \
+          if [ -n "$USER_ID" ] && [ "$USER_ID" != "0" ]; then
+            PKEY_RESP=$(curl -sf -m 15 -X POST \
               -H "Authorization: Bearer $HS_API_KEY" \
               -H "Content-Type: application/json" \
-              -d "{\"user\":\"$USER\",\"reusable\":true,\"expiration\":\"$EXPIRY\"}" \
+              -d "{\"user\":$USER_ID,\"reusable\":true,\"expiration\":\"$EXPIRY\"}" \
               "https://vpn2.hangocthanh.io.vn/api/v1/preauthkey" 2>/dev/null || echo "")
-            echo "preauthkey resp (200 chars): ${PKEY_RESP:0:200}"
             KEY=$(echo "$PKEY_RESP" | python3 -c \
               "import json,sys; d=json.load(sys.stdin); print(d.get('preAuthKey',{}).get('key','') or d.get('key',''))" \
               2>/dev/null || echo "")
           fi
           if [ -n "$KEY" ]; then
             echo "::add-mask::$KEY"
-            echo "Tao preauthkey thanh cong (user=$USER)"
+            echo "Tao preauthkey thanh cong (user=$USER_NAME id=$USER_ID)"
           else
-            echo "Khong tao duoc preauthkey — kiem tra preauthkey resp o tren"
+            echo "Khong tao duoc preauthkey (user=$USER_NAME id=$USER_ID)"
           fi
           echo "key=$KEY" >> "$GITHUB_OUTPUT"
 
