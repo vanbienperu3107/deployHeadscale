@@ -90,3 +90,53 @@ jobs:
       # node-dedup thanh container rieng.
       - name: Integration test /stats (khong sidecar)
         run: bash test/stats_integration.sh
+
+  relay-vpn5-build:
+    name: relay-vpn5 — Go build + vet + compose validate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go 1.22
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+          # go.sum chua duoc commit (go mod tidy se tao o buoc sau).
+          # Cache theo go.mod de tang toc lan sau.
+          cache-dependency-path: relay-vpn5/go.mod
+
+      - name: go mod tidy (resolve + generate go.sum)
+        working-directory: relay-vpn5
+        run: go mod tidy
+
+      - name: go build (kiem tra bien dich thanh cong)
+        working-directory: relay-vpn5
+        run: go build ./...
+
+      - name: go vet (static analysis)
+        working-directory: relay-vpn5
+        run: go vet ./...
+
+      - name: Validate relay-vpn5/docker-compose.yml
+        run: docker compose -f relay-vpn5/docker-compose.yml config --quiet && echo "relay-vpn5/docker-compose.yml OK"
+
+      - name: Validate config/derp.yaml bao gom region 1002 (vpn5)
+        run: |
+          python3 -c "
+          import yaml, sys
+          d = yaml.safe_load(open('config/derp.yaml'))
+          regions = d.get('regions', {})
+          assert 1002 in regions, 'region 1002 (vpn5) chua co trong derp.yaml'
+          r = regions[1002]
+          assert r['nodes'][0]['derpport'] == 443, 'derpport phai la 443'
+          print('derp.yaml region 1002 OK:', r['regionname'])
+          "
+
+      - name: Scan secret trong relay-vpn5
+        run: |
+          if grep -rIl --exclude-dir=.git --exclude='*.md' -E 'BEGIN [A-Z ]*PRIVATE KEY' relay-vpn5/; then
+            echo "::error::Private key bi commit vao relay-vpn5!"
+            exit 1
+          fi
+          echo "OK: khong tim thay private key trong relay-vpn5."

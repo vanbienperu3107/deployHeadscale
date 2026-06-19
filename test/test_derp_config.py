@@ -185,8 +185,83 @@ def test_derp_vpn4_hostname_trong_compose():
 
 
 def test_derp_co_3_region_total():
-    """3 DERP regions (999 embedded + 1000 vpn3 + 1001 vpn4) -> failover tot hon."""
+    """4 DERP regions (999 embedded + 1000 vpn3 + 1001 vpn4 + 1002 vpn5) -> failover tot."""
     d = load_derp()
-    assert len(d["regions"]) >= 2, (
-        "config/derp.yaml phai co it nhat 2 region ngoai (+ embedded 999 = 3 tong)"
+    assert len(d["regions"]) >= 3, (
+        "config/derp.yaml phai co it nhat 3 region ngoai (+ embedded 999 = 4 tong)"
+    )
+
+
+# ---------- region 1002 (vpn5 hybrid relay) ----------
+
+def test_vpn5_co_trong_derp_map():
+    """Dam bao vpn5.hangocthanh.io.vn (hybrid relay) duoc dang ky."""
+    hostnames = [
+        node["hostname"]
+        for region in load_derp()["regions"].values()
+        for node in region["nodes"]
+    ]
+    assert "vpn5.hangocthanh.io.vn" in hostnames, (
+        "vpn5.hangocthanh.io.vn phai co trong config/derp.yaml (region 1002)"
+    )
+
+
+def test_vpn5_ip_va_port_dung():
+    for region in load_derp()["regions"].values():
+        for node in region["nodes"]:
+            if node["hostname"] == "vpn5.hangocthanh.io.vn":
+                assert node.get("ipv4") == "204.199.161.89", (
+                    "ipv4 cua vpn5 phai la 204.199.161.89"
+                )
+                assert node.get("derpport") == 443, "vpn5 derpport phai la 443"
+
+
+def test_vpn5_region_id_la_1002():
+    d = load_derp()
+    assert 1002 in d["regions"], "region 1002 phai ton tai (vpn5)"
+    assert d["regions"][1002]["regionid"] == 1002
+
+
+# ---------- relay-vpn5 compose ----------
+
+def test_relay_vpn5_compose_ton_tai():
+    compose = ROOT / "relay-vpn5" / "docker-compose.yml"
+    assert compose.exists(), "relay-vpn5/docker-compose.yml phai ton tai"
+
+
+def test_relay_vpn5_compose_co_relay_va_tailscale():
+    compose = ROOT / "relay-vpn5" / "docker-compose.yml"
+    data = yaml.safe_load(compose.read_text())
+    svcs = data.get("services", {})
+    assert "relay" in svcs, "relay-vpn5 compose phai co service 'relay'"
+    assert "tailscale" in svcs, "relay-vpn5 compose phai co service 'tailscale' (sidecar)"
+
+
+def test_relay_vpn5_expose_udp_41641():
+    compose = ROOT / "relay-vpn5" / "docker-compose.yml"
+    data = yaml.safe_load(compose.read_text())
+    ports = data["services"]["relay"].get("ports", [])
+    ports_str = " ".join(str(p) for p in ports)
+    assert "41641" in ports_str, "relay-vpn5 phai expose UDP 41641 (WireGuard outbound)"
+
+
+def test_relay_vpn5_join_pangolin_network():
+    compose = ROOT / "relay-vpn5" / "docker-compose.yml"
+    data = yaml.safe_load(compose.read_text())
+    nets = data.get("networks", {})
+    assert "pangolin_net" in nets, "relay-vpn5 phai join pangolin_net"
+    assert nets["pangolin_net"].get("external") is True, (
+        "pangolin_net phai la external network (cua Pangolin stack)"
+    )
+
+
+def test_relay_vpn5_dockerfile_ton_tai():
+    assert (ROOT / "relay-vpn5" / "Dockerfile").exists(), (
+        "relay-vpn5/Dockerfile phai ton tai"
+    )
+
+
+def test_relay_vpn5_go_mod_ton_tai():
+    assert (ROOT / "relay-vpn5" / "go.mod").exists(), (
+        "relay-vpn5/go.mod phai ton tai"
     )

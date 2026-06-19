@@ -1,0 +1,16 @@
+http:
+  routers:
+    relay-vpn5:
+      rule: "Host(`vpn5.hangocthanh.io.vn`)"
+      entryPoints:
+        - websecure
+      service: relay-vpn5
+      tls:
+        certResolver: letsencrypt
+
+  services:
+    relay-vpn5:
+      loadBalancer:
+        servers:
+          - url: "http://relay-vpn5:8080"
+        passHostHeader: true

@@ -29,3 +29,14 @@ regions:
         ipv4: "149.104.66.174"
         stunport: 3478
         derpport: 443
+  1002:
+    regionid: 1002
+    regioncode: "vpn5-us"
+    regionname: "VPN5 US (hybrid relay)"
+    nodes:
+      - name: "vpn5-us-1"
+        regionid: 1002
+        hostname: "vpn5.hangocthanh.io.vn"
+        ipv4: "204.199.161.89"
+        stunport: 3478
+        derpport: 443
