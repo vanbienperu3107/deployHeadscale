@@ -7,8 +7,8 @@ import pytest
 
 from dedup import (aggregate_latency, init_db, init_latency_db,
                    is_allowed_report_src, is_tailnet_ip,
-                   latency_series, normalize, parse_pingresult, pingable_nodes,
-                   plan_actions, probe_derp_region, query_current_relay,
+                   latency_series, normalize, parse_pingresult, peer_relay_from_status,
+                   pingable_nodes, plan_actions, probe_derp_region, query_current_relay,
                    query_devices, record_report, render_derp_html,
                    render_stats_html, server_ping_all, validate_report,
                    _parse_derp_regions)
@@ -339,27 +339,71 @@ def test_query_current_relay_respects_window():
     assert not any(r["hostname"] == "old-node" for r in rows)
 
 
+def test_peer_relay_from_status_relay_and_direct():
+    status = {
+        "Peer": {
+            "nodekey:aaa": {
+                "HostName": "server1",
+                "TailscaleIPs": ["100.64.0.5", "fd7a::5"],
+                "Relay": "vpn3-vn",
+                "CurAddr": "",          # khong di thang
+                "Online": True,
+            },
+            "nodekey:bbb": {
+                "HostName": "phone1",
+                "TailscaleIPs": ["100.64.0.6"],
+                "Relay": "myderp",
+                "CurAddr": "1.2.3.4:41641",  # di thang P2P
+                "Online": True,
+            },
+            "nodekey:ccc": {
+                "HostName": "laptop",
+                "TailscaleIPs": ["100.64.0.7"],
+                "Relay": "",
+                "CurAddr": "",
+                "Online": False,        # offline
+            },
+        }
+    }
+    peers = peer_relay_from_status(status)
+    by_host = {p["hostname"]: p for p in peers}
+
+    assert by_host["server1"]["relay"] == "vpn3-vn"
+    assert by_host["server1"]["direct"] is False
+    assert by_host["server1"]["online"] is True
+
+    assert by_host["phone1"]["relay"] == "myderp"
+    assert by_host["phone1"]["direct"] is True   # CurAddr non-empty -> direct P2P
+
+    assert by_host["laptop"]["online"] is False
+
+
+def test_peer_relay_from_status_empty():
+    assert peer_relay_from_status(None) == []
+    assert peer_relay_from_status({}) == []
+    assert peer_relay_from_status({"Peer": {}}) == []
+
+
 def test_render_derp_html_smoke():
     regions = [
         {"code": "myderp",  "url": "https://vpn2.../probe", "ok": True,  "latency_ms": 12.0, "error": None},
         {"code": "vpn3-vn", "url": "https://vpn3.../probe", "ok": False, "latency_ms": None, "error": "timeout"},
     ]
-    nodes = [
-        {"hostname": "server1", "ip": "100.64.0.5", "relay": "derp:vpn3-vn", "rtt_ms": 15.0, "ok": True,  "ts": 1000},
-        {"hostname": "phone1",  "ip": "100.64.0.6", "relay": "direct",       "rtt_ms": 2.0,  "ok": True,  "ts": 1010},
+    peers = [
+        {"hostname": "server1", "ip": "100.64.0.5", "relay": "vpn3-vn", "direct": False, "online": True},
+        {"hostname": "phone1",  "ip": "100.64.0.6", "relay": "myderp",  "direct": True,  "online": True},
     ]
-    page = render_derp_html(regions, nodes, 1200)
+    page = render_derp_html(regions, peers, 1200)
     assert "<html" in page
     assert "myderp" in page and "vpn3-vn" in page
     assert "server1" in page and "phone1" in page
     assert "direct" in page
-    # placeholder khong con ton tai
     assert "__GENERATED__" not in page
     assert "__REGIONS__" not in page
     assert "__ROWS__" not in page
 
 
-def test_render_derp_html_empty_nodes():
+def test_render_derp_html_empty_peers():
     regions = [{"code": "myderp", "url": "https://x/probe", "ok": True, "latency_ms": 5.0, "error": None}]
     page = render_derp_html(regions, [], 1000)
-    assert "chua co du" in page.lower() or "Ch" in page   # thong bao "chua co du lieu"
+    assert "collector" in page.lower() or "Ch" in page

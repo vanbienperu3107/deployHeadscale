@@ -466,6 +466,45 @@ def render_stats_html(pairs, series, devices, window_s, now):
 
 # ---- DERP status helpers ----
 
+def localapi_status(timeout=5):
+    """Goi /localapi/v0/status tu sidecar -> full peer status. None neu loi/chua san sang."""
+    try:
+        conn = _UnixHTTP(TS_SOCKET, timeout)
+        conn.request("GET", "/localapi/v0/status")
+        resp = conn.getresponse()
+        body = resp.read()
+        conn.close()
+        return json.loads(body or b"{}") if resp.status == 200 else None
+    except Exception:
+        return None
+
+
+def peer_relay_from_status(status):
+    """PURE: LocalAPI status -> list {hostname, ip, relay, direct, online}. Test duoc.
+
+    Relay = home DERP relay hien tai cua peer (vd 'vpn3-vn', 'myderp', '').
+    direct = True neu CurAddr non-empty (dang di thang P2P, khong qua DERP).
+    """
+    if not isinstance(status, dict):
+        return []
+    out = []
+    for _, peer in (status.get("Peer") or {}).items():
+        dns = peer.get("DNSName", "") or ""
+        host = peer.get("HostName", "") or dns.split(".")[0]
+        ips = peer.get("TailscaleIPs", []) or []
+        ip4 = next((ip for ip in ips if ":" not in ip), "")
+        relay = (peer.get("Relay", "") or "").strip()
+        cur_addr = (peer.get("CurAddr", "") or "").strip()
+        out.append({
+            "hostname": host,
+            "ip": ip4,
+            "relay": relay,
+            "direct": bool(cur_addr),
+            "online": bool(peer.get("Online", False)),
+        })
+    return sorted(out, key=lambda x: x["hostname"])
+
+
 def _parse_derp_regions(raw):
     """PURE: "code=url,..." -> list of {code, url}. Test duoc."""
     out = []
@@ -510,7 +549,7 @@ def query_current_relay(conn, window=180):
 
 _DERP_PAGE = """<!doctype html><html lang="vi"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta http-equiv="refresh" content="30">
+<meta http-equiv="refresh" content="15">
 <title>DERP Status</title>
 <style>
 :root{color-scheme:dark}
@@ -519,43 +558,55 @@ header{padding:18px 24px;background:#111a2e;border-bottom:1px solid #24304a;disp
 h1{margin:0;font-size:18px}
 .btn{background:#1e293b;color:#94a3b8;padding:6px 14px;border-radius:8px;font-size:12px;text-decoration:none}
 .muted{color:#94a3b8;font-size:12px}
-main{padding:20px 24px;max-width:900px;margin:0 auto}
+main{padding:20px 24px;max-width:960px;margin:0 auto}
 .regions{display:flex;gap:14px;flex-wrap:wrap;margin-bottom:22px}
-.rcard{background:#131d33;border:1px solid #24304a;border-radius:12px;padding:14px 20px;min-width:180px}
+.rcard{background:#131d33;border:1px solid #24304a;border-radius:12px;padding:14px 20px;min-width:200px}
 .rcard.ok{border-color:#065f46}.rcard.fail{border-color:#7f1d1d}
 .rcode{font-size:14px;font-weight:700}.rlat{font-size:26px;font-weight:700;margin:6px 0}
 .rurl{color:#475569;font-size:11px;word-break:break-all}.rerr{color:#fca5a5;font-size:11px;margin-top:4px}
 .dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px;vertical-align:middle}
-.dot.ok{background:#34d399}.dot.fail{background:#f87171}
+.dot.ok{background:#34d399}.dot.fail{background:#f87171}.dot.off{background:#475569}
 .panel{background:#131d33;border:1px solid #24304a;border-radius:12px;padding:14px;margin-bottom:22px}
 .panel h2{margin:2px 0 10px;font-size:14px;color:#cbd5e1}
 table{border-collapse:collapse;width:100%}
-th,td{border-bottom:1px solid #24304a;padding:7px 10px;text-align:left;font-size:13px}
+th,td{border-bottom:1px solid #24304a;padding:8px 10px;text-align:left;font-size:13px}
 th{color:#94a3b8;font-weight:600}
-.tag{padding:2px 9px;border-radius:999px;font-size:11px;font-weight:600}
-.direct{background:#064e3b;color:#6ee7b7}.derp{background:#312e81;color:#a5b4fc}
-.bad{color:#fca5a5}.ago{color:#64748b;font-size:11px}
+tr.off td{opacity:.45}
+.tag{padding:2px 9px;border-radius:999px;font-size:11px;font-weight:600;display:inline-block}
+.direct{background:#064e3b;color:#6ee7b7}
+.derp{background:#312e81;color:#a5b4fc}
+.offline{background:#1e293b;color:#64748b}
+.bad{color:#fca5a5}
+.note{color:#64748b;font-size:11px}
 </style></head><body>
 <header>
   <h1>DERP Status</h1>
+  <span class="note" style="margin-left:8px">c&#7853;p nh&#7853;t: __GENERATED__ &bull; t&#7921; refresh 15s</span>
   <a href="/stats" class="btn" style="margin-left:auto">&#128202; Th&#7889;ng k&#234;</a>
   <a href="/admin" class="btn">&#128100; Admin</a>
 </header>
 <main>
-<p class="muted">C&#7853;p nh&#7853;t: __GENERATED__ &mdash; t&#7921; refresh 30s</p>
 <div class="regions">__REGIONS__</div>
 <div class="panel">
-  <h2>Node &#273;ang d&#249;ng DERP n&#224;o (180 gi&#226;y g&#7847;n nh&#7845;t)</h2>
+  <h2>Node &#273;ang d&#249;ng DERP n&#224;o (real-time t&#7915; tailscale LocalAPI)</h2>
   <table><thead><tr>
-    <th>Node</th><th>Tailnet IP</th><th>Via</th><th>RTT</th><th>C&#7853;p nh&#7853;t</th>
+    <th>Node</th><th>Tailnet IP</th><th>K&#7871;t n&#7889;i qua</th><th>Online</th>
   </tr></thead><tbody>__ROWS__</tbody></table>
+  <p class="note" style="margin-top:10px">
+    <b>direct</b> = k&#7871;t n&#7889;i th&#7859;ng P2P (kh&#244;ng qua DERP) &nbsp;&bull;&nbsp;
+    <b>vpn3-vn / myderp</b> = &#273;ang relay qua DERP region &#273;&#243;
+  </p>
 </div>
 </main>
 </body></html>"""
 
 
-def render_derp_html(regions, nodes_relay, now):
-    """PURE: render HTML tu list region (da probe) + list node relay. Test duoc."""
+def render_derp_html(regions, peers, now):
+    """PURE: render HTML tu list region (da probe) + list peer tu LocalAPI. Test duoc.
+
+    regions: [{code, url, ok, latency_ms, error}]
+    peers:   [{hostname, ip, relay, direct, online}]  -- tu peer_relay_from_status
+    """
     gen = time.strftime("%H:%M:%S %d/%m/%Y", time.localtime(now))
 
     def rcard(r):
@@ -571,33 +622,33 @@ def render_derp_html(regions, nodes_relay, now):
     regions_html = "".join(rcard(r) for r in regions) if regions else (
         '<p class="muted">Ch&#432;a c&#7845;u h&#236;nh DERP_PROBE_URLS</p>')
 
-    def relay_tag(relay):
-        if not relay or relay == "?":
-            return '<span class="bad">?</span>'
-        if relay.startswith("direct"):
-            return '<span class="tag direct">direct</span>'
-        return '<span class="tag derp">%s</span>' % html.escape(relay.replace("derp:", ""))
+    def via_tag(peer):
+        if not peer["online"]:
+            return '<span class="tag offline">offline</span>'
+        if peer["direct"]:
+            return '<span class="tag direct">direct (P2P)</span>'
+        relay = peer["relay"]
+        if relay:
+            return '<span class="tag derp">%s</span>' % html.escape(relay)
+        return '<span class="bad">?</span>'
 
-    def ago(ts):
-        d = now - ts
-        if d < 5:
-            return "v&#7915;a xong"
-        if d < 90:
-            return "%ds" % d
-        return "%dm" % (d // 60)
-
-    if nodes_relay:
+    if peers:
         rows_html = "".join(
-            "<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td class='ago'>%s tr&#432;&#7899;c</td></tr>"
-            % (html.escape(n["hostname"]), html.escape(n["ip"] or "-"),
-               relay_tag(n["relay"]),
-               ("%sms" % n["rtt_ms"]) if n["rtt_ms"] is not None else "-",
-               ago(n["ts"]))
-            for n in nodes_relay)
+            "<tr%s><td>%s</td><td>%s</td><td>%s</td>"
+            "<td><span class='dot %s'></span>%s</td></tr>"
+            % (
+                " class='off'" if not p["online"] else "",
+                html.escape(p["hostname"]),
+                html.escape(p["ip"] or "-"),
+                via_tag(p),
+                "ok" if p["online"] else "off",
+                "online" if p["online"] else "offline",
+            )
+            for p in peers)
     else:
-        rows_html = ('<tr><td colspan="5" class="muted">'
-                     'Ch&#432;a c&#243; d&#7919; li&#7879;u &mdash; '
-                     'server ping c&#7853;p nh&#7853;t m&#7895;i 30s</td></tr>')
+        rows_html = ('<tr><td colspan="4" class="muted">'
+                     'Ch&#432;a c&#243; d&#7919; li&#7879;u — '
+                     'collector ch&#432;a join tailnet</td></tr>')
 
     return (_DERP_PAGE
             .replace("__GENERATED__", gen)
@@ -712,9 +763,9 @@ def make_metrics_handler(conn, lock):
                 regions = _parse_derp_regions(DERP_PROBE_URLS)
                 for r in regions:
                     r.update(probe_derp_region(r["url"]))
-                with lock:
-                    nodes_relay = query_current_relay(conn)
-                page = render_derp_html(regions, nodes_relay, int(time.time()))
+                status = localapi_status()
+                peers = peer_relay_from_status(status)
+                page = render_derp_html(regions, peers, int(time.time()))
                 self._sendhtml(200, page.encode("utf-8"))
                 return
             self._send(404, {"error": "not found"})
