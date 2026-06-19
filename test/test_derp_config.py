@@ -220,3 +220,48 @@ def test_relay_vpn5_go_mod_ton_tai():
     assert (ROOT / "relay-vpn5" / "go.mod").exists(), (
         "relay-vpn5/go.mod phai ton tai"
     )
+
+
+# ---------- relay-vpn4 compose (hybrid relay thay the derp-vpn4) ----------
+
+def test_relay_vpn4_compose_ton_tai():
+    compose = ROOT / "relay-vpn4" / "docker-compose.yml"
+    assert compose.exists(), "relay-vpn4/docker-compose.yml phai ton tai"
+
+
+def test_relay_vpn4_compose_co_relay_va_tailscale():
+    compose = ROOT / "relay-vpn4" / "docker-compose.yml"
+    data = yaml.safe_load(compose.read_text())
+    svcs = data.get("services", {})
+    assert "relay" in svcs, "relay-vpn4 compose phai co service 'relay'"
+    assert "tailscale" in svcs, "relay-vpn4 compose phai co service 'tailscale' (sidecar)"
+
+
+def test_relay_vpn4_expose_udp_41641():
+    compose = ROOT / "relay-vpn4" / "docker-compose.yml"
+    data = yaml.safe_load(compose.read_text())
+    ports = data["services"]["relay"].get("ports", [])
+    ports_str = " ".join(str(p) for p in ports)
+    assert "41641" in ports_str, "relay-vpn4 phai expose UDP 41641 (WireGuard outbound)"
+
+
+def test_relay_vpn4_join_pangolin_network():
+    compose = ROOT / "relay-vpn4" / "docker-compose.yml"
+    data = yaml.safe_load(compose.read_text())
+    nets = data.get("networks", {})
+    assert "pangolin_net" in nets, "relay-vpn4 phai join pangolin_net"
+    assert nets["pangolin_net"].get("external") is True, (
+        "pangolin_net phai la external network"
+    )
+
+
+def test_relay_vpn4_dockerfile_ton_tai():
+    assert (ROOT / "relay-vpn4" / "Dockerfile").exists(), (
+        "relay-vpn4/Dockerfile phai ton tai"
+    )
+
+
+def test_relay_vpn4_go_mod_ton_tai():
+    assert (ROOT / "relay-vpn4" / "go.mod").exists(), (
+        "relay-vpn4/go.mod phai ton tai"
+    )

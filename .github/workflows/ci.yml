@@ -101,6 +101,45 @@ jobs:
           /tmp/venv-reporter/bin/pip install --quiet pytest
           cd ping-reporter && /tmp/venv-reporter/bin/python -m pytest -q test_reporter.py
 
+  relay-vpn4-build:
+    name: relay-vpn4 — Go build + vet + compose validate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go 1.24
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+          cache-dependency-path: relay-vpn4/go.mod
+
+      - name: go mod tidy
+        working-directory: relay-vpn4
+        env:
+          GONOSUMDB: "*"
+          GOTELEMETRY: "off"
+        run: go mod tidy
+
+      - name: go build
+        working-directory: relay-vpn4
+        run: go build ./...
+
+      - name: go vet
+        working-directory: relay-vpn4
+        run: go vet ./...
+
+      - name: Validate relay-vpn4/docker-compose.yml
+        run: docker compose -f relay-vpn4/docker-compose.yml config --quiet && echo "relay-vpn4/docker-compose.yml OK"
+
+      - name: Scan secret trong relay-vpn4
+        run: |
+          if grep -rIl --exclude-dir=.git --exclude='*.md' -E 'BEGIN [A-Z ]*PRIVATE KEY' relay-vpn4/; then
+            echo "::error::Private key bi commit vao relay-vpn4!"
+            exit 1
+          fi
+          echo "OK: khong tim thay private key trong relay-vpn4."
+
   relay-vpn5-build:
     name: relay-vpn5 — Go build + vet + compose validate
     runs-on: ubuntu-latest
