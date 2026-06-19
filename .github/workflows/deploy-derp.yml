@@ -68,45 +68,58 @@ jobs:
             # 1. Thu file .ts_authkey da luu tren VPS nay tu lan truoc
             if [ -f "$DEPLOY_PATH/.ts_authkey" ]; then
               TS_AUTHKEY=$(cat "$DEPLOY_PATH/.ts_authkey")
-              echo "  Dung .ts_authkey da luu"
+              echo "  Dung .ts_authkey da luu: ${TS_AUTHKEY:0:8}..."
             fi
-            # 2. Tu tao via headscale API tren vpn2 neu chua co key
-            if [ -z "$TS_AUTHKEY" ]; then
-              if [ -n "$HS_API_KEY" ]; then
-                echo "  Chua co key -> tu tao via headscale API"
-                EXPIRY=$(date -d '+365 days' -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo "")
-                curl -sf -m 10 -H "Authorization: Bearer $HS_API_KEY" \
-                  "https://vpn2.hangocthanh.io.vn/api/v1/user" \
-                  -o /tmp/hs_users.json 2>/dev/null \
-                  || printf '{"users":[]}' > /tmp/hs_users.json
-                echo "  DEBUG users=$(head -c 200 /tmp/hs_users.json 2>/dev/null)"
-                python3 -c "import json; d=json.load(open('/tmp/hs_users.json')); u=d.get('users',d.get('user',[])); print(u[0]['name'] if isinstance(u,list) and u else '')" 2>/dev/null > /tmp/hs_uname.txt || printf '' > /tmp/hs_uname.txt
-                U_NAME=$(cat /tmp/hs_uname.txt 2>/dev/null | tr -d '\n\r')
-                echo "  DEBUG U_NAME='$U_NAME' EXPIRY='$EXPIRY'"
-                if [ -n "$U_NAME" ]; then
-                  if [ -n "$EXPIRY" ]; then
-                    curl -sf -m 10 -X POST \
-                      -H "Authorization: Bearer $HS_API_KEY" \
-                      -H "Content-Type: application/json" \
-                      -d "{\"user\":\"$U_NAME\",\"reusable\":true,\"expiration\":\"$EXPIRY\"}" \
-                      "https://vpn2.hangocthanh.io.vn/api/v1/preauthkey" \
-                      -o /tmp/hs_preauthkey.json 2>/dev/null \
-                      || printf '{}' > /tmp/hs_preauthkey.json
-                    echo "  DEBUG preauthkey=$(head -c 200 /tmp/hs_preauthkey.json 2>/dev/null)"
-                    python3 -c "import json; d=json.load(open('/tmp/hs_preauthkey.json')); print(d.get('preAuthKey',{}).get('key','') or d.get('key',''))" 2>/dev/null > /tmp/hs_key.txt || printf '' > /tmp/hs_key.txt
-                    TS_AUTHKEY=$(cat /tmp/hs_key.txt 2>/dev/null | tr -d '\n\r')
-                    if [ -n "$TS_AUTHKEY" ]; then
-                      printf '%s' "$TS_AUTHKEY" > "$DEPLOY_PATH/.ts_authkey"
-                      chmod 600 "$DEPLOY_PATH/.ts_authkey"
-                      echo "  Tao key OK (user=$U_NAME)"
-                    else
-                      echo "  CANH BAO: khong tao duoc key - $(head -c 100 /tmp/hs_preauthkey.json 2>/dev/null)"
-                    fi
-                  fi
-                else
-                  echo "  CANH BAO: khong tim thay user trong headscale"
-                fi
+            # 2. Tu tao via headscale API - chay trong subshell de tranh set-e
+            rm -f /tmp/ts_key_final.txt
+            (
+              set +e
+              echo "  Subshell: bat dau lay key (HS_API_KEY set=${HS_API_KEY:+yes})"
+              EXPIRY=$(date -d '+365 days' -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo "")
+              curl -sf -m 15 -H "Authorization: Bearer $HS_API_KEY" \
+                "https://vpn2.hangocthanh.io.vn/api/v1/user" \
+                -o /tmp/hs_users.json 2>/tmp/curl_users_err.txt
+              CURL_EXIT=$?
+              echo "  Subshell: curl users exit=$CURL_EXIT resp=$(head -c 200 /tmp/hs_users.json 2>/dev/null)"
+              if [ "$CURL_EXIT" != "0" ]; then
+                echo "  Subshell: curl loi $(cat /tmp/curl_users_err.txt 2>/dev/null | head -c 100)"
+                printf '{"users":[]}' > /tmp/hs_users.json
               fi
+              python3 -c "import json; d=json.load(open('/tmp/hs_users.json')); u=d.get('users',d.get('user',[])); print(u[0]['name'] if isinstance(u,list) and u else '')" 2>/dev/null > /tmp/hs_uname.txt
+              U_NAME=$(cat /tmp/hs_uname.txt 2>/dev/null | tr -d '\n\r')
+              echo "  Subshell: U_NAME='$U_NAME' EXPIRY='$EXPIRY'"
+              if [ -n "$U_NAME" ]; then
+                curl -sf -m 15 -X POST \
+                  -H "Authorization: Bearer $HS_API_KEY" \
+                  -H "Content-Type: application/json" \
+                  -d "{\"user\":\"$U_NAME\",\"reusable\":true,\"expiration\":\"$EXPIRY\"}" \
+                  "https://vpn2.hangocthanh.io.vn/api/v1/preauthkey" \
+                  -o /tmp/hs_preauthkey.json 2>/tmp/curl_key_err.txt
+                CURL_KEY_EXIT=$?
+                echo "  Subshell: curl preauthkey exit=$CURL_KEY_EXIT resp=$(head -c 200 /tmp/hs_preauthkey.json 2>/dev/null)"
+                if [ "$CURL_KEY_EXIT" != "0" ]; then
+                  echo "  Subshell: curl key loi $(cat /tmp/curl_key_err.txt 2>/dev/null | head -c 100)"
+                fi
+                python3 -c "import json; d=json.load(open('/tmp/hs_preauthkey.json')); print(d.get('preAuthKey',{}).get('key','') or d.get('key',''))" 2>/dev/null > /tmp/hs_key.txt
+                TS_KEY=$(cat /tmp/hs_key.txt 2>/dev/null | tr -d '\n\r')
+                if [ -n "$TS_KEY" ]; then
+                  echo "$TS_KEY" > /tmp/ts_key_final.txt
+                  echo "  Subshell: da luu key (user=$U_NAME)"
+                else
+                  echo "  Subshell: khong co key trong response"
+                fi
+              else
+                echo "  Subshell: CANH BAO khong tim thay user"
+              fi
+              exit 0
+            ) || true
+            if [ -f /tmp/ts_key_final.txt ]; then
+              TS_AUTHKEY=$(cat /tmp/ts_key_final.txt | tr -d '\n\r')
+              printf '%s' "$TS_AUTHKEY" > "$DEPLOY_PATH/.ts_authkey"
+              chmod 600 "$DEPLOY_PATH/.ts_authkey"
+              echo "  Key da luu vao .ts_authkey"
+            else
+              echo "  Khong tao duoc key moi, dung key cu hoac bo trong"
             fi
 
             # Ghi .env (TS_AUTHKEY de compose doc khi khoi dong tailscale sidecar)
