@@ -139,6 +139,23 @@ def test_derp_vpn4_hostname_trong_compose():
     )
 
 
+def test_ping_reporter_vpn4_trong_netns_tailscale():
+    """
+    ping-reporter PHAI chay trong netns cua tailscale (network_mode: service:tailscale).
+    Neu khong co, TCP connect toi collector_ip:8090 qua WireGuard se fail voi
+    OSError(113, 'No route to host') - da xac nhan qua diag run 27821574015.
+    """
+    compose = ROOT / "derp-vpn4" / "docker-compose.yml"
+    data = yaml.safe_load(compose.read_text())
+    pr = data["services"].get("ping-reporter", {})
+    network_mode = pr.get("network_mode", "")
+    assert "tailscale" in network_mode, (
+        "ping-reporter trong derp-vpn4/docker-compose.yml PHAI co "
+        "network_mode: 'service:tailscale' de reach collector:8090 qua WireGuard. "
+        "Khong co -> POST metrics/report fail OSError(113, 'No route to host')."
+    )
+
+
 def test_derp_co_2_region_total():
     """3 DERP regions (999 embedded + 1001 vpn4 + 1002 vpn5) -> failover tot."""
     d = load_derp()

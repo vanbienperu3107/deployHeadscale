@@ -10,8 +10,8 @@ import (
 	"sync"
 	"time"
 
+	"go4.org/mem"
 	"tailscale.com/types/key"
-	"tailscale.com/types/mem"
 )
 
 type clientInfo struct {
