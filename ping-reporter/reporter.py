@@ -19,7 +19,7 @@ import socket
 import time
 
 TS_SOCKET = os.environ.get("TS_SOCKET", "/var/run/tailscale/tailscaled.sock")
-REPORTER_NAME = os.environ.get("REPORTER_NAME", "vpn3")
+REPORTER_NAME = os.environ.get("REPORTER_NAME", "vpn4")
 COLLECTOR_PORT = int(os.environ.get("COLLECTOR_PORT", "8090"))
 POLL_INTERVAL = int(os.environ.get("POLL_INTERVAL", "30"))
 PING_TIMEOUT = int(os.environ.get("PING_TIMEOUT", "8"))

@@ -64,7 +64,6 @@ SRC_NAME = os.environ.get("SRC_NAME", "collector")  # ten "nguon" khi server pin
 DERP_PROBE_URLS = os.environ.get(
     "DERP_PROBE_URLS",
     "myderp=https://vpn2.hangocthanh.io.vn/derp/probe,"
-    "vpn3-vn=https://vpn3.hangocthanh.io.vn/derp/probe,"
     "vpn4-vn=https://vpn4.hangocthanh.io.vn/derp/probe",
 )
 
@@ -491,7 +490,7 @@ def localapi_status(timeout=5):
 def peer_relay_from_status(status):
     """PURE: LocalAPI status -> list {hostname, ip, relay, direct, online}. Test duoc.
 
-    Relay = home DERP relay hien tai cua peer (vd 'vpn3-vn', 'myderp', '').
+    Relay = home DERP relay hien tai cua peer (vd 'vpn4-vn', 'myderp', '').
     direct = True neu CurAddr non-empty (dang di thang P2P, khong qua DERP).
     """
     if not isinstance(status, dict):
@@ -661,7 +660,7 @@ tr.off td{opacity:.45}
   </tr></thead><tbody>__ROWS__</tbody></table>
   <p class="note" style="margin-top:10px">
     <b>direct</b> = k&#7871;t n&#7889;i th&#7859;ng P2P (kh&#244;ng qua DERP) &nbsp;&bull;&nbsp;
-    <b>vpn3-vn / myderp</b> = &#273;ang relay qua DERP region &#273;&#243;
+    <b>myderp / vpn4-vn</b> = &#273;ang relay qua DERP region &#273;&#243;
   </p>
 </div>
 </main>
@@ -692,7 +691,7 @@ def render_derp_html(regions, peers, now, all_pings=None):
     regions:   [{code, url, ok, latency_ms, error}]
     peers:     [{hostname, ip, relay, direct, online}]  -- tu peer_relay_from_status
     all_pings: {src_name: [{hostname, ip, relay(path), rtt_ms, ok, ts}]}
-               src_name: "collector" (vpn2), "vpn3", "vpn4", ...
+               src_name: "collector" (vpn2), "vpn4", ...
                Lay tu query_all_server_pings(conn).
     """
     gen = time.strftime("%H:%M:%S %d/%m/%Y", time.localtime(now))

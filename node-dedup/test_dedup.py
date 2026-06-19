@@ -282,21 +282,21 @@ def test_record_report_mac_fallback_by_hostname():
 def test_parse_derp_regions_two_regions():
     regions = _parse_derp_regions(
         "myderp=https://vpn2.hangocthanh.io.vn/derp/probe,"
-        "vpn3-vn=https://vpn3.hangocthanh.io.vn/derp/probe"
+        "vpn4-vn=https://vpn4.hangocthanh.io.vn/derp/probe"
     )
     assert len(regions) == 2
     assert regions[0] == {"code": "myderp", "url": "https://vpn2.hangocthanh.io.vn/derp/probe"}
-    assert regions[1]["code"] == "vpn3-vn"
+    assert regions[1]["code"] == "vpn4-vn"
 
 
 def test_parse_derp_regions_three_regions():
     regions = _parse_derp_regions(
         "myderp=https://vpn2.hangocthanh.io.vn/derp/probe,"
-        "vpn3-vn=https://vpn3.hangocthanh.io.vn/derp/probe,"
-        "vpn4-vn=https://vpn4.hangocthanh.io.vn/derp/probe"
+        "vpn4-vn=https://vpn4.hangocthanh.io.vn/derp/probe,"
+        "vpn5-us=https://vpn5.hangocthanh.io.vn/derp/probe"
     )
     assert len(regions) == 3
-    assert regions[2] == {"code": "vpn4-vn", "url": "https://vpn4.hangocthanh.io.vn/derp/probe"}
+    assert regions[2] == {"code": "vpn5-us", "url": "https://vpn5.hangocthanh.io.vn/derp/probe"}
 
 
 def test_parse_derp_regions_empty():
@@ -329,14 +329,14 @@ def test_query_current_relay_picks_latest():
         "INSERT INTO node_latency(ts,src,dst,dst_ip,rtt_ms,path,ok) VALUES(?,?,?,?,?,?,?)",
         [
             (now - 5, "collector", "server1", "100.64.0.5", 20.0, "derp:myderp", 1),
-            (now,     "collector", "server1", "100.64.0.5", 15.0, "derp:vpn3-vn", 1),  # moi nhat
+            (now,     "collector", "server1", "100.64.0.5", 15.0, "derp:vpn4-vn", 1),  # moi nhat
             (now,     "collector", "phone1",  "100.64.0.6",  2.0, "direct", 1),
         ],
     )
     conn.commit()
     rows = query_current_relay(conn, window=300)
     by_host = {r["hostname"]: r for r in rows}
-    assert by_host["server1"]["relay"] == "derp:vpn3-vn"   # lan moi nhat
+    assert by_host["server1"]["relay"] == "derp:vpn4-vn"   # lan moi nhat
     assert by_host["phone1"]["relay"] == "direct"
 
 
@@ -358,7 +358,7 @@ def test_peer_relay_from_status_relay_and_direct():
             "nodekey:aaa": {
                 "HostName": "server1",
                 "TailscaleIPs": ["100.64.0.5", "fd7a::5"],
-                "Relay": "vpn3-vn",
+                "Relay": "vpn4-vn",
                 "CurAddr": "",          # khong di thang
                 "Online": True,
             },
@@ -381,7 +381,7 @@ def test_peer_relay_from_status_relay_and_direct():
     peers = peer_relay_from_status(status)
     by_host = {p["hostname"]: p for p in peers}
 
-    assert by_host["server1"]["relay"] == "vpn3-vn"
+    assert by_host["server1"]["relay"] == "vpn4-vn"
     assert by_host["server1"]["direct"] is False
     assert by_host["server1"]["online"] is True
 
@@ -400,15 +400,15 @@ def test_peer_relay_from_status_empty():
 def test_render_derp_html_smoke():
     regions = [
         {"code": "myderp",  "url": "https://vpn2.../probe", "ok": True,  "latency_ms": 12.0, "error": None},
-        {"code": "vpn3-vn", "url": "https://vpn3.../probe", "ok": False, "latency_ms": None, "error": "timeout"},
+        {"code": "vpn4-vn", "url": "https://vpn4.../probe", "ok": True,  "latency_ms": 25.0, "error": None},
     ]
     peers = [
-        {"hostname": "server1", "ip": "100.64.0.5", "relay": "vpn3-vn", "direct": False, "online": True},
+        {"hostname": "server1", "ip": "100.64.0.5", "relay": "vpn4-vn", "direct": False, "online": True},
         {"hostname": "phone1",  "ip": "100.64.0.6", "relay": "myderp",  "direct": True,  "online": True},
     ]
     page = render_derp_html(regions, peers, 1200)
     assert "<html" in page
-    assert "myderp" in page and "vpn3-vn" in page
+    assert "myderp" in page and "vpn4-vn" in page
     assert "server1" in page and "phone1" in page
     assert "direct" in page
     assert "__GENERATED__" not in page
@@ -420,13 +420,13 @@ def test_render_derp_html_dead_relay_warning():
     """Node dung relay chet phai hien badge canh bao (derp-dead), khong phai badge binh thuong."""
     regions = [
         {"code": "myderp",  "url": "https://vpn2.../probe", "ok": True,  "latency_ms": 12.0, "error": None},
-        {"code": "vpn3-vn", "url": "https://vpn3.../probe", "ok": False, "latency_ms": None, "error": "timeout"},
+        {"code": "vpn4-vn", "url": "https://vpn4.../probe", "ok": False, "latency_ms": None, "error": "timeout"},
     ]
     peers = [
-        {"hostname": "itop", "ip": "100.64.0.2", "relay": "vpn3-vn", "direct": False, "online": True},
+        {"hostname": "itop", "ip": "100.64.0.2", "relay": "vpn4-vn", "direct": False, "online": True},
     ]
     page = render_derp_html(regions, peers, 1200)
-    assert "derp-dead" in page, "itop dung vpn3-vn (chet) phai hien badge canh bao"
+    assert "derp-dead" in page, "itop dung vpn4-vn (chet) phai hien badge canh bao"
     assert "9888" in page or "&#9888;" in page, "phai co icon canh bao &#9888;"
 
 
@@ -442,14 +442,14 @@ def test_record_and_query_netcheck_basic():
     """record_netcheck + query_latest_netcheck roundtrip."""
     conn = _mem_db()
     now = int(time.time())
-    rl = json.dumps({"vpn4-vn": 25.3, "myderp": 137.7, "vpn3-vn": None})
+    rl = json.dumps({"vpn4-vn": 25.3, "myderp": 137.7, "vpn5-us": None})
     record_netcheck(conn, "itop", "vpn4-vn", rl, now)
     rows = query_latest_netcheck(conn, window=300)
     assert len(rows) == 1
     assert rows[0]["client"] == "itop"
     assert rows[0]["preferred_derp"] == "vpn4-vn"
     assert rows[0]["region_latency"]["vpn4-vn"] == 25.3
-    assert rows[0]["region_latency"]["vpn3-vn"] is None
+    assert rows[0]["region_latency"]["vpn5-us"] is None
 
 
 def test_query_latest_netcheck_window_expired():
@@ -473,10 +473,9 @@ def test_query_latest_netcheck_latest_per_client():
 
 
 def test_render_derp_html_all_pings_source_column():
-    """all_pings hien thi cot Nguon (vpn2/vpn3/vpn4) voi RTT va path tag."""
+    """all_pings hien thi cot Nguon (vpn2/vpn4) voi RTT va path tag."""
     regions = [
         {"code": "myderp",  "url": "https://vpn2.../probe", "ok": True, "latency_ms": 12.0, "error": None},
-        {"code": "vpn3-vn", "url": "https://vpn3.../probe", "ok": True, "latency_ms": 30.0, "error": None},
         {"code": "vpn4-vn", "url": "https://vpn4.../probe", "ok": True, "latency_ms": 25.0, "error": None},
     ]
     all_pings = {
@@ -486,20 +485,13 @@ def test_render_derp_html_all_pings_source_column():
             {"hostname": "votam", "ip": "100.64.0.3", "relay": "derp:vpn4-vn",
              "rtt_ms": 148.9, "ok": True, "ts": 1000},
         ],
-        "vpn3": [
-            {"hostname": "itop",  "ip": "100.64.0.2", "relay": "direct",
-             "rtt_ms": 25.3, "ok": True, "ts": 1000},
-        ],
         # vpn4: no data yet
     }
     page = render_derp_html(regions, [], 1000, all_pings=all_pings)
     assert "vpn2" in page                  # row nguon vpn2
-    assert "vpn3" in page                  # row nguon vpn3 (co data)
     assert "vpn4" in page                  # row nguon vpn4 (placeholder)
     assert "95.6ms" in page and "148.9ms" in page   # vpn2 data
-    assert "25.3ms" in page                # vpn3 data
     assert "via vpn4-vn" in page           # path tag vpn2->itop
-    assert "direct" in page                # path tag vpn3->itop
     assert "__PINGS__" not in page
 
 
@@ -507,22 +499,21 @@ def test_render_derp_html_all_pings_empty():
     """all_pings={}: tat ca nguon hien placeholder 'chua co du lieu'."""
     regions = [
         {"code": "myderp",  "url": "https://vpn2.../probe", "ok": True, "latency_ms": 12.0, "error": None},
-        {"code": "vpn3-vn", "url": "https://vpn3.../probe", "ok": False,"latency_ms": None, "error": "timeout"},
         {"code": "vpn4-vn", "url": "https://vpn4.../probe", "ok": True, "latency_ms": 25.0, "error": None},
     ]
     page = render_derp_html(regions, [], 1000, all_pings={})
-    assert "vpn2" in page and "vpn3" in page and "vpn4" in page
+    assert "vpn2" in page and "vpn4" in page
     assert "__PINGS__" not in page
 
 
 def test_render_derp_html_no_pings():
-    """all_pings=None: vpn2/vpn3/vpn4 row van hien placeholder."""
+    """all_pings=None: vpn2/vpn4 row van hien placeholder."""
     regions = [
         {"code": "myderp",  "url": "https://x/probe", "ok": True, "latency_ms": 5.0, "error": None},
-        {"code": "vpn3-vn", "url": "https://x/probe", "ok": True, "latency_ms": 5.0, "error": None},
+        {"code": "vpn4-vn", "url": "https://x/probe", "ok": True, "latency_ms": 5.0, "error": None},
     ]
     page = render_derp_html(regions, [], 1000, all_pings=None)
-    assert "vpn2" in page and "vpn3" in page
+    assert "vpn2" in page and "vpn4" in page
     assert "__PINGS__" not in page
 
 
@@ -535,16 +526,14 @@ def test_query_all_server_pings_multi_src():
         [
             (now, "collector", "itop",  "100.64.0.2", 95.6,  "derp:vpn4-vn", 1),
             (now, "collector", "votam", "100.64.0.3", 148.9, "derp:vpn4-vn", 1),
-            (now, "vpn3",      "itop",  "100.64.0.2", 25.3,  "direct",       1),
-            (now, "vpn4",      "votam", "100.64.0.3", 28.0,  "direct",       1),
+            (now, "vpn4",      "itop",  "100.64.0.2", 25.3,  "direct",       1),
         ],
     )
     conn.commit()
     result = query_all_server_pings(conn, window=300)
-    assert set(result.keys()) == {"collector", "vpn3", "vpn4"}
+    assert set(result.keys()) == {"collector", "vpn4"}
     assert len(result["collector"]) == 2
-    assert result["vpn3"][0]["hostname"] == "itop" and result["vpn3"][0]["rtt_ms"] == 25.3
-    assert result["vpn4"][0]["hostname"] == "votam"
+    assert result["vpn4"][0]["hostname"] == "itop" and result["vpn4"][0]["rtt_ms"] == 25.3
 
 
 def test_query_all_server_pings_picks_latest():
@@ -554,14 +543,14 @@ def test_query_all_server_pings_picks_latest():
     conn.executemany(
         "INSERT INTO node_latency(ts,src,dst,dst_ip,rtt_ms,path,ok) VALUES(?,?,?,?,?,?,?)",
         [
-            (now - 10, "vpn3", "itop", "100.64.0.2", 50.0, "derp:myderp", 1),
-            (now,      "vpn3", "itop", "100.64.0.2", 25.3, "direct",      1),  # moi hon
+            (now - 10, "vpn4", "itop", "100.64.0.2", 50.0, "derp:myderp", 1),
+            (now,      "vpn4", "itop", "100.64.0.2", 25.3, "direct",      1),  # moi hon
         ],
     )
     conn.commit()
     result = query_all_server_pings(conn, window=300)
-    assert result["vpn3"][0]["relay"] == "direct"    # moi nhat
-    assert result["vpn3"][0]["rtt_ms"] == 25.3
+    assert result["vpn4"][0]["relay"] == "direct"    # moi nhat
+    assert result["vpn4"][0]["rtt_ms"] == 25.3
 
 
 def test_query_all_server_pings_window():
@@ -570,7 +559,7 @@ def test_query_all_server_pings_window():
     now = int(time.time())
     conn.execute(
         "INSERT INTO node_latency(ts,src,dst,dst_ip,rtt_ms,path,ok) VALUES(?,?,?,?,?,?,?)",
-        (now - 500, "vpn3", "itop", "100.64.0.2", 25.0, "direct", 1),
+        (now - 500, "vpn4", "itop", "100.64.0.2", 25.0, "direct", 1),
     )
     conn.commit()
     assert query_all_server_pings(conn, window=60) == {}

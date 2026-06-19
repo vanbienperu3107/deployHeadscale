@@ -1,0 +1,16 @@
+http:
+  routers:
+    relay-vpn4:
+      rule: "Host(`vpn4.hangocthanh.io.vn`)"
+      entryPoints:
+        - websecure
+      service: relay-vpn4
+      tls:
+        certResolver: letsencrypt
+
+  services:
+    relay-vpn4:
+      loadBalancer:
+        servers:
+          - url: "http://relay-vpn4:8080"
+        passHostHeader: true

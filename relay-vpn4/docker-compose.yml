@@ -1,27 +1,31 @@
 services:
-  derper:
+
+  # Custom hybrid DERP relay on vpn4 — replaces standard derper.
+  # - TCP side (port 8080, via Traefik): accepts DERP connections from any client
+  # - UDP side (port 41641): sends WireGuard packets to UDP-capable peers
+  relay:
     build:
       context: .
-      dockerfile: Dockerfile.derper
-    container_name: derper
+      dockerfile: Dockerfile
+    container_name: relay-vpn4
     restart: unless-stopped
     command:
-      - --hostname=vpn4.hangocthanh.io.vn
-      - --a=:443
-      - --http-port=80
-      - --certmode=letsencrypt
-      - --certdir=/data/derper-certs
-      - --stun
-      - --stun-port=3478
-      - --verify-clients=false
+      - -addr=:8080
+      - -ts-socket=/var/run/tailscale/tailscaled.sock
+      - -key-file=/data/relay.key
+      - -cache-ttl=5s
     ports:
-      - "80:80"
-      - "443:443"
-      - "3478:3478/udp"
+      - "41641:41641/udp"   # WireGuard UDP — relay→peer outbound + peer→relay inbound
     volumes:
-      - derper_certs:/data/derper-certs
+      - relay_data:/data
+      - ts_sock:/var/run/tailscale
+    networks:
+      - pangolin_net
+    depends_on:
+      - tailscale
 
-  # Tailscale sidecar: vpn4 join tailnet voi hostname=vpn4.
+  # Tailscale sidecar: joins the tailnet as node "vpn4-relay".
+  # Relay queries its LocalAPI to discover which peers have reachable UDP endpoints.
   tailscale:
     image: tailscale/tailscale:latest
     container_name: ts-vpn4
@@ -40,8 +44,10 @@ services:
       - /dev/net/tun
     cap_add:
       - NET_ADMIN
+    networks:
+      - pangolin_net
 
-  # Ping-reporter: moi 30s ping tung peer, POST ket qua len collector voi src='vpn4'.
+  # Ping reporter — reports relay latency per peer.
   ping-reporter:
     image: python:3.12-slim
     container_name: ping-reporter-vpn4
@@ -58,8 +64,15 @@ services:
       - ts_sock:/var/run/tailscale
     depends_on:
       - tailscale
+    networks:
+      - pangolin_net
+
+networks:
+  pangolin_net:
+    external: true
+    name: pangolin_network
 
 volumes:
-  derper_certs:
+  relay_data:
   tailscale_vpn4:
   ts_sock:

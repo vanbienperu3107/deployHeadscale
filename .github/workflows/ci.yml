@@ -56,9 +56,6 @@ jobs:
       - name: Validate config/derp.yaml (YAML syntax)
         run: python3 -c "import yaml; yaml.safe_load(open('config/derp.yaml')); print('derp.yaml OK')"
 
-      - name: Validate derp-vpn3/docker-compose.yml
-        run: docker compose -f derp-vpn3/docker-compose.yml config --quiet && echo "derp-vpn3/docker-compose.yml OK"
-
       - name: Validate derp-vpn4/docker-compose.yml
         run: docker compose -f derp-vpn4/docker-compose.yml config --quiet && echo "derp-vpn4/docker-compose.yml OK"
 
