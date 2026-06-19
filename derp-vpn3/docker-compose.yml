@@ -55,6 +55,9 @@ services:
     image: python:3.12-slim
     container_name: ping-reporter-vpn3
     restart: unless-stopped
+    # Cung netns voi sidecar -> co IP tailnet de POST ket qua toi collector
+    # (100.64.0.1:8090) qua WireGuard. Khong co cai nay thi POST timeout.
+    network_mode: "service:tailscale"
     command: ["python3", "/app/reporter.py"]
     environment:
       - REPORTER_NAME=vpn3

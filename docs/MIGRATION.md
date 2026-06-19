@@ -324,6 +324,7 @@ https://vpn2.hangocthanh.io.vn/admin/oidc/callback    (headplane - admin)
 | Cột `mac` trống `(chua bao cao)` | (1) Node chưa chạy reporter (portable v1.4+) hoặc chưa thấy peer `collector` trong `tailscale status`. (2) `ts-forward` phải `Up`: `docker compose ps`. (3) Thiết bị phải đã có trong `devices` (đã poll thấy) thì MAC mới gán. (4) `collector` đã join chưa (cần `TS_AUTHKEY`) |
 | `docker logs ts-collector` báo lỗi đăng nhập | `TS_AUTHKEY` sai/hết hạn → xoá `$DEPLOY_PATH/.ts_authkey` để deploy [7/7] tự sinh key mới (hoặc đặt secret `TS_AUTHKEY` thủ công) rồi deploy lại |
 | Node `collector` bị trùng / nhiều bản | Mỗi lần volume `tailscale_collector` mất state → join lại = node mới. node-dedup tự gộp (C.4); preauth key nên `--reusable` |
+| Card DERP `vpnX-vn` trên `/derp` báo `<urlopen error timed out>` dù server mới đã `/derp/probe` 200 | **DNS cache cũ trên vpn2.** Sau khi đổi IP DERP relay, systemd-resolved trên vpn2 còn cache IP cũ (đã chết) → node-dedup probe ra IP cũ → timeout. Sửa: `resolvectl flush-caches` rồi `docker restart node-dedup`. Kiểm: `docker exec node-dedup python3 -c "import socket;print(socket.gethostbyname('vpnX.hangocthanh.io.vn'))"` phải ra IP mới |
 
 ---
 

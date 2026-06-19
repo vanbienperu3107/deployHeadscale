@@ -661,7 +661,7 @@ tr.off td{opacity:.45}
   </tr></thead><tbody>__ROWS__</tbody></table>
   <p class="note" style="margin-top:10px">
     <b>direct</b> = k&#7871;t n&#7889;i th&#7859;ng P2P (kh&#244;ng qua DERP) &nbsp;&bull;&nbsp;
-    <b>vpn3-vn / myderp</b> = &#273;ang relay qua DERP region &#273;&#243;
+    <b>vpn3-vn / vpn2</b> = &#273;ang relay qua DERP region &#273;&#243;
   </p>
 </div>
 </main>
@@ -707,7 +707,8 @@ def render_derp_html(regions, peers, now, all_pings=None):
                 '<span class="rcode">%s</span>'
                 '<div class="rlat">%s</div>'
                 '<div class="rurl">%s</div>%s</div>'
-                % (cls, cls, html.escape(r["code"]), lat, html.escape(r["url"]), err))
+                % (cls, cls, html.escape("vpn2" if r["code"] == "myderp" else r["code"]),
+                   lat, html.escape(r["url"]), err))
 
     regions_html = "".join(rcard(r) for r in regions) if regions else (
         '<p class="muted">Ch&#432;a c&#7845;u h&#236;nh DERP_PROBE_URLS</p>')
@@ -719,11 +720,12 @@ def render_derp_html(regions, peers, now, all_pings=None):
             return '<span class="tag direct">direct (P2P)</span>'
         relay = peer["relay"]
         if relay:
+            disp = "vpn2" if relay == "myderp" else relay
             if relay in dead_codes:
                 return ('<span class="tag derp-dead" title="DERP region nay dang chet! '
                         'Node dang dung backup path (se tu chuyen ~30-120s)">'
-                        '&#9888; %s</span>' % html.escape(relay))
-            return '<span class="tag derp">%s</span>' % html.escape(relay)
+                        '&#9888; %s</span>' % html.escape(disp))
+            return '<span class="tag derp">%s</span>' % html.escape(disp)
         return '<span class="bad">?</span>'
 
     if peers:
@@ -753,8 +755,9 @@ def render_derp_html(regions, peers, now, all_pings=None):
             return '<span class="tag direct">direct (UDP P2P)</span>'
         if path.startswith("derp:"):
             code = path[5:]
+            disp = "vpn2" if code == "myderp" else code
             css = "derp-dead" if code in dead_codes else "derp"
-            return '<span class="tag %s">via %s</span>' % (css, html.escape(code))
+            return '<span class="tag %s">via %s</span>' % (css, html.escape(disp))
         return '<span class="bad">%s</span>' % html.escape(path or "?")
 
     def _src_label(code):

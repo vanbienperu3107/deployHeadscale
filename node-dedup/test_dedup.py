@@ -408,7 +408,7 @@ def test_render_derp_html_smoke():
     ]
     page = render_derp_html(regions, peers, 1200)
     assert "<html" in page
-    assert "myderp" in page and "vpn3-vn" in page
+    assert "vpn2" in page and "vpn3-vn" in page and "myderp" not in page
     assert "server1" in page and "phone1" in page
     assert "direct" in page
     assert "__GENERATED__" not in page

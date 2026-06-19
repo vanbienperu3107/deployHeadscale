@@ -184,6 +184,30 @@ def test_derp_vpn4_hostname_trong_compose():
     )
 
 
+# ---------- ping-reporter network_mode (POST toi collector qua tailnet) ----------
+
+def test_derp_vpn3_reporter_dung_netns_sidecar():
+    """ping-reporter vpn3 phai chung netns voi sidecar de POST toi collector qua WireGuard."""
+    compose = ROOT / "derp-vpn3" / "docker-compose.yml"
+    data = yaml.safe_load(compose.read_text())
+    nm = data["services"]["ping-reporter"].get("network_mode")
+    assert nm == "service:tailscale", (
+        "ping-reporter vpn3 phai co network_mode: service:tailscale "
+        "(neu khong se khong route duoc toi collector 100.64.0.1:8090 -> POST timeout)"
+    )
+
+
+def test_derp_vpn4_reporter_dung_netns_sidecar():
+    """ping-reporter vpn4 phai chung netns voi sidecar de POST toi collector qua WireGuard."""
+    compose = ROOT / "derp-vpn4" / "docker-compose.yml"
+    data = yaml.safe_load(compose.read_text())
+    nm = data["services"]["ping-reporter"].get("network_mode")
+    assert nm == "service:tailscale", (
+        "ping-reporter vpn4 phai co network_mode: service:tailscale "
+        "(neu khong se khong route duoc toi collector 100.64.0.1:8090 -> POST timeout)"
+    )
+
+
 def test_derp_co_3_region_total():
     """4 DERP regions (999 embedded + 1000 vpn3 + 1001 vpn4 + 1002 vpn5) -> failover tot."""
     d = load_derp()
