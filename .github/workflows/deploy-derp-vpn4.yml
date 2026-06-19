@@ -34,20 +34,22 @@ jobs:
           EXPIRY=$(date -d '+365 days' -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo "")
           KEY=""
           if [ -n "$USER" ]; then
-            KEY=$(curl -sf -m 15 -X POST \
+            # Khong dung -f de thay duoc ca error response (debug)
+            PKEY_RESP=$(curl -s -m 15 -X POST \
               -H "Authorization: Bearer $HS_API_KEY" \
               -H "Content-Type: application/json" \
               -d "{\"user\":\"$USER\",\"reusable\":true,\"expiration\":\"$EXPIRY\"}" \
-              "https://vpn2.hangocthanh.io.vn/api/v1/preauthkey" 2>/dev/null \
-              | python3 -c \
-                "import json,sys; d=json.load(sys.stdin); print(d.get('preAuthKey',{}).get('key','') or d.get('key',''))" \
-                2>/dev/null || echo "")
+              "https://vpn2.hangocthanh.io.vn/api/v1/preauthkey" 2>/dev/null || echo "")
+            echo "preauthkey resp (200 chars): ${PKEY_RESP:0:200}"
+            KEY=$(echo "$PKEY_RESP" | python3 -c \
+              "import json,sys; d=json.load(sys.stdin); print(d.get('preAuthKey',{}).get('key','') or d.get('key',''))" \
+              2>/dev/null || echo "")
           fi
           if [ -n "$KEY" ]; then
             echo "::add-mask::$KEY"
             echo "Tao preauthkey thanh cong (user=$USER)"
           else
-            echo "Khong tao duoc preauthkey, se dung key cu hoac de trong"
+            echo "Khong tao duoc preauthkey — kiem tra preauthkey resp o tren"
           fi
           echo "key=$KEY" >> "$GITHUB_OUTPUT"
 
