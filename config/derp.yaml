@@ -1,16 +1,36 @@
-# DERP map bo sung: headscale (vpn2) se gop file nay vao danh sach DERP region
-# cung voi region 999 (embedded, tu dong them boi automatically_add_embedded_derp_region).
-# Ket qua: client thay 2 region -> tailscale tu do latency -> chon gan nhat.
-# Failover: neu mot region chet, tailscale tu chuyen sang region con lai (~5-15s).
+# DERP map: 2 region, vpn3 uu tien, vpn2 chi dung khi vpn3 chet.
+#
+# Region 1000 (vpn3-vn): preferred -- client chon cai nay truoc (avoid=false).
+# Region 999  (vpn2-backup): avoid=true -- chi dung khi vpn3 khong the ket noi.
+#
+# Tailscale tu dong do latency + uu tien region khong co avoid. Neu vpn3 chet,
+# chuyen sang vpn2 trong ~5-15s. Khi vpn3 song tro lai, tro lai vpn3 tu dong.
+#
+# Luu y: automatically_add_embedded_derp_region phai False (config.yaml) vi
+# vpn2 da duoc them thu cong o day -- tranh them 2 lan.
 regions:
   1000:
     regionid: 1000
     regioncode: "vpn3-vn"
     regionname: "VPN3 Vietnam"
+    avoid: false
     nodes:
       - name: "vpn3-vn-1"
         regionid: 1000
         hostname: "vpn3.hangocthanh.io.vn"
         ipv4: "149.104.66.159"
+        stunport: 3478
+        derpport: 443
+
+  999:
+    regionid: 999
+    regioncode: "vpn2-backup"
+    regionname: "VPN2 Vietnam (backup)"
+    avoid: true
+    nodes:
+      - name: "vpn2-backup-1"
+        regionid: 999
+        hostname: "vpn2.hangocthanh.io.vn"
+        ipv4: "165.22.12.169"
         stunport: 3478
         derpport: 443
