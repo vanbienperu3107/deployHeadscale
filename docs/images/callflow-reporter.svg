@@ -1,0 +1,174 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 780 900" font-family="Segoe UI, Arial, sans-serif">
+  <rect x="0" y="0" width="780" height="900" fill="#ffffff"/>
+
+  <!-- title -->
+  <text x="300" y="30" text-anchor="middle" font-size="20" font-weight="700" fill="#0f172a">reporter.py — Call Flow</text>
+
+  <!-- ===================== NODES ===================== -->
+  <!-- 1: START oval -->
+  <ellipse cx="300" cy="68" rx="95" ry="24" fill="#1e293b" stroke="#475569" stroke-width="1.5"/>
+  <text x="300" y="73" text-anchor="middle" font-size="12" font-weight="700" fill="#e2e8f0">reporter.py start</text>
+
+  <!-- 2: Read ENV -->
+  <rect x="190" y="110" width="220" height="64" rx="10" fill="#eff6ff" stroke="#2563eb" stroke-width="1.5"/>
+  <text x="300" y="129" text-anchor="middle" font-size="10.5" font-weight="700" fill="#1e3a8a">Read ENV vars:</text>
+  <text x="300" y="143" text-anchor="middle" font-size="9.5" fill="#1e40af">REPORTER_NAME, TS_SOCKET</text>
+  <text x="300" y="155" text-anchor="middle" font-size="9.5" fill="#1e40af">COLLECTOR_PORT, POLL_INTERVAL</text>
+  <text x="300" y="167" text-anchor="middle" font-size="9.5" fill="#1e40af">PING_TIMEOUT</text>
+
+  <!-- 3: LOOP START -->
+  <rect x="195" y="192" width="210" height="36" rx="10" fill="#fef3c7" stroke="#d97706" stroke-width="2"/>
+  <text x="300" y="215" text-anchor="middle" font-size="11" font-weight="700" fill="#92400e">while True (infinite poll loop)</text>
+
+  <!-- 4: get_peers_and_collector -->
+  <rect x="190" y="246" width="220" height="60" rx="10" fill="#eff6ff" stroke="#2563eb" stroke-width="1.5"/>
+  <text x="300" y="265" text-anchor="middle" font-size="10.5" font-weight="700" fill="#1e3a8a">get_peers_and_collector()</text>
+  <text x="300" y="279" text-anchor="middle" font-size="9.5" fill="#1e40af">→ tailscale status via LocalAPI</text>
+  <text x="300" y="293" text-anchor="middle" font-size="9.5" fill="#1e40af">→ GET /localapi/v0/status</text>
+
+  <!-- 5: decision collector found? -->
+  <polygon points="300,322 380,360 300,398 220,360" fill="#fef9c3" stroke="#ca8a04" stroke-width="1.5"/>
+  <text x="300" y="357" text-anchor="middle" font-size="10.5" font-weight="700" fill="#713f12">collector</text>
+  <text x="300" y="371" text-anchor="middle" font-size="10.5" font-weight="700" fill="#713f12">found?</text>
+  <!-- NO branch from 5 -->
+  <rect x="430" y="338" width="170" height="44" rx="10" fill="#f1f5f9" stroke="#64748b" stroke-width="1.5"/>
+  <text x="515" y="357" text-anchor="middle" font-size="9.5" fill="#334155">sleep POLL_INTERVAL,</text>
+  <text x="515" y="371" text-anchor="middle" font-size="9.5" fill="#334155">retry</text>
+
+  <!-- 6: extract collector_ip & peers -->
+  <rect x="190" y="416" width="220" height="60" rx="10" fill="#eff6ff" stroke="#2563eb" stroke-width="1.5"/>
+  <text x="300" y="435" text-anchor="middle" font-size="10.5" font-weight="700" fill="#1e3a8a">Extract collector_ip</text>
+  <text x="300" y="449" text-anchor="middle" font-size="9.5" fill="#1e40af">Extract peer list</text>
+  <text x="300" y="463" text-anchor="middle" font-size="9.5" fill="#1e40af">(exclude collector itself)</text>
+
+  <!-- 7: decision peers > 0? -->
+  <polygon points="300,490 380,528 300,566 220,528" fill="#fef9c3" stroke="#ca8a04" stroke-width="1.5"/>
+  <text x="300" y="525" text-anchor="middle" font-size="10.5" font-weight="700" fill="#713f12">peers</text>
+  <text x="300" y="539" text-anchor="middle" font-size="10.5" font-weight="700" fill="#713f12">&gt; 0?</text>
+  <!-- NO branch from 7 -->
+  <rect x="430" y="506" width="170" height="44" rx="10" fill="#eff6ff" stroke="#2563eb" stroke-width="1.5"/>
+  <text x="515" y="525" text-anchor="middle" font-size="9.5" fill="#1e40af">POST empty report</text>
+  <text x="515" y="539" text-anchor="middle" font-size="9.5" fill="#1e40af">{src=REPORTER_NAME}</text>
+
+  <!-- 8: for each peer ping -->
+  <rect x="180" y="584" width="240" height="60" rx="10" fill="#eff6ff" stroke="#2563eb" stroke-width="1.5"/>
+  <text x="300" y="603" text-anchor="middle" font-size="10.5" font-weight="700" fill="#1e3a8a">For each peer:</text>
+  <text x="300" y="617" text-anchor="middle" font-size="9.5" fill="#1e40af">subprocess ping -c4 -W PING_TIMEOUT peer_ip</text>
+  <text x="300" y="631" text-anchor="middle" font-size="9.5" fill="#1e40af">parse sent/recv/avg_rtt</text>
+
+  <!-- 9: POST /metrics/report (RED bug step) -->
+  <rect x="170" y="656" width="260" height="64" rx="10" fill="#fee2e2" stroke="#dc2626" stroke-width="2"/>
+  <text x="300" y="675" text-anchor="middle" font-size="10.5" font-weight="700" fill="#7f1d1d">POST /metrics/report to</text>
+  <text x="300" y="689" text-anchor="middle" font-size="9.5" fill="#991b1b">collector_ip:COLLECTOR_PORT</text>
+  <text x="300" y="703" text-anchor="middle" font-size="9" fill="#991b1b">JSON: {src, dst, sent, recv, latency_ms, ts}</text>
+  <text x="300" y="716" text-anchor="middle" font-size="8.5" font-weight="700" fill="#b91c1c">⚠ cần WireGuard trong CÙNG netns</text>
+
+  <!-- 10: decision HTTP 200? -->
+  <polygon points="300,736 380,772 300,808 220,772" fill="#fef9c3" stroke="#ca8a04" stroke-width="1.5"/>
+  <text x="300" y="770" text-anchor="middle" font-size="10.5" font-weight="700" fill="#713f12">HTTP</text>
+  <text x="300" y="784" text-anchor="middle" font-size="10.5" font-weight="700" fill="#713f12">200?</text>
+  <!-- NO branch from 10 (error) -->
+  <rect x="430" y="750" width="180" height="44" rx="10" fill="#fee2e2" stroke="#dc2626" stroke-width="1.5"/>
+  <text x="520" y="769" text-anchor="middle" font-size="9.5" font-weight="700" fill="#7f1d1d">log error</text>
+  <text x="520" y="783" text-anchor="middle" font-size="9" fill="#991b1b">(OSError 113, timeout, etc.)</text>
+
+  <!-- 11: YES log OK (green) -->
+  <rect x="160" y="826" width="280" height="40" rx="10" fill="#dcfce7" stroke="#16a34a" stroke-width="1.5"/>
+  <text x="300" y="845" text-anchor="middle" font-size="9.5" font-weight="700" fill="#14532d">log '[REPORTER_NAME] ping X/Y OK</text>
+  <text x="300" y="858" text-anchor="middle" font-size="9.5" fill="#15803d">-&gt; collector IP: OK'</text>
+
+  <!-- 12: merge sleep -->
+  <rect x="510" y="876" width="0" height="0"/>
+  <rect x="200" y="878" width="200" height="0"/>
+  <!-- (sleep node placed compactly at far left loopback) -->
+  <rect x="20" y="430" width="120" height="44" rx="10" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+  <text x="80" y="449" text-anchor="middle" font-size="9.5" font-weight="700" fill="#92400e">sleep</text>
+  <text x="80" y="463" text-anchor="middle" font-size="9" fill="#92400e">POLL_INTERVAL (30s)</text>
+
+  <!-- ===================== EDGES ===================== -->
+  <!-- 1->2 -->
+  <line x1="300" y1="92" x2="300" y2="110" stroke="#475569" stroke-width="1.8" marker-end="url(#bk)"/>
+  <!-- 2->3 -->
+  <line x1="300" y1="174" x2="300" y2="192" stroke="#475569" stroke-width="1.8" marker-end="url(#bk)"/>
+  <!-- 3->4 -->
+  <line x1="300" y1="228" x2="300" y2="246" stroke="#475569" stroke-width="1.8" marker-end="url(#bk)"/>
+  <!-- 4->5 -->
+  <line x1="300" y1="306" x2="300" y2="322" stroke="#475569" stroke-width="1.8" marker-end="url(#bk)"/>
+  <!-- 5 NO -> retry -->
+  <line x1="380" y1="360" x2="430" y2="360" stroke="#64748b" stroke-width="1.8" marker-end="url(#bk)"/>
+  <text x="395" y="353" font-size="9" font-weight="700" fill="#dc2626">NO</text>
+  <!-- 5 YES -> 6 -->
+  <line x1="300" y1="398" x2="300" y2="416" stroke="#475569" stroke-width="1.8" marker-end="url(#bk)"/>
+  <text x="308" y="411" font-size="9" font-weight="700" fill="#16a34a">YES</text>
+  <!-- 6->7 -->
+  <line x1="300" y1="476" x2="300" y2="490" stroke="#475569" stroke-width="1.8" marker-end="url(#bk)"/>
+  <!-- 7 NO -> empty report -->
+  <line x1="380" y1="528" x2="430" y2="528" stroke="#64748b" stroke-width="1.8" marker-end="url(#bk)"/>
+  <text x="395" y="521" font-size="9" font-weight="700" fill="#dc2626">NO</text>
+  <!-- 7 YES -> 8 -->
+  <line x1="300" y1="566" x2="300" y2="584" stroke="#475569" stroke-width="1.8" marker-end="url(#bk)"/>
+  <text x="308" y="579" font-size="9" font-weight="700" fill="#16a34a">YES</text>
+  <!-- empty report -> 9 (down then in) -->
+  <line x1="515" y1="550" x2="515" y2="640" stroke="#64748b" stroke-width="1.8"/>
+  <line x1="515" y1="640" x2="430" y2="675" stroke="#64748b" stroke-width="1.8" marker-end="url(#bk)"/>
+  <!-- 8->9 -->
+  <line x1="300" y1="644" x2="300" y2="656" stroke="#475569" stroke-width="1.8" marker-end="url(#bk)"/>
+  <!-- 9->10 -->
+  <line x1="300" y1="720" x2="300" y2="736" stroke="#475569" stroke-width="1.8" marker-end="url(#bk)"/>
+  <!-- 10 NO -> error -->
+  <line x1="380" y1="772" x2="430" y2="772" stroke="#dc2626" stroke-width="1.8" marker-end="url(#rk)"/>
+  <text x="392" y="765" font-size="9" font-weight="700" fill="#dc2626">NO</text>
+  <!-- 10 YES -> 11 -->
+  <line x1="300" y1="808" x2="300" y2="826" stroke="#16a34a" stroke-width="1.8" marker-end="url(#gk)"/>
+  <text x="308" y="821" font-size="9" font-weight="700" fill="#16a34a">YES</text>
+
+  <!-- error(10 NO) -> sleep merge (route down right then to sleep) -->
+  <line x1="520" y1="794" x2="520" y2="848" stroke="#dc2626" stroke-width="1.8"/>
+  <!-- 11 -> merge to sleep -->
+  <line x1="160" y1="846" x2="80" y2="846" stroke="#16a34a" stroke-width="1.8"/>
+  <line x1="80" y1="846" x2="80" y2="474" stroke="#16a34a" stroke-width="1.8" marker-end="url(#gk)"/>
+  <!-- merge error path to sleep -->
+  <line x1="520" y1="848" x2="80" y2="848" stroke="#dc2626" stroke-width="1.5" stroke-dasharray="4 4"/>
+  <!-- sleep -> loop back to while True -->
+  <line x1="80" y1="430" x2="80" y2="210" stroke="#d97706" stroke-width="2"/>
+  <line x1="80" y1="210" x2="195" y2="210" stroke="#d97706" stroke-width="2" marker-end="url(#yk)"/>
+  <text x="40" y="320" font-size="9" font-weight="700" fill="#92400e" transform="rotate(-90 40 320)">loop back → while True</text>
+
+  <!-- ===================== SIDE NOTE ===================== -->
+  <rect x="450" y="110" width="300" height="190" rx="10" fill="#f8fafc" stroke="#0ea5e9" stroke-width="1.5"/>
+  <text x="600" y="132" text-anchor="middle" font-size="12" font-weight="700" fill="#0c4a6e">Network Namespace CRITICAL</text>
+  <line x1="466" y1="142" x2="734" y2="142" stroke="#bae6fd" stroke-width="1"/>
+  <text x="464" y="162" font-size="9.5" font-weight="700" fill="#075985">LocalAPI → unix socket</text>
+  <text x="464" y="176" font-size="9.5" fill="#0369a1">(volume OK in any netns)</text>
+  <text x="464" y="198" font-size="9.5" font-weight="700" fill="#075985">POST → TCP to 100.64.x.x</text>
+  <text x="464" y="212" font-size="9.5" fill="#0369a1">(needs WireGuard in SAME netns)</text>
+  <rect x="464" y="226" width="272" height="62" rx="8" fill="#dcfce7" stroke="#16a34a" stroke-width="1.5"/>
+  <text x="476" y="245" font-size="9.5" font-weight="700" fill="#14532d">→ Fix:</text>
+  <text x="476" y="260" font-size="9.5" font-weight="700" fill="#15803d">network_mode: service:tailscale</text>
+  <text x="476" y="276" font-size="9" fill="#166534">ping-reporter chia sẻ netns ts-vpn4</text>
+
+  <!-- legend for POST step color -->
+  <rect x="450" y="640" width="300" height="84" rx="10" fill="#fffbeb" stroke="#f59e0b" stroke-width="1.2"/>
+  <text x="600" y="660" text-anchor="middle" font-size="10.5" font-weight="700" fill="#92400e">Bước POST (node 9)</text>
+  <rect x="464" y="670" width="16" height="12" fill="#fee2e2" stroke="#dc2626"/>
+  <text x="488" y="680" font-size="9" fill="#991b1b">ĐỎ = trước fix: OSError(113) No route to host</text>
+  <rect x="464" y="690" width="16" height="12" fill="#dcfce7" stroke="#16a34a"/>
+  <text x="488" y="700" font-size="9" fill="#15803d">XANH = sau fix: POST 200 OK qua tailscale0</text>
+  <text x="464" y="717" font-size="8.5" fill="#92400e">Socket (LocalAPI) luôn OK; chỉ TCP tới 100.64.x.x bị ảnh hưởng.</text>
+
+  <!-- markers -->
+  <defs>
+    <marker id="bk" markerWidth="9" markerHeight="9" refX="5.5" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L5.5,3 L0,6 Z" fill="#475569"/>
+    </marker>
+    <marker id="rk" markerWidth="9" markerHeight="9" refX="5.5" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L5.5,3 L0,6 Z" fill="#dc2626"/>
+    </marker>
+    <marker id="gk" markerWidth="9" markerHeight="9" refX="5.5" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L5.5,3 L0,6 Z" fill="#16a34a"/>
+    </marker>
+    <marker id="yk" markerWidth="9" markerHeight="9" refX="5.5" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L5.5,3 L0,6 Z" fill="#d97706"/>
+    </marker>
+  </defs>
+</svg>

@@ -1,0 +1,119 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 660" font-family="Segoe UI, Arial, sans-serif">
+  <!-- background -->
+  <rect x="0" y="0" width="1100" height="660" fill="#ffffff"/>
+
+  <!-- title -->
+  <text x="550" y="34" text-anchor="middle" font-size="22" font-weight="700" fill="#0f172a">TRƯỚC KHI FIX: ping-reporter chạy trong Network Namespace riêng</text>
+  <text x="550" y="56" text-anchor="middle" font-size="13" fill="#dc2626">POST tới collector bị kernel chặn (No route to host) vì thiếu interface tailscale0</text>
+
+  <!-- ===================== LEFT SERVER: vpn4 ===================== -->
+  <rect x="30" y="80" width="600" height="500" rx="14" fill="#1e293b"/>
+  <text x="50" y="108" font-size="16" font-weight="700" fill="#e2e8f0">🖥 Server vpn4 — 149.104.66.174</text>
+
+  <!-- derper container -->
+  <rect x="50" y="124" width="150" height="50" rx="8" fill="#2563eb" stroke="#93c5fd" stroke-width="1.5"/>
+  <text x="125" y="148" text-anchor="middle" font-size="13" font-weight="700" fill="#ffffff">derper</text>
+  <text x="125" y="164" text-anchor="middle" font-size="10" fill="#dbeafe">DERP relay :443</text>
+
+  <!-- Netns A (green dashed) -->
+  <rect x="50" y="190" width="540" height="170" rx="10" fill="#0f3d2e" stroke="#22c55e" stroke-width="2.5" stroke-dasharray="8 5"/>
+  <text x="64" y="212" font-size="13" font-weight="700" fill="#4ade80">Network Namespace A (ts-vpn4)</text>
+
+  <!-- ts-vpn4 container -->
+  <rect x="64" y="224" width="290" height="120" rx="8" fill="#14532d" stroke="#4ade80" stroke-width="1.5"/>
+  <text x="78" y="246" font-size="13" font-weight="700" fill="#bbf7d0">ts-vpn4 (tailscale sidecar)</text>
+  <text x="78" y="268" font-size="11" fill="#dcfce7">• tailscale0 — WireGuard IF</text>
+  <text x="78" y="287" font-size="11" fill="#dcfce7">• 100.64.0.4/32</text>
+  <text x="78" y="306" font-size="11" fill="#dcfce7">• route: 100.64.x.x via tailscale0</text>
+  <text x="78" y="328" font-size="10" fill="#86efac">cap_add NET_ADMIN · /dev/net/tun</text>
+
+  <!-- unix socket symbol -->
+  <rect x="368" y="244" width="210" height="80" rx="8" fill="#1c3a2e" stroke="#34d399" stroke-width="1.5"/>
+  <circle cx="392" cy="276" r="9" fill="none" stroke="#34d399" stroke-width="2"/>
+  <circle cx="392" cy="276" r="3" fill="#34d399"/>
+  <text x="410" y="272" font-size="10" font-weight="700" fill="#a7f3d0">unix socket</text>
+  <text x="410" y="287" font-size="9" fill="#d1fae5">/var/run/tailscale/</text>
+  <text x="410" y="300" font-size="9" fill="#d1fae5">tailscaled.sock</text>
+  <text x="410" y="316" font-size="9" fill="#6ee7b7">(LocalAPI)</text>
+
+  <!-- Netns B (red dashed) -->
+  <rect x="50" y="372" width="540" height="190" rx="10" fill="#3b1118" stroke="#ef4444" stroke-width="2.5" stroke-dasharray="8 5"/>
+  <text x="64" y="394" font-size="13" font-weight="700" fill="#fca5a5">⚠ Network Namespace B (ping-reporter — RIÊNG)</text>
+
+  <!-- ping-reporter container -->
+  <rect x="64" y="406" width="320" height="142" rx="8" fill="#450a0a" stroke="#f87171" stroke-width="1.5"/>
+  <text x="78" y="428" font-size="13" font-weight="700" fill="#fecaca">ping-reporter (vpn4)</text>
+  <text x="78" y="449" font-size="11" fill="#fee2e2">routing table:</text>
+  <text x="78" y="467" font-size="11" font-weight="700" fill="#fca5a5">✕ NO 100.64.x.x route</text>
+  <text x="78" y="485" font-size="11" fill="#fee2e2">✕ NO tailscale0 interface</text>
+  <rect x="78" y="496" width="290" height="42" rx="6" fill="#7f1d1d" stroke="#fca5a5" stroke-width="1"/>
+  <text x="88" y="514" font-size="11" font-weight="700" fill="#fecaca">OSError(113)</text>
+  <text x="88" y="530" font-size="10" fill="#fec6c6">No route to host (EHOSTUNREACH)</text>
+
+  <!-- socket arrow coming IN from ts_sock volume (works) -->
+  <line x1="473" y1="324" x2="473" y2="406" stroke="#34d399" stroke-width="2" marker-end="url(#greenArrow)"/>
+  <text x="483" y="368" font-size="9" fill="#34d399">ts_sock volume</text>
+  <text x="483" y="381" font-size="9" fill="#34d399">socket OK ✓</text>
+
+  <!-- red dashed POST arrow trying to go OUT, blocked -->
+  <line x1="384" y1="477" x2="540" y2="477" stroke="#ef4444" stroke-width="2.5" stroke-dasharray="6 4"/>
+  <text x="392" y="468" font-size="10" font-weight="700" fill="#f87171">POST 100.64.0.1:8090</text>
+  <!-- big block X -->
+  <rect x="540" y="458" width="38" height="38" rx="6" fill="#7f1d1d" stroke="#ef4444" stroke-width="2"/>
+  <line x1="548" y1="466" x2="570" y2="488" stroke="#fca5a5" stroke-width="3"/>
+  <line x1="570" y1="466" x2="548" y2="488" stroke="#fca5a5" stroke-width="3"/>
+
+  <!-- ===================== RIGHT SERVER: vpn2 ===================== -->
+  <rect x="700" y="80" width="370" height="500" rx="14" fill="#1e293b"/>
+  <text x="720" y="108" font-size="16" font-weight="700" fill="#e2e8f0">🖥 Server vpn2</text>
+  <text x="720" y="126" font-size="12" fill="#94a3b8">headscale control + collector</text>
+
+  <!-- Netns C (green dashed) -->
+  <rect x="720" y="150" width="330" height="160" rx="10" fill="#0f3d2e" stroke="#22c55e" stroke-width="2.5" stroke-dasharray="8 5"/>
+  <text x="734" y="172" font-size="13" font-weight="700" fill="#4ade80">Network Namespace C (ts-collector)</text>
+  <rect x="734" y="184" width="302" height="112" rx="8" fill="#14532d" stroke="#4ade80" stroke-width="1.5"/>
+  <text x="748" y="206" font-size="12" font-weight="700" fill="#bbf7d0">ts-collector (tailscale sidecar)</text>
+  <text x="748" y="227" font-size="11" fill="#dcfce7">• tailscale0 — WireGuard IF</text>
+  <text x="748" y="246" font-size="11" fill="#dcfce7">• 100.64.0.1/32</text>
+  <text x="748" y="265" font-size="11" fill="#dcfce7">• TCP :8090 listening</text>
+  <text x="748" y="285" font-size="10" fill="#86efac">route 100.64.x.x via tailscale0</text>
+
+  <!-- collector app -->
+  <rect x="720" y="330" width="330" height="80" rx="8" fill="#2563eb" stroke="#93c5fd" stroke-width="1.5"/>
+  <text x="885" y="356" text-anchor="middle" font-size="14" font-weight="700" fill="#ffffff">collector (node-dedup)</text>
+  <text x="885" y="378" text-anchor="middle" font-size="11" fill="#dbeafe">POST /metrics/report</text>
+  <text x="885" y="396" text-anchor="middle" font-size="10" fill="#bfdbfe">network_mode: service:tailscale</text>
+
+  <!-- ===================== WireGuard tunnel (purple dashed) ===================== -->
+  <path d="M 354 284 C 660 284, 660 234, 720 234" fill="none" stroke="#a855f7" stroke-width="3" stroke-dasharray="10 6" marker-end="url(#purpleArrow)" marker-start="url(#purpleArrowStart)"/>
+  <rect x="430" y="200" width="210" height="34" rx="6" fill="#2e1065" stroke="#a855f7" stroke-width="1.5"/>
+  <text x="535" y="216" text-anchor="middle" font-size="11" font-weight="700" fill="#d8b4fe">WireGuard UDP tunnel</text>
+  <text x="535" y="229" text-anchor="middle" font-size="9" fill="#c4b5fd">ts-vpn4 ↔ ts-collector</text>
+
+  <!-- note: red POST blocked BEFORE reaching tunnel -->
+  <text x="500" y="615" text-anchor="middle" font-size="12" font-weight="700" fill="#dc2626">Gói tin POST của ping-reporter bị kernel của Netns B drop NGAY TỪ ĐẦU — không bao giờ chạm được tới WireGuard tunnel.</text>
+
+  <!-- ===================== LEGEND ===================== -->
+  <rect x="30" y="600" width="430" height="48" rx="8" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="1"/>
+  <line x1="44" y1="616" x2="74" y2="616" stroke="#22c55e" stroke-width="3" stroke-dasharray="6 4"/>
+  <text x="80" y="620" font-size="10" fill="#334155">Netns có WireGuard</text>
+  <line x1="44" y1="634" x2="74" y2="634" stroke="#ef4444" stroke-width="3" stroke-dasharray="6 4"/>
+  <text x="80" y="638" font-size="10" fill="#334155">Netns không có route</text>
+  <line x1="210" y1="616" x2="240" y2="616" stroke="#a855f7" stroke-width="3" stroke-dasharray="8 5"/>
+  <text x="246" y="620" font-size="10" fill="#334155">WireGuard tunnel</text>
+  <line x1="210" y1="634" x2="240" y2="634" stroke="#34d399" stroke-width="3"/>
+  <text x="246" y="638" font-size="10" fill="#334155">unix socket (volume) OK</text>
+
+  <!-- arrow markers -->
+  <defs>
+    <marker id="greenArrow" markerWidth="10" markerHeight="10" refX="6" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L6,3 L0,6 Z" fill="#34d399"/>
+    </marker>
+    <marker id="purpleArrow" markerWidth="12" markerHeight="12" refX="7" refY="3.5" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L7,3.5 L0,7 Z" fill="#a855f7"/>
+    </marker>
+    <marker id="purpleArrowStart" markerWidth="12" markerHeight="12" refX="0" refY="3.5" orient="auto" markerUnits="strokeWidth">
+      <path d="M7,0 L0,3.5 L7,7 Z" fill="#a855f7"/>
+    </marker>
+  </defs>
+</svg>
