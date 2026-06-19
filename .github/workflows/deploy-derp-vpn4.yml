@@ -51,6 +51,7 @@ jobs:
               DEBIAN_FRONTEND=noninteractive $SUDO sh /tmp/install-docker.sh
               rm -f /tmp/install-docker.sh
             fi
+            $SUDO systemctl enable --now docker 2>/dev/null || true
 
             echo "==> [2/4] Clone/cap nhat repo"
             if [ ! -d "$DEPLOY_PATH/.git" ]; then

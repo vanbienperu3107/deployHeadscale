@@ -45,8 +45,12 @@ jobs:
 
             echo "==> [2/5] Cài Docker nếu thiếu"
             if ! command -v docker >/dev/null 2>&1; then
-              curl -fsSL https://get.docker.com | $SUDO sh
+              curl -fsSL https://get.docker.com -o /tmp/install-docker.sh
+              DEBIAN_FRONTEND=noninteractive $SUDO sh /tmp/install-docker.sh
+              rm -f /tmp/install-docker.sh
             fi
+            # Dam bao Docker tu dong khoi dong khi reboot (systemd)
+            $SUDO systemctl enable --now docker 2>/dev/null || true
 
             echo "==> [3/5] Clone repo nếu chưa có ($DEPLOY_PATH)"
             if [ ! -d "$DEPLOY_PATH/.git" ]; then
