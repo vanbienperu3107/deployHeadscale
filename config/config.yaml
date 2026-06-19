@@ -24,12 +24,13 @@ derp:
     verify_clients: true
     stun_listen_addr: "0.0.0.0:3478"
     private_key_path: /var/lib/headscale/derp_server_private.key
-    automatically_add_embedded_derp_region: false  # vpn2 da co trong derp.yaml (avoid=true)
+    automatically_add_embedded_derp_region: true
     ipv4: 165.22.12.169    # IP public VPS (vpn2.hangocthanh.io.vn)
     # ipv6: YOUR_IPV6              # ← nếu có
 
-  # DERP map: vpn3 (region 1000, preferred) + vpn2 (region 999, avoid=true, backup).
-  # vpn3 la default, client chi dung vpn2 khi vpn3 chet (~5-15s failover tu dong).
+  # DERP map bo sung: vpn3 (region 1000) tu file ngoai. Region 999 (embedded, vpn2)
+  # tu dong them boi automatically_add_embedded_derp_region. Client thay 2 region
+  # -> tu do latency. Neu 1 region chet, tailscale tu chuyen sang region con lai.
   # -> tu do latency. Neu 1 region chet, tailscale tu chuyen sang region con lai.
   paths:
     - /etc/headscale/derp.yaml   # -> config/derp.yaml (volume ./config:/etc/headscale)

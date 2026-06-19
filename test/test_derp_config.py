@@ -79,37 +79,22 @@ def test_headscale_config_co_derp_paths():
 def test_headscale_co_2_region_de_failover():
     """
     Khi 1 region chet, client phai co region du phong.
-    Ca 2 region (vpn3 preferred + vpn2 backup) phai co trong derp.yaml.
-    automatically_add_embedded_derp_region phai False (vpn2 da them thu cong).
+    - Region 999 (embedded vpn2): tu dong them boi automatically_add_embedded_derp_region
+    - Region 1000 (vpn3): tu config/derp.yaml qua derp.paths
+    -> Tong >= 2 region -> failover tu dong (tailscale tu chuyen ~5-15s).
     """
-    d = load_derp()
-    assert len(d["regions"]) >= 2, (
-        f"derp.yaml phai co >= 2 region de failover (hien co {len(d['regions'])})"
-    )
     cfg = load_hs()
-    auto = cfg.get("derp", {}).get("server", {}).get("automatically_add_embedded_derp_region", True)
-    assert not auto, (
-        "automatically_add_embedded_derp_region phai False (vpn2 da trong derp.yaml, tranh them 2 lan)"
-    )
+    derp_srv = cfg.get("derp", {}).get("server", {})
+    auto_embedded = derp_srv.get("automatically_add_embedded_derp_region", False)
+    paths = cfg.get("derp", {}).get("paths", [])
 
+    has_embedded = auto_embedded and derp_srv.get("enabled", False)
+    has_external = len(paths) >= 1
 
-def test_vpn3_la_preferred_vpn2_la_backup():
-    """vpn3 phai la preferred (avoid=False), vpn2 phai la backup (avoid=True)."""
-    d = load_derp()
-    vpn3_region = next(
-        (r for r in d["regions"].values()
-         if any("vpn3" in n["hostname"] for n in r["nodes"])), None)
-    vpn2_region = next(
-        (r for r in d["regions"].values()
-         if any("vpn2" in n["hostname"] for n in r["nodes"])), None)
-
-    assert vpn3_region is not None, "Khong tim thay region chua vpn3.hangocthanh.io.vn"
-    assert vpn2_region is not None, "Khong tim thay region chua vpn2.hangocthanh.io.vn"
-    assert not vpn3_region.get("avoid", False), (
-        "vpn3 phai la preferred (avoid phai False hoac bo trong)"
-    )
-    assert vpn2_region.get("avoid") is True, (
-        "vpn2 phai la backup (avoid phai True)"
+    assert has_embedded and has_external, (
+        "Can 2 DERP region de failover: "
+        f"embedded={'ON' if has_embedded else 'OFF'} (region 999, vpn2), "
+        f"external={'ON' if has_external else 'OFF'} (vpn3 qua derp.paths)"
     )
 
 
