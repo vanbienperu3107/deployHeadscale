@@ -10,7 +10,7 @@ COPY go.mod go.sum* ./
 # GOTELEMETRY=off avoids telemetry writes in build environment.
 ENV GONOSUMDB=* GOTELEMETRY=off
 
-RUN go mod download
+RUN go mod tidy
 
 COPY *.go ./
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /relay .
