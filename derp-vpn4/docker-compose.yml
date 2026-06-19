@@ -1,0 +1,24 @@
+services:
+  derper:
+    build:
+      context: ../derp-vpn3
+      dockerfile: Dockerfile.derper
+    container_name: derper
+    restart: unless-stopped
+    command:
+      - --hostname=vpn4.hangocthanh.io.vn
+      - --a=:443
+      - --http-port=80
+      - --certmode=letsencrypt
+      - --certdir=/data/derper-certs
+      - --stun
+      - --stun-port=3478
+      - --verify-clients=false
+    ports:
+      - "80:80"
+      - "443:443"
+      - "3478:3478/udp"
+    volumes:
+      - derper_certs:/data/derper-certs
+volumes:
+  derper_certs:

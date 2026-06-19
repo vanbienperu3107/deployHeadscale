@@ -286,6 +286,16 @@ def test_parse_derp_regions_two_regions():
     assert regions[1]["code"] == "vpn3-vn"
 
 
+def test_parse_derp_regions_three_regions():
+    regions = _parse_derp_regions(
+        "myderp=https://vpn2.hangocthanh.io.vn/derp/probe,"
+        "vpn3-vn=https://vpn3.hangocthanh.io.vn/derp/probe,"
+        "vpn4-vn=https://vpn4.hangocthanh.io.vn/derp/probe"
+    )
+    assert len(regions) == 3
+    assert regions[2] == {"code": "vpn4-vn", "url": "https://vpn4.hangocthanh.io.vn/derp/probe"}
+
+
 def test_parse_derp_regions_empty():
     assert _parse_derp_regions("") == []
     assert _parse_derp_regions(None) == []

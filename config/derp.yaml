@@ -1,10 +1,11 @@
 # DERP map bo sung cho headscale.
 # Region 999 (vpn2/myderp) duoc headscale tu dong them qua
 # automatically_add_embedded_derp_region: true.
-# Region 1000 (vpn3-vn) them o day qua derp.paths.
+# Region 1000 (vpn3-vn) va 1001 (vpn4-vn) them o day qua derp.paths.
 #
-# Tailscale client tu do latency ca 2 region va chon cai nao nhanh hon.
-# Neu 1 region chet, tu dong chuyen sang cai con lai (~5-15s).
+# Tailscale client do latency ca 3 region va chon con DERP GAN NHAT (thap nhat).
+# Neu 1 region chet, tu dong chuyen sang con con lai (~5-15s).
+# Khong dung avoid: true -> tat ca 3 region binh dang, tailscale tu chon.
 regions:
   1000:
     regionid: 1000
@@ -15,5 +16,16 @@ regions:
         regionid: 1000
         hostname: "vpn3.hangocthanh.io.vn"
         ipv4: "149.104.66.159"
+        stunport: 3478
+        derpport: 443
+  1001:
+    regionid: 1001
+    regioncode: "vpn4-vn"
+    regionname: "VPN4 Vietnam"
+    nodes:
+      - name: "vpn4-vn-1"
+        regionid: 1001
+        hostname: "vpn4.hangocthanh.io.vn"
+        ipv4: "149.104.66.174"
         stunport: 3478
         derpport: 443

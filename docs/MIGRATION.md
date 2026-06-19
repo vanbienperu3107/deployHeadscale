@@ -327,33 +327,32 @@ https://vpn2.hangocthanh.io.vn/admin/oidc/callback    (headplane - admin)
 
 ---
 
-## Phụ lục D — Chuyển DERP relay vpn3 sang server mới
+## Phụ lục D — Chuyển / Thêm DERP relay
 
-> Áp dụng khi `vpn3.hangocthanh.io.vn` (149.104.66.159) cần đổi VPS, hoặc khi thêm DERP region thứ 3.
-
-### D.1 — Kiến trúc DERP hiện tại
+### D.1 — Kiến trúc DERP hiện tại (3 region)
 
 | Server | Vai trò | Region |
 |--------|---------|--------|
 | `vpn2.hangocthanh.io.vn` (165.22.12.169) | Headscale control plane + **embedded DERP relay** | 999 (`myderp`) |
-| `vpn3.hangocthanh.io.vn` (149.104.66.159) | **DERP relay** (derper, không có headscale) | 1000 (`vpn3-vn`) |
+| `vpn3.hangocthanh.io.vn` (149.104.66.159) | **DERP relay** (derper) | 1000 (`vpn3-vn`) |
+| `vpn4.hangocthanh.io.vn` (149.104.66.174) | **DERP relay** (derper) | 1001 (`vpn4-vn`) |
 
-Tailscale client **tự đo latency** và chọn region gần nhất mỗi vài giây. Không cần cấu hình phía client.
+Tailscale client **tự đo latency cả 3 region** và chọn con **gần nhất** (latency thấp nhất) mỗi vài giây. Không cần cấu hình phía client. Không dùng `avoid: true` — tất cả region bình đẳng.
 
 ### D.2 — Hành vi khi một server chết
 
-**vpn3 (DERP relay) chết:**
+**vpn3 hoặc vpn4 (DERP relay) chết:**
 - Tailscale phát hiện ~5–15s (DERP heartbeat timeout).
-- Tất cả client tự chuyển sang region 999 (vpn2 embedded DERP) — **không cần can thiệp**.
-- Khi vpn3 hồi phục, client tự load-balance lại.
+- Client tự chuyển sang 1 trong 2 region còn lại — **không cần can thiệp**.
+- Khi server hồi phục, client tự load-balance lại theo latency.
 
 **vpn2 (headscale control plane) chết:**
-- Các kết nối WireGuard peer-to-peer đang hoạt động **vẫn tiếp tục** (không qua headscale).
-- DERP relay vpn3 (region 1000) **vẫn hoạt động** — relay traffic không phụ thuộc headscale.
+- Các kết nối WireGuard peer-to-peer đang hoạt động **vẫn tiếp tục**.
+- DERP relay vpn3 (1000) và vpn4 (1001) **vẫn hoạt động** — relay không phụ thuộc headscale.
 - Node **không thể re-auth** hoặc join mới cho đến khi vpn2 khôi phục.
 - Khôi phục: restart stack vpn2, các node tự reconnect.
 
-### D.3 — Chuyển DERP relay sang VPS mới
+### D.3 — Chuyển vpn3 sang VPS mới
 
 1. **Chuẩn bị VPS mới** — mở port TCP 80, 443 và UDP 3478.
 
@@ -361,7 +360,7 @@ Tailscale client **tự đo latency** và chọn region gần nhất mỗi vài 
 
    | Secret | Giá trị cũ | Giá trị mới |
    |--------|-----------|------------|
-   | `SSH_HOST_VPN3` | IP cũ | IP mới |
+   | `SSH_HOST_VPN3` | IP cũ | IP VPS mới |
 
 3. **Cập nhật `config/derp.yaml`** — đổi `ipv4` của node vpn3:
    ```yaml
@@ -373,37 +372,35 @@ Tailscale client **tự đo latency** và chọn region gần nhất mỗi vài 
 
 4. **Trỏ DNS** `vpn3.hangocthanh.io.vn` → IP VPS mới.
 
-5. **Commit + push** → CI validate `config/derp.yaml` → Deploy DERP tự SSH vào VPS mới.
+5. **Commit + push** → CI validate → Deploy DERP tự SSH vào VPS mới.
 
-6. **Kiểm tra:** `curl -s https://vpn3.hangocthanh.io.vn/derp/probe` → `200 OK`.
+6. **Kiểm tra:** `curl -sk https://vpn3.hangocthanh.io.vn/derp/probe` → `200 OK`.
 
 7. **Restart headscale** trên vpn2 để nạp lại `derp.yaml`:
    ```bash
    docker compose restart headscale
    ```
-   Client sẽ nhận DERP map mới với IP mới trong vòng 30–60s.
+   Client sẽ nhận DERP map mới trong vòng 30–60s.
 
-### D.4 — Thêm DERP region thứ 3
+### D.4 — Chuyển vpn4 sang VPS mới
 
-Mở thêm section trong `config/derp.yaml`:
-```yaml
-regions:
-  1000:
-    # ... vpn3 (giữ nguyên)
-  1001:
-    regionid: 1001
-    regioncode: "vpn4-sg"
-    regionname: "VPN4 Singapore"
-    nodes:
-      - name: "vpn4-sg-1"
-        regionid: 1001
-        hostname: "vpn4.hangocthanh.io.vn"
-        ipv4: "<IP_VPN4>"
-        stunport: 3478
-        derpport: 443
-```
-Tạo thêm `deploy-derp-vpn4.yml` theo mẫu `deploy-derp.yml` với secret `SSH_HOST_VPN4`.
-CI test `test_co_2_region_de_failover` vẫn pass (chỉ yêu cầu ≥ 1 external region).
+Tương tự D.3 nhưng dùng secret `SSH_HOST_VPN4` và `config/derp.yaml` region 1001:
+
+1. Đổi `SSH_HOST_VPN4` → IP VPS mới.
+2. Đổi `ipv4: "<IP_MỚI>"` trong region `1001` của `config/derp.yaml`.
+3. Trỏ DNS `vpn4.hangocthanh.io.vn` → IP mới.
+4. Commit + push → CI → Deploy DERP (vpn4) tự deploy.
+5. Kiểm tra: `curl -sk https://vpn4.hangocthanh.io.vn/derp/probe` → `200 OK`.
+6. Restart headscale trên vpn2: `docker compose restart headscale`.
+
+### D.5 — Thêm DERP region thứ 4+
+
+1. Thêm region mới (ID tăng dần) vào `config/derp.yaml`.
+2. Tạo thư mục `derp-vpnN/docker-compose.yml` theo mẫu `derp-vpn4/docker-compose.yml` (đổi hostname).
+3. Tạo `deploy-derp-vpnN.yml` theo mẫu `deploy-derp-vpn4.yml` (đổi `SSH_HOST_VPNN`, health probe URL).
+4. Thêm secret `SSH_HOST_VPNN` vào GitHub.
+5. Bootstrap SSH key trên VPS mới (xem DEPLOYMENT.md).
+6. Commit + push → CI → auto-deploy.
 
 ---
 

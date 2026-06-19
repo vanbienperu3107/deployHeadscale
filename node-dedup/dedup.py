@@ -64,7 +64,8 @@ SRC_NAME = os.environ.get("SRC_NAME", "collector")  # ten "nguon" khi server pin
 DERP_PROBE_URLS = os.environ.get(
     "DERP_PROBE_URLS",
     "myderp=https://vpn2.hangocthanh.io.vn/derp/probe,"
-    "vpn3-vn=https://vpn3.hangocthanh.io.vn/derp/probe",
+    "vpn3-vn=https://vpn3.hangocthanh.io.vn/derp/probe,"
+    "vpn4-vn=https://vpn4.hangocthanh.io.vn/derp/probe",
 )
 
 # 1 connection SQLite dung chung giua main-loop va HTTP thread -> phai khoa.

@@ -65,6 +65,27 @@ def test_vpn3_ip_dung():
                 )
 
 
+def test_vpn4_co_trong_derp_map():
+    """Dam bao vpn4.hangocthanh.io.vn duoc dang ky lam DERP relay."""
+    hostnames = [
+        node["hostname"]
+        for region in load_derp()["regions"].values()
+        for node in region["nodes"]
+    ]
+    assert "vpn4.hangocthanh.io.vn" in hostnames, (
+        "vpn4.hangocthanh.io.vn phai co trong config/derp.yaml"
+    )
+
+
+def test_vpn4_ip_dung():
+    for region in load_derp()["regions"].values():
+        for node in region["nodes"]:
+            if node["hostname"] == "vpn4.hangocthanh.io.vn":
+                assert node.get("ipv4") == "149.104.66.174", (
+                    "ipv4 cua vpn4 phai la 149.104.66.174"
+                )
+
+
 # ---------- headscale config: failover setup ----------
 
 def test_headscale_config_co_derp_paths():
@@ -127,3 +148,45 @@ def test_derp_vpn3_expose_port_443_va_3478():
     ports_str = " ".join(str(p) for p in ports)
     assert "443" in ports_str, "derper phai expose port 443 (DERP/HTTPS)"
     assert "3478" in ports_str, "derper phai expose port 3478/udp (STUN)"
+
+
+# ---------- derp-vpn4 docker-compose ----------
+
+def test_derp_vpn4_compose_ton_tai():
+    compose = ROOT / "derp-vpn4" / "docker-compose.yml"
+    assert compose.exists(), "derp-vpn4/docker-compose.yml phai ton tai"
+
+
+def test_derp_vpn4_compose_co_derper_service():
+    compose = ROOT / "derp-vpn4" / "docker-compose.yml"
+    data = yaml.safe_load(compose.read_text())
+    assert "derper" in data.get("services", {}), (
+        "derp-vpn4/docker-compose.yml phai co service 'derper'"
+    )
+
+
+def test_derp_vpn4_expose_port_443_va_3478():
+    compose = ROOT / "derp-vpn4" / "docker-compose.yml"
+    data = yaml.safe_load(compose.read_text())
+    ports = data["services"]["derper"].get("ports", [])
+    ports_str = " ".join(str(p) for p in ports)
+    assert "443" in ports_str, "derp-vpn4 phai expose port 443 (DERP/HTTPS)"
+    assert "3478" in ports_str, "derp-vpn4 phai expose port 3478/udp (STUN)"
+
+
+def test_derp_vpn4_hostname_trong_compose():
+    compose = ROOT / "derp-vpn4" / "docker-compose.yml"
+    data = yaml.safe_load(compose.read_text())
+    cmd = data["services"]["derper"].get("command", [])
+    cmd_str = " ".join(str(c) for c in cmd)
+    assert "vpn4.hangocthanh.io.vn" in cmd_str, (
+        "derp-vpn4 compose phai dung --hostname=vpn4.hangocthanh.io.vn"
+    )
+
+
+def test_derp_co_3_region_total():
+    """3 DERP regions (999 embedded + 1000 vpn3 + 1001 vpn4) -> failover tot hon."""
+    d = load_derp()
+    assert len(d["regions"]) >= 2, (
+        "config/derp.yaml phai co it nhat 2 region ngoai (+ embedded 999 = 3 tong)"
+    )
