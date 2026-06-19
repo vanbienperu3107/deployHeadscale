@@ -334,7 +334,7 @@ https://vpn2.hangocthanh.io.vn/admin/oidc/callback    (headplane - admin)
 | Server | Vai trò | Region |
 |--------|---------|--------|
 | `vpn2.hangocthanh.io.vn` (165.22.12.169) | Headscale control plane + **embedded DERP relay** | 999 (`myderp`) |
-| `vpn3.hangocthanh.io.vn` (149.104.66.159) | **DERP relay** (derper) | 1000 (`vpn3-vn`) |
+| `vpn3.hangocthanh.io.vn` (64.176.23.196) | **DERP relay** (derper) | 1000 (`vpn3-vn`) |
 | `vpn4.hangocthanh.io.vn` (149.104.66.174) | **DERP relay** (derper) | 1001 (`vpn4-vn`) |
 
 Tailscale client **tự đo latency cả 3 region** và chọn con **gần nhất** (latency thấp nhất) mỗi vài giây. Không cần cấu hình phía client. Không dùng `avoid: true` — tất cả region bình đẳng.

@@ -15,7 +15,7 @@ regions:
       - name: "vpn3-vn-1"
         regionid: 1000
         hostname: "vpn3.hangocthanh.io.vn"
-        ipv4: "149.104.66.159"
+        ipv4: "64.176.23.196"
         stunport: 3478
         derpport: 443
   1001:

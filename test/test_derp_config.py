@@ -60,8 +60,8 @@ def test_vpn3_ip_dung():
     for region in load_derp()["regions"].values():
         for node in region["nodes"]:
             if node["hostname"] == "vpn3.hangocthanh.io.vn":
-                assert node.get("ipv4") == "149.104.66.159", (
-                    "ipv4 cua vpn3 phai la 149.104.66.159"
+                assert node.get("ipv4") == "64.176.23.196", (
+                    "ipv4 cua vpn3 phai la 64.176.23.196"
                 )
 
 
