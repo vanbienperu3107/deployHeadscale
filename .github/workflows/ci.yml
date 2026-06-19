@@ -104,10 +104,10 @@ jobs:
           go-version: "1.22"
           cache-dependency-path: relay-vpn5/go.mod
 
-      - name: go mod tidy (resolve + generate go.sum)
+      - name: go mod tidy
         working-directory: relay-vpn5
         env:
-          GONOSUMDB: "tailscale.com"
+          GONOSUMDB: "*"
           GOTELEMETRY: "off"
         run: go mod tidy
 
