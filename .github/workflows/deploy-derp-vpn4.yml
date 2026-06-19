@@ -114,6 +114,11 @@ jobs:
             printf 'TS_AUTHKEY=%s\n' "${TS_AUTHKEY:-}" > "$DEPLOY_PATH/derp-vpn4/.env"
             echo "  .env da ghi"
 
+            echo "==> [3.5/4] Dung relay-vpn4 stack cu (neu con chay) de tranh conflict container name"
+            $SUDO docker stop relay-vpn4 caddy-vpn4 ts-vpn4 ping-reporter-vpn4 2>/dev/null || true
+            $SUDO docker rm -f relay-vpn4 caddy-vpn4 ts-vpn4 ping-reporter-vpn4 2>/dev/null || true
+            echo "  relay-vpn4 stack da don dep"
+
             echo "==> [4/4] Khoi dong DERP relay + tailscale + ping-reporter"
             cd "$DEPLOY_PATH/derp-vpn4"
             $SUDO docker compose run --rm --no-deps --entrypoint sh tailscale \
