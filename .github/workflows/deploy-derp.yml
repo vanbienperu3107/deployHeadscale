@@ -80,17 +80,7 @@ jobs:
                   -o /tmp/hs_users.json 2>/dev/null \
                   || printf '{"users":[]}' > /tmp/hs_users.json
                 echo "  DEBUG users=$(head -c 200 /tmp/hs_users.json 2>/dev/null)"
-                python3 -c "
-import json,sys
-try:
-    d=json.load(open('/tmp/hs_users.json'))
-    u=d.get('users',d.get('user',[]))
-    if isinstance(u,list) and u: print(u[0].get('name',''))
-    elif isinstance(u,dict): print(u.get('name',''))
-    else: print('')
-except Exception as e:
-    sys.stderr.write(str(e)+'\n'); print('')
-" > /tmp/hs_uname.txt 2>/dev/null || printf '' > /tmp/hs_uname.txt
+                python3 -c "import json; d=json.load(open('/tmp/hs_users.json')); u=d.get('users',d.get('user',[])); print(u[0]['name'] if isinstance(u,list) and u else '')" 2>/dev/null > /tmp/hs_uname.txt || printf '' > /tmp/hs_uname.txt
                 U_NAME=$(cat /tmp/hs_uname.txt 2>/dev/null | tr -d '\n\r')
                 echo "  DEBUG U_NAME='$U_NAME' EXPIRY='$EXPIRY'"
                 if [ -n "$U_NAME" ]; then
@@ -103,15 +93,7 @@ except Exception as e:
                       -o /tmp/hs_preauthkey.json 2>/dev/null \
                       || printf '{}' > /tmp/hs_preauthkey.json
                     echo "  DEBUG preauthkey=$(head -c 200 /tmp/hs_preauthkey.json 2>/dev/null)"
-                    python3 -c "
-import json,sys
-try:
-    d=json.load(open('/tmp/hs_preauthkey.json'))
-    k=d.get('preAuthKey',{}).get('key','') or d.get('key','')
-    print(k)
-except Exception as e:
-    sys.stderr.write(str(e)+'\n'); print('')
-" > /tmp/hs_key.txt 2>/dev/null || printf '' > /tmp/hs_key.txt
+                    python3 -c "import json; d=json.load(open('/tmp/hs_preauthkey.json')); print(d.get('preAuthKey',{}).get('key','') or d.get('key',''))" 2>/dev/null > /tmp/hs_key.txt || printf '' > /tmp/hs_key.txt
                     TS_AUTHKEY=$(cat /tmp/hs_key.txt 2>/dev/null | tr -d '\n\r')
                     if [ -n "$TS_AUTHKEY" ]; then
                       printf '%s' "$TS_AUTHKEY" > "$DEPLOY_PATH/.ts_authkey"
