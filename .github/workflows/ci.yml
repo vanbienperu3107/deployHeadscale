@@ -102,12 +102,13 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: "1.22"
-          # go.sum chua duoc commit (go mod tidy se tao o buoc sau).
-          # Cache theo go.mod de tang toc lan sau.
           cache-dependency-path: relay-vpn5/go.mod
 
       - name: go mod tidy (resolve + generate go.sum)
         working-directory: relay-vpn5
+        env:
+          GONOSUMDB: "tailscale.com"
+          GOTELEMETRY: "off"
         run: go mod tidy
 
       - name: go build (kiem tra bien dich thanh cong)
