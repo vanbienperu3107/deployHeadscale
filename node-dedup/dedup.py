@@ -576,6 +576,7 @@ tr.off td{opacity:.45}
 .tag{padding:2px 9px;border-radius:999px;font-size:11px;font-weight:600;display:inline-block}
 .direct{background:#064e3b;color:#6ee7b7}
 .derp{background:#312e81;color:#a5b4fc}
+.derp-dead{background:#7f1d1d;color:#fca5a5;border:1px solid #dc2626}
 .offline{background:#1e293b;color:#64748b}
 .bad{color:#fca5a5}
 .note{color:#64748b;font-size:11px}
@@ -610,6 +611,8 @@ def render_derp_html(regions, peers, now):
     """
     gen = time.strftime("%H:%M:%S %d/%m/%Y", time.localtime(now))
 
+    dead_codes = {r["code"] for r in regions if not r.get("ok", True)}
+
     def rcard(r):
         cls = "ok" if r["ok"] else "fail"
         lat = ("%sms" % r["latency_ms"]) if r["latency_ms"] is not None else "-"
@@ -630,6 +633,10 @@ def render_derp_html(regions, peers, now):
             return '<span class="tag direct">direct (P2P)</span>'
         relay = peer["relay"]
         if relay:
+            if relay in dead_codes:
+                return ('<span class="tag derp-dead" title="DERP region nay dang chet! '
+                        'Node dang dung backup path (se tu chuyen ~30-120s)">'
+                        '&#9888; %s</span>' % html.escape(relay))
             return '<span class="tag derp">%s</span>' % html.escape(relay)
         return '<span class="bad">?</span>'
 

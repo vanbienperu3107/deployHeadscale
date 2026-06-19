@@ -413,6 +413,20 @@ def test_render_derp_html_smoke():
     assert "__ROWS__" not in page
 
 
+def test_render_derp_html_dead_relay_warning():
+    """Node dung relay chet phai hien badge canh bao (derp-dead), khong phai badge binh thuong."""
+    regions = [
+        {"code": "myderp",  "url": "https://vpn2.../probe", "ok": True,  "latency_ms": 12.0, "error": None},
+        {"code": "vpn3-vn", "url": "https://vpn3.../probe", "ok": False, "latency_ms": None, "error": "timeout"},
+    ]
+    peers = [
+        {"hostname": "itop", "ip": "100.64.0.2", "relay": "vpn3-vn", "direct": False, "online": True},
+    ]
+    page = render_derp_html(regions, peers, 1200)
+    assert "derp-dead" in page, "itop dung vpn3-vn (chet) phai hien badge canh bao"
+    assert "9888" in page or "&#9888;" in page, "phai co icon canh bao &#9888;"
+
+
 def test_render_derp_html_empty_peers():
     regions = [{"code": "myderp", "url": "https://x/probe", "ok": True, "latency_ms": 5.0, "error": None}]
     page = render_derp_html(regions, [], 1000)
