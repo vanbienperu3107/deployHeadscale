@@ -78,7 +78,7 @@ jobs:
               USERS=$(curl -sf -H "Authorization: Bearer $HS_API_KEY" \
                 "https://vpn2.hangocthanh.io.vn/api/v1/user" 2>/dev/null || echo '{}')
               U_NAME=$(printf '%s' "$USERS" | grep -oE '"name":"[^"]+"' | head -1 | \
-                sed -E 's/"name":"//;s/"$//')
+                sed -E 's/"name":"//;s/"$//' || true)
               if [ -n "$U_NAME" ] && [ -n "$EXPIRY" ]; then
                 RESP=$(curl -sf -X POST \
                   -H "Authorization: Bearer $HS_API_KEY" \
@@ -86,7 +86,7 @@ jobs:
                   -d "{\"user\":\"$U_NAME\",\"reusable\":true,\"expiration\":\"$EXPIRY\"}" \
                   "https://vpn2.hangocthanh.io.vn/api/v1/preauthkey" 2>/dev/null || echo '{}')
                 TS_AUTHKEY=$(printf '%s' "$RESP" | grep -oE '"key":"[^"]+"' | head -1 | \
-                  sed -E 's/"key":"//;s/"$//')
+                  sed -E 's/"key":"//;s/"$//' || true)
                 if [ -n "$TS_AUTHKEY" ]; then
                   printf '%s' "$TS_AUTHKEY" > "$DEPLOY_PATH/.ts_authkey"
                   chmod 600 "$DEPLOY_PATH/.ts_authkey"
