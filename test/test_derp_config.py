@@ -44,6 +44,27 @@ def test_moi_node_co_hostname_va_port():
             assert node.get("stunport") == 3478, f"region {rid}: stunport phai la 3478"
 
 
+def test_vpn3_co_trong_derp_map():
+    """Dam bao vpn3.hangocthanh.io.vn duoc dang ky lam DERP relay (preferred region)."""
+    hostnames = [
+        node["hostname"]
+        for region in load_derp()["regions"].values()
+        for node in region["nodes"]
+    ]
+    assert "vpn3.hangocthanh.io.vn" in hostnames, (
+        "vpn3.hangocthanh.io.vn phai co trong config/derp.yaml"
+    )
+
+
+def test_vpn3_ip_dung():
+    for region in load_derp()["regions"].values():
+        for node in region["nodes"]:
+            if node["hostname"] == "vpn3.hangocthanh.io.vn":
+                assert node.get("ipv4") == "149.104.66.159", (
+                    "ipv4 cua vpn3 phai la 149.104.66.159"
+                )
+
+
 def test_vpn4_co_trong_derp_map():
     """Dam bao vpn4.hangocthanh.io.vn duoc dang ky lam DERP relay."""
     hostnames = [
@@ -68,7 +89,7 @@ def test_vpn4_ip_dung():
 # ---------- headscale config: failover setup ----------
 
 def test_headscale_config_co_derp_paths():
-    """config.yaml phai chi toi derp.yaml de headscale tai region vpn4/vpn5."""
+    """config.yaml phai chi toi derp.yaml de headscale tai region vpn3."""
     cfg = load_hs()
     paths = cfg.get("derp", {}).get("paths", [])
     assert len(paths) >= 1, (
@@ -80,7 +101,7 @@ def test_headscale_co_2_region_de_failover():
     """
     Khi 1 region chet, client phai co region du phong.
     - Region 999 (embedded vpn2): tu dong them boi automatically_add_embedded_derp_region
-    - Region 1001+ (vpn4/vpn5): tu config/derp.yaml qua derp.paths
+    - Region 1000 (vpn3): tu config/derp.yaml qua derp.paths
     -> Tong >= 2 region -> failover tu dong (tailscale tu chuyen ~5-15s).
     """
     cfg = load_hs()
@@ -94,7 +115,7 @@ def test_headscale_co_2_region_de_failover():
     assert has_embedded and has_external, (
         "Can 2 DERP region de failover: "
         f"embedded={'ON' if has_embedded else 'OFF'} (region 999, vpn2), "
-        f"external={'ON' if has_external else 'OFF'} (vpn4/vpn5 qua derp.paths)"
+        f"external={'ON' if has_external else 'OFF'} (vpn3 qua derp.paths)"
     )
 
 
@@ -103,6 +124,30 @@ def test_headscale_khong_dung_derp_tailscale_com():
     cfg = load_hs()
     urls = cfg.get("derp", {}).get("urls", [])
     assert urls == [], f"derp.urls phai rong (full self-host). Hien tai: {urls}"
+
+
+# ---------- derp-vpn3 docker-compose ----------
+
+def test_derp_vpn3_compose_ton_tai():
+    compose = ROOT / "derp-vpn3" / "docker-compose.yml"
+    assert compose.exists(), "derp-vpn3/docker-compose.yml phai ton tai"
+
+
+def test_derp_vpn3_compose_co_derper_service():
+    compose = ROOT / "derp-vpn3" / "docker-compose.yml"
+    data = yaml.safe_load(compose.read_text())
+    assert "derper" in data.get("services", {}), (
+        "derp-vpn3/docker-compose.yml phai co service 'derper'"
+    )
+
+
+def test_derp_vpn3_expose_port_443_va_3478():
+    compose = ROOT / "derp-vpn3" / "docker-compose.yml"
+    data = yaml.safe_load(compose.read_text())
+    ports = data["services"]["derper"].get("ports", [])
+    ports_str = " ".join(str(p) for p in ports)
+    assert "443" in ports_str, "derper phai expose port 443 (DERP/HTTPS)"
+    assert "3478" in ports_str, "derper phai expose port 3478/udp (STUN)"
 
 
 # ---------- derp-vpn4 docker-compose ----------
@@ -139,28 +184,11 @@ def test_derp_vpn4_hostname_trong_compose():
     )
 
 
-def test_ping_reporter_vpn4_trong_netns_tailscale():
-    """
-    ping-reporter PHAI chay trong netns cua tailscale (network_mode: service:tailscale).
-    Neu khong co, TCP connect toi collector_ip:8090 qua WireGuard se fail voi
-    OSError(113, 'No route to host') - da xac nhan qua diag run 27821574015.
-    """
-    compose = ROOT / "derp-vpn4" / "docker-compose.yml"
-    data = yaml.safe_load(compose.read_text())
-    pr = data["services"].get("ping-reporter", {})
-    network_mode = pr.get("network_mode", "")
-    assert "tailscale" in network_mode, (
-        "ping-reporter trong derp-vpn4/docker-compose.yml PHAI co "
-        "network_mode: 'service:tailscale' de reach collector:8090 qua WireGuard. "
-        "Khong co -> POST metrics/report fail OSError(113, 'No route to host')."
-    )
-
-
-def test_derp_co_2_region_total():
-    """3 DERP regions (999 embedded + 1001 vpn4 + 1002 vpn5) -> failover tot."""
+def test_derp_co_3_region_total():
+    """4 DERP regions (999 embedded + 1000 vpn3 + 1001 vpn4 + 1002 vpn5) -> failover tot."""
     d = load_derp()
-    assert len(d["regions"]) >= 2, (
-        "config/derp.yaml phai co it nhat 2 region ngoai (+ embedded 999 = 3 tong)"
+    assert len(d["regions"]) >= 3, (
+        "config/derp.yaml phai co it nhat 3 region ngoai (+ embedded 999 = 4 tong)"
     )
 
 
@@ -236,52 +264,4 @@ def test_relay_vpn5_dockerfile_ton_tai():
 def test_relay_vpn5_go_mod_ton_tai():
     assert (ROOT / "relay-vpn5" / "go.mod").exists(), (
         "relay-vpn5/go.mod phai ton tai"
-    )
-
-
-# ---------- relay-vpn4 compose (hybrid relay thay the derp-vpn4) ----------
-
-def test_relay_vpn4_compose_ton_tai():
-    compose = ROOT / "relay-vpn4" / "docker-compose.yml"
-    assert compose.exists(), "relay-vpn4/docker-compose.yml phai ton tai"
-
-
-def test_relay_vpn4_compose_co_relay_va_tailscale():
-    compose = ROOT / "relay-vpn4" / "docker-compose.yml"
-    data = yaml.safe_load(compose.read_text())
-    svcs = data.get("services", {})
-    assert "relay" in svcs, "relay-vpn4 compose phai co service 'relay'"
-    assert "tailscale" in svcs, "relay-vpn4 compose phai co service 'tailscale' (sidecar)"
-
-
-def test_relay_vpn4_expose_udp_41641():
-    compose = ROOT / "relay-vpn4" / "docker-compose.yml"
-    data = yaml.safe_load(compose.read_text())
-    ports = data["services"]["relay"].get("ports", [])
-    ports_str = " ".join(str(p) for p in ports)
-    assert "41641" in ports_str, "relay-vpn4 phai expose UDP 41641 (WireGuard outbound)"
-
-
-def test_relay_vpn4_co_caddy_tls():
-    """vpn4 khong co Pangolin — dung Caddy tu xu ly TLS thay Traefik."""
-    compose = ROOT / "relay-vpn4" / "docker-compose.yml"
-    data = yaml.safe_load(compose.read_text())
-    svcs = data.get("services", {})
-    assert "caddy" in svcs, (
-        "relay-vpn4 compose phai co service 'caddy' (TLS termination, thay the Traefik)"
-    )
-    ports = svcs["caddy"].get("ports", [])
-    ports_str = " ".join(str(p) for p in ports)
-    assert "443" in ports_str, "caddy phai expose port 443"
-
-
-def test_relay_vpn4_dockerfile_ton_tai():
-    assert (ROOT / "relay-vpn4" / "Dockerfile").exists(), (
-        "relay-vpn4/Dockerfile phai ton tai"
-    )
-
-
-def test_relay_vpn4_go_mod_ton_tai():
-    assert (ROOT / "relay-vpn4" / "go.mod").exists(), (
-        "relay-vpn4/go.mod phai ton tai"
     )

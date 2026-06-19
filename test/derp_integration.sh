@@ -3,8 +3,8 @@
 # Chay trong CI (khong can VPS that). derper --dev chay tren port 3340 (HTTP, khong TLS).
 set -e
 
-echo "==> [1/3] Build derper image tu derp-vpn4/Dockerfile.derper"
-docker build -t derper-ci -f derp-vpn4/Dockerfile.derper derp-vpn4/
+echo "==> [1/3] Build derper image tu derp-vpn3/Dockerfile.derper"
+docker build -t derper-ci -f derp-vpn3/Dockerfile.derper derp-vpn3/
 
 echo "==> [2/3] Start derper (dev mode: HTTP, port 3340, khong can cert)"
 docker run -d --name ci-derper -p 3340:3340 \

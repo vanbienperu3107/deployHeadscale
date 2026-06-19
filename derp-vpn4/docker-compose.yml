@@ -1,7 +1,7 @@
 services:
   derper:
     build:
-      context: .
+      context: ../derp-vpn3   # dung Dockerfile.derper cua vpn3 (giong nhau)
       dockerfile: Dockerfile.derper
     container_name: derper
     restart: unless-stopped
@@ -42,16 +42,11 @@ services:
       - NET_ADMIN
 
   # Ping-reporter: moi 30s ping tung peer, POST ket qua len collector voi src='vpn4'.
-  # QUAN TRONG: phai chay trong netns cua tailscale (network_mode: service:tailscale)
-  # de co the TCP connect toi collector_ip:8090 qua WireGuard interface. Neu khong
-  # co network_mode nay, POST se fail voi OSError(113, 'No route to host') vi container
-  # rieng khong co route toi 100.64.x.x. (tuong tu ts-forward tren vpn2).
   ping-reporter:
     image: python:3.12-slim
     container_name: ping-reporter-vpn4
     restart: unless-stopped
     command: ["python3", "/app/reporter.py"]
-    network_mode: "service:tailscale"
     environment:
       - REPORTER_NAME=vpn4
       - TS_SOCKET=/var/run/tailscale/tailscaled.sock

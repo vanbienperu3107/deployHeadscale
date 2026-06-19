@@ -1,15 +1,10 @@
 # Stage 1: Build
-FROM golang:1.24-alpine AS builder
+FROM golang:1.22-alpine AS builder
 
 RUN apk add --no-cache git ca-certificates
 
 WORKDIR /src
 COPY go.mod go.sum* ./
-
-# GONOSUMDB=* skips checksum DB (no committed go.sum in CI).
-# GOTELEMETRY=off avoids telemetry writes in build environment.
-ENV GONOSUMDB=* GOTELEMETRY=off GOFLAGS=-mod=mod
-
 RUN go mod download
 
 COPY *.go ./
