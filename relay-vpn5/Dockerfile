@@ -5,6 +5,11 @@ RUN apk add --no-cache git ca-certificates
 
 WORKDIR /src
 COPY go.mod go.sum* ./
+
+# GONOSUMDB=* skips checksum DB (no committed go.sum in CI).
+# GOTELEMETRY=off avoids telemetry writes in build environment.
+ENV GONOSUMDB=* GOTELEMETRY=off
+
 RUN go mod download
 
 COPY *.go ./

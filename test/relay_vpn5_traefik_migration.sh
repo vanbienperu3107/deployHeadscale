@@ -91,7 +91,7 @@ echo "==> [2/4] Start mock pan-traefik container (nginx:alpine)"
 docker run -d --name pan-traefik nginx:alpine >/dev/null
 echo "  pan-traefik: $(docker inspect --format '{{.State.Status}}' pan-traefik)"
 
-RESTART_COUNT_BEFORE=$(docker inspect --format '{{.RestartCount}}' pan-traefik)
+STARTED_AT_BEFORE=$(docker inspect --format '{{.State.StartedAt}}' pan-traefik)
 
 echo ""
 echo "==> [3/4] Chay migration logic (trich tu deploy-relay-vpn5.yml step 4)"
@@ -176,18 +176,19 @@ else
   FAIL=1
 fi
 
-# [E] pan-traefik da duoc restart (RestartCount tang them 1)
-RESTART_COUNT_AFTER=$(docker inspect --format '{{.RestartCount}}' pan-traefik)
-if [ "$RESTART_COUNT_AFTER" -gt "$RESTART_COUNT_BEFORE" ]; then
-  echo "PASS  [E] pan-traefik da restart ($RESTART_COUNT_BEFORE -> $RESTART_COUNT_AFTER)"
+# [E] pan-traefik da duoc restart — StartedAt phai thay doi sau docker restart
+# (RestartCount chi tang khi restart policy kich hoat, khong tang khi docker restart thu cong)
+STARTED_AT_AFTER=$(docker inspect --format '{{.State.StartedAt}}' pan-traefik)
+if [ "$STARTED_AT_AFTER" != "$STARTED_AT_BEFORE" ]; then
+  echo "PASS  [E] pan-traefik da restart (StartedAt: ${STARTED_AT_BEFORE} -> ${STARTED_AT_AFTER})"
 else
-  echo "FAIL  [E] pan-traefik chua duoc restart (count: $RESTART_COUNT_BEFORE -> $RESTART_COUNT_AFTER)"
+  echo "FAIL  [E] pan-traefik chua duoc restart (StartedAt khong thay doi: $STARTED_AT_BEFORE)"
   FAIL=1
 fi
 
 echo ""
 echo "--- Kiem tra idempotent: chay migration lan 2 ---"
-RESTART_BEFORE_2ND=$(docker inspect --format '{{.RestartCount}}' pan-traefik)
+STARTED_BEFORE_2ND=$(docker inspect --format '{{.State.StartedAt}}' pan-traefik)
 SKIPPED=0
 
 if ! grep -q "directory:" "$TRAEFIK_CFG" 2>/dev/null; then
@@ -201,17 +202,17 @@ mkdir -p "$DYNAMIC_DIR"
 cp "$DEPLOY_PATH/relay-vpn5/traefik-relay-vpn5.yml" \
    "$DYNAMIC_DIR/traefik-relay-vpn5.yml"
 
-RESTART_AFTER_2ND=$(docker inspect --format '{{.RestartCount}}' pan-traefik)
+STARTED_AFTER_2ND=$(docker inspect --format '{{.State.StartedAt}}' pan-traefik)
 
 if [ "$SKIPPED" = "1" ]; then
   echo "PASS  Idempotent: bo qua migration lan 2"
 fi
 
 # Lan 2 khong duoc restart Traefik (chi restart khi migration thuc su chay)
-if [ "$RESTART_AFTER_2ND" = "$RESTART_BEFORE_2ND" ]; then
+if [ "$STARTED_AFTER_2ND" = "$STARTED_BEFORE_2ND" ]; then
   echo "PASS  Idempotent: pan-traefik KHONG bi restart lan 2 (dung)"
 else
-  echo "FAIL  Idempotent: pan-traefik bi restart them ($RESTART_BEFORE_2ND -> $RESTART_AFTER_2ND)"
+  echo "FAIL  Idempotent: pan-traefik bi restart them (StartedAt thay doi)"
   FAIL=1
 fi
 
