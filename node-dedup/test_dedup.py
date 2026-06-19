@@ -5,14 +5,16 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+import json
+
 from dedup import (aggregate_latency, init_db, init_latency_db,
                    is_allowed_report_src, is_tailnet_ip,
                    latency_series, normalize, parse_pingresult,
                    peer_relay_from_status, pingable_nodes, plan_actions,
                    probe_derp_region, query_current_relay, query_devices,
-                   record_report, render_derp_html, render_stats_html,
-                   server_ping_all, stun_latency, stun_probe_regions,
-                   validate_report, _parse_derp_regions)
+                   query_latest_netcheck, record_netcheck, record_report,
+                   render_derp_html, render_stats_html,
+                   server_ping_all, validate_report, _parse_derp_regions)
 
 
 def mk(id, host, given, user="u", online=False, last=0, ips=None):
@@ -434,87 +436,96 @@ def test_render_derp_html_empty_peers():
     assert "collector" in page.lower() or "Ch" in page
 
 
-# ---------------- STUN probe ----------------
+# ---------------- client_netcheck ----------------
 
-def test_stun_latency_ok():
-    """stun_latency tra ve float ms khi nhan response hop le (>= 4 bytes)."""
-    mock_sock = MagicMock()
-    mock_sock.recvfrom.return_value = (b'\x01\x01\x00\x00' + b'\x00' * 20, ("1.2.3.4", 3478))
-    with patch("socket.socket", return_value=mock_sock):
-        lat = stun_latency("vpn2.hangocthanh.io.vn")
-    assert lat is not None and isinstance(lat, float) and lat >= 0
-
-
-def test_stun_latency_timeout():
-    """stun_latency tra ve None khi socket timeout/loi."""
-    mock_sock = MagicMock()
-    mock_sock.recvfrom.side_effect = OSError("timed out")
-    with patch("socket.socket", return_value=mock_sock):
-        lat = stun_latency("vpn3.hangocthanh.io.vn", timeout=1)
-    assert lat is None
+def test_record_and_query_netcheck_basic():
+    """record_netcheck + query_latest_netcheck roundtrip."""
+    conn = _mem_db()
+    now = int(time.time())
+    rl = json.dumps({"vpn4-vn": 25.3, "myderp": 137.7, "vpn3-vn": None})
+    record_netcheck(conn, "itop", "vpn4-vn", rl, now)
+    rows = query_latest_netcheck(conn, window=300)
+    assert len(rows) == 1
+    assert rows[0]["client"] == "itop"
+    assert rows[0]["preferred_derp"] == "vpn4-vn"
+    assert rows[0]["region_latency"]["vpn4-vn"] == 25.3
+    assert rows[0]["region_latency"]["vpn3-vn"] is None
 
 
-def test_stun_latency_short_response():
-    """stun_latency tra ve None neu response qua ngan (< 4 bytes)."""
-    mock_sock = MagicMock()
-    mock_sock.recvfrom.return_value = (b'\x01\x01', ("1.2.3.4", 3478))
-    with patch("socket.socket", return_value=mock_sock):
-        lat = stun_latency("vpn4.hangocthanh.io.vn")
-    assert lat is None
+def test_query_latest_netcheck_window_expired():
+    """Ban cu vuot qua window khong duoc tra ve."""
+    conn = _mem_db()
+    now = int(time.time())
+    record_netcheck(conn, "itop", "vpn4-vn", '{}', now - 700)
+    rows = query_latest_netcheck(conn, window=600)
+    assert rows == []
 
 
-def test_stun_probe_regions_sorted_preferred():
-    """stun_probe_regions sap xep tang dan va danh dau preferred la region nhanh nhat."""
+def test_query_latest_netcheck_latest_per_client():
+    """Moi client chi tra ve ban moi nhat."""
+    conn = _mem_db()
+    now = int(time.time())
+    record_netcheck(conn, "itop", "myderp", '{"myderp": 50.0}', now - 10)
+    record_netcheck(conn, "itop", "vpn4-vn", '{"vpn4-vn": 25.3}', now)
+    rows = query_latest_netcheck(conn, window=300)
+    assert len(rows) == 1
+    assert rows[0]["preferred_derp"] == "vpn4-vn"
+
+
+def test_render_derp_html_nc_data_matrix():
+    """nc_data hien thi matrix client x region voi latency va preferred star."""
     regions = [
-        {"code": "vpn4-vn", "url": "https://vpn4.hangocthanh.io.vn/derp/probe"},
-        {"code": "myderp",  "url": "https://vpn2.hangocthanh.io.vn/derp/probe"},
-        {"code": "vpn3-vn", "url": "https://vpn3.hangocthanh.io.vn/derp/probe"},
+        {"code": "vpn4-vn", "url": "https://vpn4.../probe", "ok": True, "latency_ms": 5.0, "error": None},
+        {"code": "myderp",  "url": "https://vpn2.../probe", "ok": True, "latency_ms": 100.0, "error": None},
     ]
-    lats = {"vpn4.hangocthanh.io.vn": 50.0,
-            "vpn2.hangocthanh.io.vn": 5.2,
-            "vpn3.hangocthanh.io.vn": 45.0}
-    result = stun_probe_regions(regions, stun_fn=lambda h: lats.get(h))
-    assert [r["code"] for r in result] == ["myderp", "vpn3-vn", "vpn4-vn"]
-    assert result[0]["preferred"] is True
-    assert result[1]["preferred"] is False
-    assert result[2]["preferred"] is False
-
-
-def test_stun_probe_regions_partial_timeout():
-    """Region timeout -> None latency; region con lai van duoc preferred."""
-    regions = [
-        {"code": "myderp",  "url": "https://vpn2.hangocthanh.io.vn/derp/probe"},
-        {"code": "vpn3-vn", "url": "https://vpn3.hangocthanh.io.vn/derp/probe"},
-    ]
-    result = stun_probe_regions(
-        regions, stun_fn=lambda h: 5.2 if "vpn2" in h else None)
-    alive = next(r for r in result if r["latency_ms"] is not None)
-    dead  = next(r for r in result if r["latency_ms"] is None)
-    assert alive["code"] == "myderp" and alive["preferred"] is True
-    assert dead["code"] == "vpn3-vn" and dead["preferred"] is False
-
-
-def test_render_derp_html_with_netcheck():
-    regions = [{"code": "myderp", "url": "https://vpn2.../probe",
-                "ok": True, "latency_ms": 12.0, "error": None}]
-    netcheck = [
-        {"code": "myderp",  "latency_ms": 5.2,   "preferred": True},
-        {"code": "vpn3-vn", "latency_ms": 298.5, "preferred": False},
-    ]
-    page = render_derp_html(regions, [], 1000, netcheck_regions=netcheck)
-    assert "STUN" in page
-    assert "5.2ms" in page
-    assert "9733" in page          # preferred star &#9733;
-    assert "298.5ms" in page
+    nc_data = [{
+        "client": "itop",
+        "preferred_derp": "vpn4-vn",
+        "region_latency": {"vpn4-vn": 25.3, "myderp": 137.7},
+        "ts": 1000,
+    }]
+    page = render_derp_html(regions, [], 1000, nc_data=nc_data)
+    assert "itop" in page
+    assert "25.3ms" in page
+    assert "137.7ms" in page
+    assert "9733" in page      # preferred star &#9733;
     assert "__NETCHECK__" not in page
+    assert "__PINGS__" not in page
 
 
-def test_render_derp_html_netcheck_none_shows_placeholder_text():
+def test_render_derp_html_nc_data_none_shows_placeholder():
+    """nc_data=None: section van hien, placeholder reporter.ps1."""
     regions = [{"code": "myderp", "url": "https://x/probe",
                 "ok": True, "latency_ms": 5.0, "error": None}]
-    page = render_derp_html(regions, [], 1000, netcheck_regions=None)
+    page = render_derp_html(regions, [], 1000, nc_data=None)
     assert "__NETCHECK__" not in page
-    assert "STUN" in page          # section tiep tuc hien, chi thieu du lieu
+    assert "reporter" in page   # goi y chay reporter.ps1
+
+
+def test_render_derp_html_server_pings():
+    """server_pings hien thi RTT va path tag cho moi peer."""
+    regions = [{"code": "myderp", "url": "https://vpn2.../probe",
+                "ok": True, "latency_ms": 12.0, "error": None}]
+    pings = [
+        {"hostname": "itop", "ip": "100.64.0.2", "relay": "direct",
+         "rtt_ms": 45.0, "ok": True, "ts": 1000},
+        {"hostname": "votam", "ip": "100.64.0.3", "relay": "derp:myderp",
+         "rtt_ms": 12.0, "ok": True, "ts": 1000},
+    ]
+    page = render_derp_html(regions, [], 1000, server_pings=pings)
+    assert "itop" in page and "45.0ms" in page
+    assert "votam" in page and "12.0ms" in page
+    assert "direct" in page
+    assert "__PINGS__" not in page
+
+
+def test_render_derp_html_no_pings_no_nc():
+    """Khi ca server_pings va nc_data deu None: placeholder hien, khong co placeholder raw."""
+    regions = [{"code": "myderp", "url": "https://x/probe",
+                "ok": True, "latency_ms": 5.0, "error": None}]
+    page = render_derp_html(regions, [], 1000, nc_data=None, server_pings=None)
+    assert "__NETCHECK__" not in page
+    assert "__PINGS__" not in page
 
 
 def test_render_derp_html_ajax_refresh():

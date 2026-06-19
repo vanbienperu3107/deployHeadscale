@@ -254,6 +254,14 @@ def init_latency_db(conn):
             rtt_ms REAL, path TEXT, ok INTEGER)"""
     )
     conn.execute("CREATE INDEX IF NOT EXISTS idx_latency_ts ON node_latency(ts)")
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS client_netcheck(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts INTEGER, client TEXT,
+            preferred_derp TEXT,
+            region_latency TEXT)"""
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_nc_ts ON client_netcheck(ts)")
     conn.commit()
 
 
@@ -531,47 +539,6 @@ def probe_derp_region(url, timeout=5):
         return {"ok": False, "latency_ms": None, "error": str(e)[:80]}
 
 
-def stun_latency(host, port=3478, timeout=3):
-    """UDP STUN Binding Request toi host:port. Tra ve latency_ms hoac None neu timeout/loi.
-    Day la giao thuc tailscale thuc su dung de chon DERP region gan nhat."""
-    magic = b'\x21\x12\xa4\x42'
-    txn = b'\x00' * 12  # transaction ID co dinh -> deterministic, test duoc
-    msg = b'\x00\x01\x00\x00' + magic + txn  # Binding Request, attrs length=0
-    try:
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        sock.settimeout(timeout)
-        t0 = time.monotonic()
-        sock.sendto(msg, (host, port))
-        data, _ = sock.recvfrom(512)
-        elapsed = (time.monotonic() - t0) * 1000
-        return round(elapsed, 1) if len(data) >= 4 else None
-    except Exception:
-        return None
-    finally:
-        try:
-            sock.close()
-        except Exception:
-            pass
-
-
-def stun_probe_regions(regions, stun_fn=None, timeout=3):
-    """Probe STUN UDP :3478 toi tung DERP region. PURE (mockable qua stun_fn).
-    regions: [{code, url, ...}] - output cua _parse_derp_regions.
-    Returns [{code, latency_ms, preferred}] sap xep latency tang dan. Test duoc."""
-    if stun_fn is None:
-        stun_fn = lambda host: stun_latency(host, timeout=timeout)
-    results = []
-    for r in regions:
-        host = r["url"].split("//", 1)[-1].split("/")[0]
-        if not host:
-            continue
-        lat = stun_fn(host)
-        results.append({"code": r["code"], "latency_ms": lat})
-    results.sort(key=lambda x: (x["latency_ms"] is None, x["latency_ms"] or 0))
-    best = next((r for r in results if r["latency_ms"] is not None), None)
-    for r in results:
-        r["preferred"] = (r is best)
-    return results
 
 
 def query_current_relay(conn, window=180):
@@ -589,6 +556,34 @@ def query_current_relay(conn, window=180):
     )
     return [{"hostname": r[0], "ip": r[1], "relay": r[2] or "?",
              "rtt_ms": r[3], "ok": bool(r[4]), "ts": r[5]} for r in cur.fetchall()]
+
+
+def record_netcheck(conn, client, preferred_derp, region_latency_json, now):
+    """Luu ket qua tailscale netcheck tu 1 client. PURE (test voi conn :memory:). Test duoc."""
+    conn.execute(
+        "INSERT INTO client_netcheck(ts,client,preferred_derp,region_latency) VALUES(?,?,?,?)",
+        (now, client, preferred_derp, region_latency_json),
+    )
+    conn.commit()
+
+
+def query_latest_netcheck(conn, window=600):
+    """Latest netcheck per client trong window giay. PURE. Test duoc.
+    Returns [{client, preferred_derp, region_latency: {code: ms|None}, ts}]."""
+    cur = conn.cursor()
+    cur.execute(
+        """SELECT c.client, c.preferred_derp, c.region_latency, c.ts
+           FROM client_netcheck c
+           INNER JOIN (
+               SELECT client, MAX(ts) AS max_ts FROM client_netcheck
+               WHERE ts>=? GROUP BY client
+           ) latest ON c.client=latest.client AND c.ts=latest.max_ts
+           ORDER BY c.client""",
+        (int(time.time()) - window,),
+    )
+    return [{"client": r[0], "preferred_derp": r[1],
+             "region_latency": json.loads(r[2] or "{}"), "ts": r[3]}
+            for r in cur.fetchall()]
 
 
 _DERP_PAGE = """<!doctype html><html lang="vi"><head><meta charset="utf-8">
@@ -633,8 +628,12 @@ tr.off td{opacity:.45}
 <main id="derp-main">
 <div class="regions">__REGIONS__</div>
 <div class="panel">
-  <h2>STUN ping t&#7915; vpn2 &#8594; m&#7895;i DERP (UDP :3478) &nbsp;<span class="note">&#8212; &#273;o tr&#7921;c ti&#7871;p kh&#244;ng qua TLS; ITOP t&#7841;i H&#224; N&#7897;i th&#7845;y vpn3/vpn4 g&#7847;n h&#417;n (g&#243;c nh&#236;n kh&#225;c)</span></h2>
+  <h2>STUN t&#7915; m&#7895;i client &#8594; DERP (gi&#7889;ng <code style="font-size:11px">tailscale netcheck</code>) &nbsp;<span class="note">&#8212; client POST d&#7919; li&#7879;u v&#7873; m&#7895;i 60s; &#9733; = nearest DERP c&#7911;a client &#273;&#243;</span></h2>
   __NETCHECK__
+</div>
+<div class="panel">
+  <h2>vpn2 ping &#8594; t&#7915;ng node (RTT &#273;o &#273;&#432;&#7907;c, l&#432;u DB) &nbsp;<span class="note">&#8212; direct = P2P WireGuard UDP; via DERP = relay (UDP/TCP)</span></h2>
+  __PINGS__
 </div>
 <div class="panel">
   <h2>Node &#273;ang d&#249;ng DERP n&#224;o (real-time t&#7915; tailscale LocalAPI)</h2>
@@ -668,12 +667,13 @@ tr.off td{opacity:.45}
 </body></html>"""
 
 
-def render_derp_html(regions, peers, now, netcheck_regions=None):
-    """PURE: render HTML tu list region (da probe) + list peer tu LocalAPI. Test duoc.
+def render_derp_html(regions, peers, now, nc_data=None, server_pings=None):
+    """PURE: render HTML tu list region (da probe) + peer + client netcheck. Test duoc.
 
-    regions:          [{code, url, ok, latency_ms, error}]
-    peers:            [{hostname, ip, relay, direct, online}]  -- tu peer_relay_from_status
-    netcheck_regions: [{code, latency_ms, preferred}] -- tu stun_probe_regions, None neu khong co region
+    regions:      [{code, url, ok, latency_ms, error}]
+    peers:        [{hostname, ip, relay, direct, online}]  -- tu peer_relay_from_status
+    nc_data:      [{client, preferred_derp, region_latency:{code:ms}, ts}] -- tu query_latest_netcheck
+    server_pings: [{hostname, ip, relay(path), rtt_ms, ok, ts}]           -- tu query_current_relay
     """
     gen = time.strftime("%H:%M:%S %d/%m/%Y", time.localtime(now))
 
@@ -724,26 +724,67 @@ def render_derp_html(regions, peers, now, netcheck_regions=None):
                      'Ch&#432;a c&#243; d&#7919; li&#7879;u — '
                      'collector ch&#432;a join tailnet</td></tr>')
 
-    if netcheck_regions:
-        nc_rows = "".join(
-            "<tr><td>%s</td><td>%s%s</td></tr>" % (
-                html.escape(r["code"]),
-                ("%sms" % r["latency_ms"]) if r["latency_ms"] is not None else "-",
-                ' <span class="star">&#9733;</span>' if r["preferred"] else "",
-            )
-            for r in netcheck_regions
-        )
-        nc_html = ('<table><thead><tr><th>Region</th>'
-                   '<th>STUN latency (UDP :3478)</th></tr></thead>'
-                   '<tbody>%s</tbody></table>' % nc_rows)
+    # --- Client netcheck matrix (nc_data) ---
+    codes = [r["code"] for r in regions]
+    if nc_data:
+        th = "".join("<th>%s</th>" % html.escape(c) for c in codes)
+        nc_body = ""
+        for row in nc_data:
+            rl = row.get("region_latency") or {}
+            pref = row.get("preferred_derp", "")
+            age = now - row.get("ts", now)
+            age_str = ("%ds" % age) if age < 60 else ("%dm" % (age // 60))
+            cells = ""
+            for c in codes:
+                ms = rl.get(c)
+                star = ' <span class="star">&#9733;</span>' if c == pref else ""
+                cells += "<td>%s%s</td>" % (
+                    ("%sms" % ms) if ms is not None else '<span class="muted">-</span>',
+                    star)
+            nc_body += "<tr><td><b>%s</b><br><span class='note'>%s tr&#432;&#7899;c</span></td>%s</tr>" % (
+                html.escape(row["client"]), age_str, cells)
+        nc_html = ('<table><thead><tr><th>Client</th>%s</tr></thead>'
+                   '<tbody>%s</tbody></table>') % (th, nc_body)
     else:
         nc_html = ('<p class="muted">Ch&#432;a c&#243; d&#7919; li&#7879;u '
-                   '&#8212; kh&#244;ng c&#243; DERP region n&#224;o &#273;&#432;&#7907;c c&#7845;u h&#236;nh</p>')
+                   '&#8212; ch&#7841;y <code>reporter.ps1</code> tr&#234;n m&#7895;i node r&#7891;i POST '
+                   'v&#7873; <code>/metrics/netcheck</code></p>')
+
+    # --- Server pings (vpn2 -> peer, from DB) ---
+    def path_tag(p):
+        path = p.get("relay", "") or ""
+        if not p.get("ok"):
+            return '<span class="tag offline">l&#7895;i</span>'
+        if path == "direct":
+            return '<span class="tag direct">direct (UDP P2P)</span>'
+        if path.startswith("derp:"):
+            code = path[5:]
+            css = "derp-dead" if code in dead_codes else "derp"
+            return '<span class="tag %s">via %s</span>' % (css, html.escape(code))
+        return '<span class="bad">%s</span>' % html.escape(path or "?")
+
+    if server_pings:
+        ping_rows = ""
+        for p in server_pings:
+            age = now - p.get("ts", now)
+            age_str = ("%ds" % age) if age < 60 else ("%dm" % (age // 60))
+            rtt = ("%sms" % p["rtt_ms"]) if p.get("rtt_ms") is not None else "-"
+            ping_rows += ("<tr><td>%s</td><td>%s</td><td>%s</td>"
+                          "<td>%s <span class='note'>%s tr&#432;&#7899;c</span></td></tr>") % (
+                html.escape(p["hostname"]), html.escape(p["ip"] or "-"),
+                rtt, path_tag(p), age_str)
+        pings_html = ('<table><thead><tr><th>Node</th><th>Tailnet IP</th>'
+                      '<th>RTT t&#7915; vpn2</th><th>Path</th></tr></thead>'
+                      '<tbody>%s</tbody></table>') % ping_rows
+    else:
+        pings_html = ('<p class="muted">Ch&#432;a c&#243; d&#7919; li&#7879;u '
+                      '&#8212; server ch&#432;a ping &#273;&#432;&#7907;c node n&#224;o</p>')
 
     return (_DERP_PAGE
             .replace("__GENERATED__", gen)
             .replace("__REGIONS__", regions_html)
             .replace("__NETCHECK__", nc_html)
+            .replace("__PINGS__", pings_html)
             .replace("__ROWS__", rows_html))
 
 
@@ -818,19 +859,41 @@ def make_metrics_handler(conn, lock):
             if not self._authed():
                 self._send(401, {"error": "unauthorized"})
                 return
-            if self.path.rstrip("/") != "/metrics/report":
-                self._send(404, {"error": "not found"})
-                return
+            pp = self.path.split("?")[0].rstrip("/")
+            n = int(self.headers.get("Content-Length", "0") or "0")
+            raw = self.rfile.read(n) if n > 0 else b"{}"
             try:
-                n = int(self.headers.get("Content-Length", "0") or "0")
-                raw = self.rfile.read(n) if n > 0 else b"{}"
-                report = validate_report(json.loads(raw.decode() or "{}"))
-            except Exception as e:  # noqa: BLE001
-                self._send(400, {"error": str(e)})
+                body = json.loads(raw.decode() or "{}")
+            except Exception:
+                self._send(400, {"error": "JSON khong hop le"})
                 return
-            with lock:
-                stored = record_report(conn, report, int(time.time()))
-            self._send(200, {"ok": True, "stored": stored})
+
+            if pp == "/metrics/report":
+                try:
+                    report = validate_report(body)
+                except Exception as e:  # noqa: BLE001
+                    self._send(400, {"error": str(e)})
+                    return
+                with lock:
+                    stored = record_report(conn, report, int(time.time()))
+                self._send(200, {"ok": True, "stored": stored})
+
+            elif pp == "/metrics/netcheck":
+                client = str(body.get("hostname", "")).strip()
+                preferred = str(body.get("preferred_derp", "")).strip()
+                latency = body.get("region_latency", {})
+                if not client:
+                    self._send(400, {"error": "thieu hostname"})
+                    return
+                if not isinstance(latency, dict):
+                    self._send(400, {"error": "region_latency phai la object"})
+                    return
+                with lock:
+                    record_netcheck(conn, client, preferred, json.dumps(latency), int(time.time()))
+                self._send(200, {"ok": True})
+
+            else:
+                self._send(404, {"error": "not found"})
 
         def do_GET(self):
             # GET = chi doc -> mo (tailnet truc tiep, hoac Caddy /stats da gated SSO).
@@ -856,9 +919,11 @@ def make_metrics_handler(conn, lock):
                     r.update(probe_derp_region(r["url"]))
                 status = localapi_status()
                 peers = peer_relay_from_status(status)
-                netcheck = stun_probe_regions(regions) or None
+                with lock:
+                    nc_data = query_latest_netcheck(conn) or None
+                    server_pings = query_current_relay(conn) or None
                 page = render_derp_html(regions, peers, int(time.time()),
-                                        netcheck_regions=netcheck)
+                                        nc_data=nc_data, server_pings=server_pings)
                 self._sendhtml(200, page.encode("utf-8"))
                 return
             self._send(404, {"error": "not found"})
