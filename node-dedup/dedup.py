@@ -531,57 +531,47 @@ def probe_derp_region(url, timeout=5):
         return {"ok": False, "latency_ms": None, "error": str(e)[:80]}
 
 
-def localapi_derp_map(timeout=5):
-    """Goi /localapi/v0/derp-map tu sidecar -> DERP map JSON. None neu loi."""
+def stun_latency(host, port=3478, timeout=3):
+    """UDP STUN Binding Request toi host:port. Tra ve latency_ms hoac None neu timeout/loi.
+    Day la giao thuc tailscale thuc su dung de chon DERP region gan nhat."""
+    magic = b'\x21\x12\xa4\x42'
+    txn = b'\x00' * 12  # transaction ID co dinh -> deterministic, test duoc
+    msg = b'\x00\x01\x00\x00' + magic + txn  # Binding Request, attrs length=0
     try:
-        conn = _UnixHTTP(TS_SOCKET, timeout)
-        conn.request("GET", "/localapi/v0/derp-map")
-        resp = conn.getresponse()
-        body = resp.read()
-        conn.close()
-        return json.loads(body or b"{}") if resp.status == 200 else None
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.settimeout(timeout)
+        t0 = time.monotonic()
+        sock.sendto(msg, (host, port))
+        data, _ = sock.recvfrom(512)
+        elapsed = (time.monotonic() - t0) * 1000
+        return round(elapsed, 1) if len(data) >= 4 else None
     except Exception:
         return None
+    finally:
+        try:
+            sock.close()
+        except Exception:
+            pass
 
 
-def localapi_netcheck(timeout=12):
-    """POST /localapi/v0/debug-netcheck -> NetCheckReport (STUN latency toi moi DERP region).
-    Returns raw JSON dict hoac None neu loi / khong ho tro."""
-    try:
-        conn = _UnixHTTP(TS_SOCKET, timeout)
-        conn.request("POST", "/localapi/v0/debug-netcheck",
-                     b"", {"Content-Length": "0"})
-        resp = conn.getresponse()
-        body = resp.read()
-        conn.close()
-        return json.loads(body or b"{}") if resp.status == 200 else None
-    except Exception:
-        return None
-
-
-def parse_netcheck(report, derp_map):
-    """PURE: NetCheckReport + DERP map -> [{region_id, code, latency_ms, preferred}].
-    RegionLatency la nanoseconds (Go time.Duration). Sap xep latency tang dan. Test duoc."""
-    if not isinstance(report, dict):
-        return []
-    region_latency = report.get("RegionLatency") or {}
-    preferred_id = int(report.get("PreferredDERP") or 0)
-    rid_to_code = {}
-    if isinstance(derp_map, dict):
-        for k, v in (derp_map.get("Regions") or {}).items():
-            if isinstance(v, dict):
-                rid = int(v.get("RegionID") or k)
-                rid_to_code[rid] = v.get("RegionCode") or str(rid)
-    out = []
-    for rid_str, ns in region_latency.items():
-        rid = int(rid_str)
-        out.append({
-            "region_id": rid,
-            "code": rid_to_code.get(rid) or str(rid),
-            "latency_ms": round(float(ns) / 1e6, 1) if ns else None,
-            "preferred": rid == preferred_id,
-        })
-    return sorted(out, key=lambda x: (x["latency_ms"] is None, x["latency_ms"] or 0))
+def stun_probe_regions(regions, stun_fn=None, timeout=3):
+    """Probe STUN UDP :3478 toi tung DERP region. PURE (mockable qua stun_fn).
+    regions: [{code, url, ...}] - output cua _parse_derp_regions.
+    Returns [{code, latency_ms, preferred}] sap xep latency tang dan. Test duoc."""
+    if stun_fn is None:
+        stun_fn = lambda host: stun_latency(host, timeout=timeout)
+    results = []
+    for r in regions:
+        host = r["url"].split("//", 1)[-1].split("/")[0]
+        if not host:
+            continue
+        lat = stun_fn(host)
+        results.append({"code": r["code"], "latency_ms": lat})
+    results.sort(key=lambda x: (x["latency_ms"] is None, x["latency_ms"] or 0))
+    best = next((r for r in results if r["latency_ms"] is not None), None)
+    for r in results:
+        r["preferred"] = (r is best)
+    return results
 
 
 def query_current_relay(conn, window=180):
@@ -643,7 +633,7 @@ tr.off td{opacity:.45}
 <main id="derp-main">
 <div class="regions">__REGIONS__</div>
 <div class="panel">
-  <h2>STUN t&#7915; collector (vpn2) &#8594; m&#7895;i DERP &nbsp;<span class="note">&#8212; ph&#233;p &#273;o UDP th&#7921;c s&#7921; tailscale d&#249;ng; ITOP t&#7841;i H&#224; N&#7897;i th&#7845;y vpn3/vpn4 g&#7847;n h&#417;n nhi&#7873;u</span></h2>
+  <h2>STUN ping t&#7915; vpn2 &#8594; m&#7895;i DERP (UDP :3478) &nbsp;<span class="note">&#8212; &#273;o tr&#7921;c ti&#7871;p kh&#244;ng qua TLS; ITOP t&#7841;i H&#224; N&#7897;i th&#7845;y vpn3/vpn4 g&#7847;n h&#417;n (g&#243;c nh&#236;n kh&#225;c)</span></h2>
   __NETCHECK__
 </div>
 <div class="panel">
@@ -683,7 +673,7 @@ def render_derp_html(regions, peers, now, netcheck_regions=None):
 
     regions:          [{code, url, ok, latency_ms, error}]
     peers:            [{hostname, ip, relay, direct, online}]  -- tu peer_relay_from_status
-    netcheck_regions: [{region_id, code, latency_ms, preferred}] -- tu parse_netcheck, None neu chua co
+    netcheck_regions: [{code, latency_ms, preferred}] -- tu stun_probe_regions, None neu khong co region
     """
     gen = time.strftime("%H:%M:%S %d/%m/%Y", time.localtime(now))
 
@@ -748,7 +738,7 @@ def render_derp_html(regions, peers, now, netcheck_regions=None):
                    '<tbody>%s</tbody></table>' % nc_rows)
     else:
         nc_html = ('<p class="muted">Ch&#432;a c&#243; d&#7919; li&#7879;u '
-                   '&#8212; tailscale sidecar ch&#432;a s&#7861;n s&#224;ng</p>')
+                   '&#8212; kh&#244;ng c&#243; DERP region n&#224;o &#273;&#432;&#7907;c c&#7845;u h&#236;nh</p>')
 
     return (_DERP_PAGE
             .replace("__GENERATED__", gen)
@@ -866,9 +856,7 @@ def make_metrics_handler(conn, lock):
                     r.update(probe_derp_region(r["url"]))
                 status = localapi_status()
                 peers = peer_relay_from_status(status)
-                nc_report = localapi_netcheck()
-                derp_map = localapi_derp_map() if nc_report else None
-                netcheck = parse_netcheck(nc_report, derp_map) or None
+                netcheck = stun_probe_regions(regions) or None
                 page = render_derp_html(regions, peers, int(time.time()),
                                         netcheck_regions=netcheck)
                 self._sendhtml(200, page.encode("utf-8"))

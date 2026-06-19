@@ -7,11 +7,12 @@ import pytest
 
 from dedup import (aggregate_latency, init_db, init_latency_db,
                    is_allowed_report_src, is_tailnet_ip,
-                   latency_series, normalize, parse_netcheck, parse_pingresult,
+                   latency_series, normalize, parse_pingresult,
                    peer_relay_from_status, pingable_nodes, plan_actions,
                    probe_derp_region, query_current_relay, query_devices,
                    record_report, render_derp_html, render_stats_html,
-                   server_ping_all, validate_report, _parse_derp_regions)
+                   server_ping_all, stun_latency, stun_probe_regions,
+                   validate_report, _parse_derp_regions)
 
 
 def mk(id, host, given, user="u", online=False, last=0, ips=None):
@@ -433,62 +434,72 @@ def test_render_derp_html_empty_peers():
     assert "collector" in page.lower() or "Ch" in page
 
 
-# ---------------- parse_netcheck ----------------
+# ---------------- STUN probe ----------------
 
-def test_parse_netcheck_basic():
-    report = {
-        "PreferredDERP": 999,
-        "RegionLatency": {"999": 5200000, "1000": 298500000, "1001": 301000000},
-    }
-    derp_map = {"Regions": {
-        "999":  {"RegionID": 999,  "RegionCode": "myderp"},
-        "1000": {"RegionID": 1000, "RegionCode": "vpn3-vn"},
-        "1001": {"RegionID": 1001, "RegionCode": "vpn4-vn"},
-    }}
-    result = parse_netcheck(report, derp_map)
-    assert len(result) == 3
-    assert result[0]["code"] == "myderp"
+def test_stun_latency_ok():
+    """stun_latency tra ve float ms khi nhan response hop le (>= 4 bytes)."""
+    mock_sock = MagicMock()
+    mock_sock.recvfrom.return_value = (b'\x01\x01\x00\x00' + b'\x00' * 20, ("1.2.3.4", 3478))
+    with patch("socket.socket", return_value=mock_sock):
+        lat = stun_latency("vpn2.hangocthanh.io.vn")
+    assert lat is not None and isinstance(lat, float) and lat >= 0
+
+
+def test_stun_latency_timeout():
+    """stun_latency tra ve None khi socket timeout/loi."""
+    mock_sock = MagicMock()
+    mock_sock.recvfrom.side_effect = OSError("timed out")
+    with patch("socket.socket", return_value=mock_sock):
+        lat = stun_latency("vpn3.hangocthanh.io.vn", timeout=1)
+    assert lat is None
+
+
+def test_stun_latency_short_response():
+    """stun_latency tra ve None neu response qua ngan (< 4 bytes)."""
+    mock_sock = MagicMock()
+    mock_sock.recvfrom.return_value = (b'\x01\x01', ("1.2.3.4", 3478))
+    with patch("socket.socket", return_value=mock_sock):
+        lat = stun_latency("vpn4.hangocthanh.io.vn")
+    assert lat is None
+
+
+def test_stun_probe_regions_sorted_preferred():
+    """stun_probe_regions sap xep tang dan va danh dau preferred la region nhanh nhat."""
+    regions = [
+        {"code": "vpn4-vn", "url": "https://vpn4.hangocthanh.io.vn/derp/probe"},
+        {"code": "myderp",  "url": "https://vpn2.hangocthanh.io.vn/derp/probe"},
+        {"code": "vpn3-vn", "url": "https://vpn3.hangocthanh.io.vn/derp/probe"},
+    ]
+    lats = {"vpn4.hangocthanh.io.vn": 50.0,
+            "vpn2.hangocthanh.io.vn": 5.2,
+            "vpn3.hangocthanh.io.vn": 45.0}
+    result = stun_probe_regions(regions, stun_fn=lambda h: lats.get(h))
+    assert [r["code"] for r in result] == ["myderp", "vpn3-vn", "vpn4-vn"]
     assert result[0]["preferred"] is True
-    assert result[0]["latency_ms"] == 5.2
-    assert result[1]["code"] == "vpn3-vn"
     assert result[1]["preferred"] is False
-    assert result[2]["code"] == "vpn4-vn"
+    assert result[2]["preferred"] is False
 
 
-def test_parse_netcheck_none_input():
-    assert parse_netcheck(None, None) == []
-    assert parse_netcheck({}, None) == []
-
-
-def test_parse_netcheck_no_derp_map_falls_back_to_id():
-    report = {"PreferredDERP": 999, "RegionLatency": {"999": 5200000}}
-    result = parse_netcheck(report, None)
-    assert len(result) == 1
-    assert result[0]["code"] == "999"
-    assert result[0]["latency_ms"] == 5.2
-    assert result[0]["preferred"] is True
-
-
-def test_parse_netcheck_zero_ns_gives_none_latency():
-    report = {"PreferredDERP": 0, "RegionLatency": {"999": 0}}
-    result = parse_netcheck(report, None)
-    assert result[0]["latency_ms"] is None
-
-
-def test_parse_netcheck_sorted_by_latency():
-    report = {"PreferredDERP": 0,
-              "RegionLatency": {"1001": 300000000, "999": 5000000, "1000": 150000000}}
-    result = parse_netcheck(report, None)
-    lats = [r["latency_ms"] for r in result]
-    assert lats == sorted(lats)
+def test_stun_probe_regions_partial_timeout():
+    """Region timeout -> None latency; region con lai van duoc preferred."""
+    regions = [
+        {"code": "myderp",  "url": "https://vpn2.hangocthanh.io.vn/derp/probe"},
+        {"code": "vpn3-vn", "url": "https://vpn3.hangocthanh.io.vn/derp/probe"},
+    ]
+    result = stun_probe_regions(
+        regions, stun_fn=lambda h: 5.2 if "vpn2" in h else None)
+    alive = next(r for r in result if r["latency_ms"] is not None)
+    dead  = next(r for r in result if r["latency_ms"] is None)
+    assert alive["code"] == "myderp" and alive["preferred"] is True
+    assert dead["code"] == "vpn3-vn" and dead["preferred"] is False
 
 
 def test_render_derp_html_with_netcheck():
     regions = [{"code": "myderp", "url": "https://vpn2.../probe",
                 "ok": True, "latency_ms": 12.0, "error": None}]
     netcheck = [
-        {"region_id": 999,  "code": "myderp",  "latency_ms": 5.2,   "preferred": True},
-        {"region_id": 1000, "code": "vpn3-vn", "latency_ms": 298.5, "preferred": False},
+        {"code": "myderp",  "latency_ms": 5.2,   "preferred": True},
+        {"code": "vpn3-vn", "latency_ms": 298.5, "preferred": False},
     ]
     page = render_derp_html(regions, [], 1000, netcheck_regions=netcheck)
     assert "STUN" in page
