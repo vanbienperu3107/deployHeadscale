@@ -103,19 +103,37 @@ jobs:
             echo "  .env da ghi"
 
             echo "==> [5/7] Cap nhat Traefik config"
-            TRAEFIK_CFG=$(docker inspect pan-traefik 2>/dev/null | \
-              grep -oE '"Source":"[^"]+traefik[^"]+\.yml"' | head -1 | \
-              grep -oE '/[^"]+' || echo "")
-            if [ -n "$TRAEFIK_CFG" ]; then
-              TRAEFIK_DIR=$(dirname "$TRAEFIK_CFG")
+            set +e
+            PANGOLIN_BASE=""
+            for dir in "$HOME/opt/pangolin" "/opt/pangolin" "/home/ubuntu/opt/pangolin"; do
+              if [ -d "$dir/config/traefik" ]; then
+                PANGOLIN_BASE="$dir"
+                break
+              fi
+            done
+            if [ -n "$PANGOLIN_BASE" ]; then
+              DYN_DIR="$PANGOLIN_BASE/config/traefik/dynamic"
+              mkdir -p "$DYN_DIR"
               $SUDO cp "$DEPLOY_PATH/relay-vpn4/traefik-relay-vpn4.yml" \
-                "$TRAEFIK_DIR/traefik-relay-vpn4.yml" 2>/dev/null || \
-              docker cp "$DEPLOY_PATH/relay-vpn4/traefik-relay-vpn4.yml" \
-                "pan-traefik:/data/traefik-relay-vpn4.yml" 2>/dev/null || \
-              echo "  WARN: khong copy duoc Traefik config — kiem tra thu cong"
+                "$DYN_DIR/traefik-relay-vpn4.yml"
+              echo "  Copied traefik-relay-vpn4.yml -> $DYN_DIR/"
+              TRAEFIK_CFG="$PANGOLIN_BASE/config/traefik/traefik_config.yml"
+              if [ -f "$TRAEFIK_CFG" ] && grep -q "filename:" "$TRAEFIK_CFG" 2>/dev/null; then
+                if [ -f "$PANGOLIN_BASE/config/traefik/dynamic_config.yml" ]; then
+                  cp "$PANGOLIN_BASE/config/traefik/dynamic_config.yml" \
+                     "$DYN_DIR/dynamic_config.yml" 2>/dev/null || true
+                fi
+                sed -i "s|filename: /etc/traefik/dynamic_config.yml|directory: /etc/traefik/dynamic|g" \
+                  "$TRAEFIK_CFG"
+                docker restart pan-traefik 2>/dev/null || true
+                echo "  Traefik migrated filename->directory va da restart"
+              else
+                echo "  Traefik da dung directory mode (hoac config khong tim thay)"
+              fi
             else
-              echo "  WARN: khong tim duoc Traefik config path — kiem tra thu cong"
+              echo "  WARN: Khong tim thay Pangolin dir — kiem tra thu cong"
             fi
+            set -e
 
             echo "==> [6/7] Khoi dong relay + tailscale + ping-reporter"
             cd "$DEPLOY_PATH/relay-vpn4"
