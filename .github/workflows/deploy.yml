@@ -28,7 +28,7 @@ jobs:
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_KEY }}
           port: ${{ secrets.SSH_PORT || '22' }}
-          envs: DEPLOY_PATH,REPO_URL,OAUTH2_PROXY_CLIENT_ID,OAUTH2_PROXY_CLIENT_SECRET,OAUTH2_PROXY_COOKIE_SECRET,HEADPLANE_COOKIE_SECRET,HEADPLANE_HS_API_KEY,TS_AUTHKEY
+          envs: DEPLOY_PATH,REPO_URL,OAUTH2_PROXY_CLIENT_ID,OAUTH2_PROXY_CLIENT_SECRET,OAUTH2_PROXY_COOKIE_SECRET,HEADPLANE_COOKIE_SECRET,HEADPLANE_HS_API_KEY,TS_AUTHKEY,DERP_DATABASE_URL,DERP_SESSION_SECRET,DERP_ALLOWED_EMAILS
           script_stop: true
           command_timeout: 20m
           script: |
@@ -73,6 +73,11 @@ jobs:
             printf 'OAUTH2_PROXY_COOKIE_SECRET=%s\n' "$OAUTH2_PROXY_COOKIE_SECRET" >> "$DEPLOY_PATH/.env"
             printf 'HEADPLANE_COOKIE_SECRET=%s\n'    "$HEADPLANE_COOKIE_SECRET"    >> "$DEPLOY_PATH/.env"
             printf 'HEADPLANE_HS_API_KEY=%s\n'       "$HEADPLANE_HS_API_KEY"       >> "$DEPLOY_PATH/.env"
+            # DERP backend (dashboard quan ly DERP): DB Neon, session secret, whitelist email.
+            # KHONG in ra log.
+            printf 'DERP_DATABASE_URL=%s\n'          "$DERP_DATABASE_URL"          >> "$DEPLOY_PATH/.env"
+            printf 'DERP_SESSION_SECRET=%s\n'        "$DERP_SESSION_SECRET"        >> "$DEPLOY_PATH/.env"
+            printf 'DERP_ALLOWED_EMAILS=%s\n'        "$DERP_ALLOWED_EMAILS"        >> "$DEPLOY_PATH/.env"
             # TS_AUTHKEY (preauth key cho node 'collector'): uu tien secret GitHub ->
             # file .ts_authkey da luu (tu sinh truoc do) -> de trong (se TU SINH o [7]).
             # KHONG in key ra log.
@@ -175,3 +180,6 @@ jobs:
           HEADPLANE_COOKIE_SECRET: ${{ secrets.HEADPLANE_COOKIE_SECRET }}
           HEADPLANE_HS_API_KEY: ${{ secrets.HEADPLANE_HS_API_KEY }}
           TS_AUTHKEY: ${{ secrets.TS_AUTHKEY }}
+          DERP_DATABASE_URL: ${{ secrets.DERP_DATABASE_URL }}
+          DERP_SESSION_SECRET: ${{ secrets.DERP_SESSION_SECRET }}
+          DERP_ALLOWED_EMAILS: ${{ secrets.DERP_ALLOWED_EMAILS }}

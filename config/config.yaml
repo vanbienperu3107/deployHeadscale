@@ -32,12 +32,15 @@ derp:
   # tu dong them boi automatically_add_embedded_derp_region. Client thay 2 region
   # -> tu do latency. Neu 1 region chet, tailscale tu chuyen sang region con lai.
   # -> tu do latency. Neu 1 region chet, tailscale tu chuyen sang region con lai.
-  paths:
-    - /etc/headscale/derp.yaml   # -> config/derp.yaml (volume ./config:/etc/headscale)
-
-  # Tat DERP servers cua Tailscale (full self-host)
-  urls: []
-  auto_update_enabled: false
+  # DERP map DONG: lay tu backend 'derp-backend' (DB Postgres) qua /derpmap.json.
+  # Bat/tat/them/xoa/uu-tien node tren dashboard -> backend doi JSON -> headscale tu
+  # fetch lai moi 'update_frequency' va day map moi xuong client (KHONG can restart,
+  # client tu chuyen node). derp.yaml gio chi la nguon SEED lan dau cho backend.
+  paths: []
+  urls:
+    - http://derp-backend:8787/derpmap.json
+  auto_update_enabled: true
+  update_frequency: 10s
 
 # === Node ===
 node:

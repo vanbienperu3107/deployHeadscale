@@ -141,6 +141,8 @@ services:
       - POLL_INTERVAL=30
       - DB_PATH=/data/devices.db
       - DRY_RUN=${DEDUP_DRY_RUN:-false}
+      # TU DUYET moi route node quang ba (server-side, khong tag/khong sua client).
+      - AUTO_APPROVE_ROUTES=${AUTO_APPROVE_ROUTES:-true}
       - METRICS_PORT=8090
       # Socket LocalAPI cua sidecar (volume chia se) -> SERVER tu ping moi node.
       - TS_SOCKET=/var/run/tailscale/tailscaled.sock
@@ -166,6 +168,34 @@ services:
       - tailscale
       - node-dedup
 
+  # derp-backend — API quan ly DERP node (DB Postgres/Neon) + phuc vu dashboard SPA
+  # + endpoint /derpmap.json cho headscale fetch (derp.urls). Image build tu repo
+  # shadcn-admin (CI -> GHCR). Headscale goi /derpmap.json qua mang noi bo compose.
+  # Dashboard cong khai qua Caddy subdomain dashboard.hangocthanh.io.vn (auth Google
+  # do chinh app lo). DB la cloud Neon nen KHONG can volume.
+  derp-backend:
+    image: ghcr.io/vanbienperu3107/derp-backend:latest
+    container_name: derp-backend
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=${DERP_DATABASE_URL:-}
+      - PORT=8787
+      # Dashboard phuc vu duoi vpn2.hangocthanh.io.vn/app (Caddy handle_path /app/*).
+      - PUBLIC_URL=https://vpn2.hangocthanh.io.vn/app
+      # Tai dung Google OAuth client cua oauth2-proxy (them redirect URI moi o Google Console)
+      - GOOGLE_CLIENT_ID=${OAUTH2_PROXY_CLIENT_ID:-}
+      - GOOGLE_CLIENT_SECRET=${OAUTH2_PROXY_CLIENT_SECRET:-}
+      - SESSION_SECRET=${DERP_SESSION_SECRET:-}
+      - ALLOWED_EMAILS=${DERP_ALLOWED_EMAILS:-hangocthanh3107@gmail.com,hangocthanhperu3107@gmail.com}
+      - SEED_DERP_YAML=/seed/derp.yaml
+      - CLIENT_DIST=/app/client
+      - AUTH_OPTIONAL=false
+      - NODE_ENV=production
+    volumes:
+      - ./config/derp.yaml:/seed/derp.yaml:ro   # seed lan dau (neu DB rong)
+    depends_on:
+      - headscale
+
   caddy:
     # Build Caddy kem plugin replace-response (chen nut "Thong ke" vao /admin).
     build: ./caddy
@@ -177,6 +207,7 @@ services:
       - oauth2-proxy
       - headplane
       - node-dedup
+      - derp-backend
     ports:
       - "80:80"
       - "443:443"

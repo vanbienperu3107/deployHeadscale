@@ -69,6 +69,21 @@ vpn2.hangocthanh.io.vn {
 		reverse_proxy node-dedup:8090
 	}
 
+	# Dashboard quan ly DERP (shadcn-admin) duoi /app: Caddy strip /app -> derp-backend.
+	# Backend tu lo dang nhap Google + phuc vu SPA + /api. Headscale fetch /derpmap.json
+	# qua mang noi bo compose (http://derp-backend:8787), khong qua Caddy.
+	# Google redirect URI: https://vpn2.hangocthanh.io.vn/app/api/auth/google/callback
+	handle_path /app/* {
+		reverse_proxy derp-backend:8787
+	}
+
+	# Vao root vpn2.hangocthanh.io.vn -> TU REDIRECT sang dashboard /app (khoi go them path).
+	# Chi khop DUNG path '/'; endpoint headscale (/key, /ts2021, /api/v1, /derp...) khong dung '/'.
+	@home path /
+	handle @home {
+		redir * /app/ 302
+	}
+
 	# Còn lại → Headscale control plane / API (xác thực bằng API key/node key)
 	handle {
 		reverse_proxy headscale:8080
