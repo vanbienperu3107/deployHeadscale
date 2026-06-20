@@ -1,0 +1,161 @@
+name: Deploy Relay (vpn6 - co-host Caddy)
+
+# CHI CHAY KHI DUOC GOI TAY — vpn6 la box production (memory-stack claude.hangocthanh.io.vn),
+# KHONG auto-deploy. Yeu cau CI pass tren main truoc khi bam Run.
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-relay-vpn6
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy hybrid relay to vpn6 (co-host)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Lay TS_AUTHKEY tu headscale API (tren runner, khong qua SSH)
+        id: ts_key
+        env:
+          HS_API_KEY: ${{ secrets.HEADPLANE_HS_API_KEY }}
+        run: |
+          RESPONSE=$(curl -sf -m 15 \
+            -H "Authorization: Bearer $HS_API_KEY" \
+            "https://vpn2.hangocthanh.io.vn/api/v1/user" 2>/dev/null \
+            || echo '{"users":[]}')
+          USER_ID=$(echo "$RESPONSE" | python3 -c \
+            "import json,sys; d=json.load(sys.stdin); u=d.get('users',d.get('user',[])); print(int(u[0].get('id',0)) if isinstance(u,list) and u else '')" \
+            2>/dev/null || echo "")
+          echo "headscale user id=$USER_ID"
+          EXPIRY=$(date -d '+365 days' -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo "")
+          KEY=""
+          if [ -n "$USER_ID" ] && [ "$USER_ID" != "0" ]; then
+            PKEY_RESP=$(curl -sf -m 15 -X POST \
+              -H "Authorization: Bearer $HS_API_KEY" \
+              -H "Content-Type: application/json" \
+              -d "{\"user\":$USER_ID,\"reusable\":true,\"expiration\":\"$EXPIRY\"}" \
+              "https://vpn2.hangocthanh.io.vn/api/v1/preauthkey" 2>/dev/null || echo "")
+            KEY=$(echo "$PKEY_RESP" | python3 -c \
+              "import json,sys; d=json.load(sys.stdin); print(d.get('preAuthKey',{}).get('key','') or d.get('key',''))" \
+              2>/dev/null || echo "")
+          fi
+          if [ -n "$KEY" ]; then echo "::add-mask::$KEY"; echo "Tao preauthkey OK"; else echo "Khong tao duoc preauthkey"; fi
+          echo "key=$KEY" >> "$GITHUB_OUTPUT"
+
+      - name: SSH vao vpn6 va deploy relay + tailscale + ping-reporter + Caddy site
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SSH_HOST_VPN6 }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT || '22' }}
+          envs: DEPLOY_PATH,REPO_URL,TS_AUTHKEY,CADDYFILE,CADDY_CT
+          script_stop: true
+          command_timeout: 30m
+          script: |
+            set -e
+            if [ "$(id -u)" -ne 0 ]; then SUDO="sudo"; else SUDO=""; fi
+
+            echo "==> [0/7] Cho dpkg lock"
+            $SUDO systemctl stop unattended-upgrades 2>/dev/null || true
+            i=0
+            while flock -n /var/lib/dpkg/lock-frontend -c true 2>/dev/null; [ $? -ne 0 ] && [ $i -lt 30 ]; do
+              echo "  dpkg busy, cho 5s... ($i)"; sleep 5; i=$((i+1))
+            done
+
+            echo "==> [1/7] Cai git + docker neu thieu"
+            if ! command -v git >/dev/null 2>&1; then
+              DEBIAN_FRONTEND=noninteractive $SUDO apt-get update -y
+              DEBIAN_FRONTEND=noninteractive $SUDO apt-get install -y git
+            fi
+            if ! command -v docker >/dev/null 2>&1; then
+              curl -fsSL https://get.docker.com -o /tmp/install-docker.sh
+              DEBIAN_FRONTEND=noninteractive $SUDO sh /tmp/install-docker.sh
+              rm -f /tmp/install-docker.sh
+            fi
+            $SUDO systemctl enable --now docker 2>/dev/null || true
+
+            echo "==> [2/7] Clone/cap nhat repo"
+            if [ ! -d "$DEPLOY_PATH/.git" ]; then
+              $SUDO mkdir -p "$DEPLOY_PATH"
+              $SUDO git clone "$REPO_URL" "$DEPLOY_PATH"
+              $SUDO chown -R "$(id -un):$(id -gn)" "$DEPLOY_PATH"
+            fi
+            cd "$DEPLOY_PATH"
+            git config --global --add safe.directory "$DEPLOY_PATH" || true
+            git fetch --all --prune
+            git reset --hard origin/main
+
+            echo "==> [3/7] Ghi .env (TS_AUTHKEY tu runner; fallback file luu)"
+            if [ -z "${TS_AUTHKEY:-}" ] && [ -f "$DEPLOY_PATH/.ts_authkey_vpn6" ]; then
+              TS_AUTHKEY=$(cat "$DEPLOY_PATH/.ts_authkey_vpn6" | tr -d '\n\r')
+              echo "  Dung .ts_authkey_vpn6 da luu"
+            fi
+            if [ -n "${TS_AUTHKEY:-}" ]; then
+              printf '%s' "$TS_AUTHKEY" > "$DEPLOY_PATH/.ts_authkey_vpn6"
+              chmod 600 "$DEPLOY_PATH/.ts_authkey_vpn6"
+            fi
+            umask 077
+            printf 'TS_AUTHKEY=%s\n' "${TS_AUTHKEY:-}" > "$DEPLOY_PATH/relay-vpn6/.env"
+            echo "  .env da ghi"
+
+            echo "==> [4/7] Mo ufw 41641/udp (WireGuard)"
+            $SUDO ufw allow 41641/udp >/dev/null 2>&1 || true
+
+            echo "==> [5/7] Khoi dong relay-vpn6 + tailscale + ping-reporter"
+            cd "$DEPLOY_PATH/relay-vpn6"
+            $SUDO docker compose run --rm --no-deps --entrypoint sh tailscale \
+              -c 'rm -f /var/run/tailscale/tailscaled.sock' >/dev/null 2>&1 || true
+            $SUDO docker compose pull tailscale 2>/dev/null || true
+            $SUDO docker compose up -d --build --force-recreate --remove-orphans
+
+            echo "==> [6/7] Tich hop Caddy (idempotent, backup, validate, reload graceful)"
+            : "${CADDYFILE:=/home/thanh/memory-stack/Caddyfile}"
+            : "${CADDY_CT:=memory-caddy}"
+            if [ -f "$CADDYFILE" ]; then
+              if ! grep -q "vpn6.hangocthanh.io.vn" "$CADDYFILE"; then
+                TS=$(date +%Y%m%d-%H%M%S)
+                $SUDO cp "$CADDYFILE" "$CADDYFILE.bak.$TS"
+                echo "  Backup: $CADDYFILE.bak.$TS"
+                grep -v '^#' "$DEPLOY_PATH/relay-vpn6/caddy-vpn6.caddy" | $SUDO tee -a "$CADDYFILE" >/dev/null
+                echo "  Da append site vpn6"
+              else
+                echo "  Site vpn6 da co trong Caddyfile (skip append)"
+              fi
+              if $SUDO docker exec "$CADDY_CT" caddy validate --config /etc/caddy/Caddyfile >/dev/null 2>&1; then
+                $SUDO docker exec "$CADDY_CT" caddy reload --config /etc/caddy/Caddyfile && echo "  Caddy reload OK (zero-downtime)"
+              else
+                echo "  WARN: caddy validate FAILED -> khoi phuc backup"
+                LATEST=$(ls -t "$CADDYFILE".bak.* 2>/dev/null | head -1 || true)
+                if [ -n "$LATEST" ]; then $SUDO cp "$LATEST" "$CADDYFILE"; echo "  Da khoi phuc $LATEST"; fi
+                exit 1
+              fi
+            else
+              echo "  WARN: khong thay $CADDYFILE -> bo qua (kiem tra thu cong)"
+            fi
+
+            echo "==> [7/7] Health check"
+            sleep 10
+            $SUDO docker compose ps
+            echo "  Kiem tra /relay/probe (cho Caddy xin cert + relay len, toi da 120s)..."
+            for _ in $(seq 1 20); do
+              CODE=$(curl -sk -o /dev/null -w "%{http_code}" \
+                "https://vpn6.hangocthanh.io.vn/relay/probe" 2>/dev/null || echo 000)
+              echo "  /relay/probe: HTTP $CODE"
+              [ "$CODE" = "200" ] && break
+              sleep 6
+            done
+            echo "  Kiem tra ts-vpn6 join tailnet..."
+            for _ in $(seq 1 15); do
+              IP=$($SUDO docker exec ts-vpn6 tailscale ip -4 2>/dev/null || true)
+              if [ -n "$IP" ]; then echo "  vpn6 DA join tailnet: $IP"; break; fi
+              echo "  Chua join, cho 4s..."; sleep 4
+            done
+            echo "  Log relay-vpn6 (20 dong cuoi):"; $SUDO docker logs --tail 20 relay-vpn6 2>&1 || true
+            echo "  Log ts-vpn6 (12 dong cuoi):"; $SUDO docker logs --tail 12 ts-vpn6 2>&1 || true
+        env:
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          REPO_URL: https://github.com/vanbienperu3107/deployHeadscale.git
+          TS_AUTHKEY: ${{ steps.ts_key.outputs.key }}
+          CADDYFILE: /home/thanh/memory-stack/Caddyfile
+          CADDY_CT: memory-caddy

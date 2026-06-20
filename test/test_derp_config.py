@@ -209,10 +209,10 @@ def test_derp_vpn4_reporter_dung_netns_sidecar():
 
 
 def test_derp_co_3_region_total():
-    """4 DERP regions (999 embedded + 1000 vpn3 + 1001 vpn4 + 1002 vpn5) -> failover tot."""
+    """>=4 DERP region ngoai (1000 vpn3 + 1001 vpn4 + 1002 vpn5 + 1003 vpn6) + embedded 999."""
     d = load_derp()
-    assert len(d["regions"]) >= 3, (
-        "config/derp.yaml phai co it nhat 3 region ngoai (+ embedded 999 = 4 tong)"
+    assert len(d["regions"]) >= 4, (
+        "config/derp.yaml phai co it nhat 4 region ngoai (+ embedded 999 = 5 tong)"
     )
 
 
@@ -289,3 +289,95 @@ def test_relay_vpn5_go_mod_ton_tai():
     assert (ROOT / "relay-vpn5" / "go.mod").exists(), (
         "relay-vpn5/go.mod phai ton tai"
     )
+
+
+# ---------- region 1003 (vpn6 hybrid relay, co-host Caddy) ----------
+
+def test_vpn6_co_trong_derp_map():
+    """Dam bao vpn6.hangocthanh.io.vn (hybrid relay co-host) duoc dang ky."""
+    hostnames = [
+        node["hostname"]
+        for region in load_derp()["regions"].values()
+        for node in region["nodes"]
+    ]
+    assert "vpn6.hangocthanh.io.vn" in hostnames, (
+        "vpn6.hangocthanh.io.vn phai co trong config/derp.yaml (region 1003)"
+    )
+
+
+def test_vpn6_ip_va_port_dung():
+    for region in load_derp()["regions"].values():
+        for node in region["nodes"]:
+            if node["hostname"] == "vpn6.hangocthanh.io.vn":
+                assert node.get("ipv4") == "45.119.87.220", (
+                    "ipv4 cua vpn6 phai la 45.119.87.220"
+                )
+                assert node.get("derpport") == 443, "vpn6 derpport phai la 443"
+
+
+def test_vpn6_region_id_la_1003():
+    d = load_derp()
+    assert 1003 in d["regions"], "region 1003 phai ton tai (vpn6)"
+    assert d["regions"][1003]["regionid"] == 1003
+
+
+# ---------- relay-vpn6 compose (co-host tren memory-stack) ----------
+
+def test_relay_vpn6_compose_ton_tai():
+    compose = ROOT / "relay-vpn6" / "docker-compose.yml"
+    assert compose.exists(), "relay-vpn6/docker-compose.yml phai ton tai"
+
+
+def test_relay_vpn6_compose_co_relay_va_tailscale():
+    compose = ROOT / "relay-vpn6" / "docker-compose.yml"
+    data = yaml.safe_load(compose.read_text())
+    svcs = data.get("services", {})
+    assert "relay" in svcs, "relay-vpn6 compose phai co service 'relay'"
+    assert "tailscale" in svcs, "relay-vpn6 compose phai co service 'tailscale' (sidecar)"
+
+
+def test_relay_vpn6_build_tu_relay_vpn5():
+    """relay-vpn6 tai dung code Go cua relay-vpn5 (build context ../relay-vpn5)."""
+    compose = ROOT / "relay-vpn6" / "docker-compose.yml"
+    data = yaml.safe_load(compose.read_text())
+    ctx = data["services"]["relay"].get("build", {}).get("context", "")
+    assert "relay-vpn5" in ctx, "relay-vpn6 phai build tu ../relay-vpn5 (tai dung code Go)"
+
+
+def test_relay_vpn6_expose_udp_41641():
+    compose = ROOT / "relay-vpn6" / "docker-compose.yml"
+    data = yaml.safe_load(compose.read_text())
+    ports = data["services"]["relay"].get("ports", [])
+    ports_str = " ".join(str(p) for p in ports)
+    assert "41641" in ports_str, "relay-vpn6 phai expose UDP 41641 (WireGuard)"
+
+
+def test_relay_vpn6_join_memnet_external():
+    """relay-vpn6 phai join network memory-stack_memnet (de Caddy goi duoc)."""
+    compose = ROOT / "relay-vpn6" / "docker-compose.yml"
+    data = yaml.safe_load(compose.read_text())
+    nets = data.get("networks", {})
+    assert "memnet" in nets, "relay-vpn6 phai khai bao network 'memnet'"
+    assert nets["memnet"].get("external") is True, "memnet phai la external"
+    assert nets["memnet"].get("name") == "memory-stack_memnet", (
+        "memnet phai tro toi network memory-stack_memnet (cua memory-caddy)"
+    )
+
+
+def test_relay_vpn6_reporter_dung_netns_sidecar():
+    """ping-reporter vpn6 phai chung netns sidecar de POST toi collector qua WireGuard."""
+    compose = ROOT / "relay-vpn6" / "docker-compose.yml"
+    data = yaml.safe_load(compose.read_text())
+    nm = data["services"]["ping-reporter"].get("network_mode")
+    assert nm == "service:tailscale", (
+        "ping-reporter vpn6 phai co network_mode: service:tailscale"
+    )
+
+
+def test_relay_vpn6_caddy_snippet_ton_tai():
+    """Snippet Caddy cho vpn6 phai ton tai va tro toi relay-vpn6:8080."""
+    snippet = ROOT / "relay-vpn6" / "caddy-vpn6.caddy"
+    assert snippet.exists(), "relay-vpn6/caddy-vpn6.caddy phai ton tai"
+    txt = snippet.read_text()
+    assert "vpn6.hangocthanh.io.vn" in txt, "snippet phai co domain vpn6"
+    assert "relay-vpn6:8080" in txt, "snippet phai reverse_proxy toi relay-vpn6:8080"

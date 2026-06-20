@@ -1,0 +1,80 @@
+# vpn6 = hybrid relay CO-HOST tren box memory-stack (claude.hangocthanh.io.vn).
+# Khac vpn5 (Traefik/Pangolin): o day Caddy san co (memory-caddy) lam reverse proxy.
+# Caddy route Host(vpn6.hangocthanh.io.vn) -> relay-vpn6:8080 (xem caddy-vpn6.caddy).
+# Relay join network memory-stack_memnet de Caddy goi duoc bang ten container.
+services:
+
+  # Custom hybrid DERP relay (TAI DUNG code Go cua relay-vpn5, giong het):
+  # - TCP side (8080, qua Caddy): nhan ket noi DERP tu client
+  # - UDP side (41641): gui WireGuard toi peer co endpoint UDP
+  relay:
+    build:
+      context: ../relay-vpn5      # dung lai Dockerfile + *.go cua vpn5
+      dockerfile: Dockerfile
+    container_name: relay-vpn6
+    restart: unless-stopped
+    command:
+      - -addr=:8080
+      - -ts-socket=/var/run/tailscale/tailscaled.sock
+      - -key-file=/data/relay.key
+      - -cache-ttl=5s
+    ports:
+      - "41641:41641/udp"         # WireGuard UDP (can mo ufw 41641/udp)
+    volumes:
+      - relay_data:/data
+      - ts_sock:/var/run/tailscale
+    networks:
+      - memnet                    # chung mang voi memory-caddy
+    depends_on:
+      - tailscale
+
+  # Tailscale sidecar: join tailnet voi hostname "vpn6".
+  tailscale:
+    image: tailscale/tailscale:latest
+    container_name: ts-vpn6
+    hostname: vpn6
+    restart: unless-stopped
+    environment:
+      - TS_AUTHKEY=${TS_AUTHKEY:-}
+      - TS_EXTRA_ARGS=--login-server=https://vpn2.hangocthanh.io.vn --hostname=vpn6 --accept-dns=false
+      - TS_STATE_DIR=/var/lib/tailscale
+      - TS_USERSPACE=false
+      - TS_SOCKET=/var/run/tailscale/tailscaled.sock
+    volumes:
+      - tailscale_vpn6:/var/lib/tailscale
+      - ts_sock:/var/run/tailscale
+    devices:
+      - /dev/net/tun
+    cap_add:
+      - NET_ADMIN
+
+  # Ping-reporter: bao cao latency relay->peer ve collector (vpn2).
+  # network_mode service:tailscale -> co IP tailnet de POST toi collector
+  # 100.64.0.1:8090 qua WireGuard (fix da chuan o vpn3/vpn4).
+  ping-reporter:
+    image: python:3.12-slim
+    container_name: ping-reporter-vpn6
+    restart: unless-stopped
+    network_mode: "service:tailscale"
+    command: ["python3", "/app/reporter.py"]
+    environment:
+      - REPORTER_NAME=vpn6
+      - TS_SOCKET=/var/run/tailscale/tailscaled.sock
+      - POLL_INTERVAL=30
+      - COLLECTOR_PORT=8090
+      - PING_TIMEOUT=8
+    volumes:
+      - ../ping-reporter/reporter.py:/app/reporter.py:ro
+      - ts_sock:/var/run/tailscale
+    depends_on:
+      - tailscale
+
+networks:
+  memnet:
+    external: true
+    name: memory-stack_memnet     # network cua memory-stack (memory-caddy o day)
+
+volumes:
+  relay_data:
+  tailscale_vpn6:
+  ts_sock:

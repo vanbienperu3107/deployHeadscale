@@ -1,0 +1,8 @@
+# Site block them vao Caddyfile cua memory-stack (/home/thanh/memory-stack/Caddyfile)
+# de Caddy lam reverse proxy cho relay-vpn6. Deploy workflow append block nay
+# (idempotent: chi them neu chua co), backup + caddy validate + caddy reload.
+# Caddy tu xin cert Let's Encrypt cho vpn6.hangocthanh.io.vn (HTTP-01 qua cong 80).
+# reverse_proxy ho tro WebSocket (DERP) tu dong.
+vpn6.hangocthanh.io.vn {
+	reverse_proxy relay-vpn6:8080
+}
