@@ -444,18 +444,21 @@ def test_derp_vpn6_co_derper_service():
     )
 
 
-def test_derp_vpn6_nghe_noi_bo_8443():
-    """derper vpn6 nghe :8443 va CHI bind localhost (sslh tren host route SNI vao)."""
+def test_derp_vpn6_nghe_noi_bo_8444():
+    """derper vpn6 nghe :8444 va CHI bind localhost (8443 = Caddy; sslh route SNI vao)."""
     compose = ROOT / "derp-vpn6" / "docker-compose.yml"
     data = yaml.safe_load(compose.read_text())
     cmd_str = " ".join(str(c) for c in data["services"]["derper"].get("command", []))
-    assert "--a=:8443" in cmd_str, "derper vpn6 phai nghe :8443 (sslh route vao)"
+    assert "--a=:8444" in cmd_str, "derper vpn6 phai nghe :8444 (8443 da la Caddy)"
     ports_str = " ".join(str(p) for p in data["services"]["derper"].get("ports", []))
-    assert "127.0.0.1:8443:8443" in ports_str, (
-        "derper vpn6 phai bind 127.0.0.1:8443 (chi sslh tren host goi toi)"
+    assert "127.0.0.1:8444:8444" in ports_str, (
+        "derper vpn6 phai bind 127.0.0.1:8444 (chi sslh tren host goi toi)"
     )
     assert "443:443" not in ports_str, (
         "derper vpn6 KHONG duoc chiem cong 443 (sslh dang giu)"
+    )
+    assert "8443" not in ports_str, (
+        "derper vpn6 KHONG duoc dung 8443 (Caddy memory-stack dang giu)"
     )
 
 
@@ -502,7 +505,7 @@ def test_derp_vpn6_readme_huong_dan_sslh():
     assert readme.exists(), "derp-vpn6/README.md phai ton tai"
     txt = readme.read_text(encoding="utf-8").lower()
     assert "sslh" in txt and "sni" in txt, "README phai noi ve sslh + SNI"
-    assert "8443" in txt, "README phai noi port noi bo 8443"
+    assert "8444" in txt, "README phai noi port noi bo derper 8444"
 
 
 def test_deploy_derp_vpn6_workflow_dispatch_only():

@@ -1,7 +1,13 @@
 # vpn6 = DERP CHUAN (derper) giong vpn4 — KHONG dung custom relay tcp/udp.
 # Khac vpn4 o CHO DUY NHAT: vpn6 la box memory-stack, da co sslh nghe 443.
-# Vi vay derper KHONG chiem 443/80 cong, ma:
-#   - Nghe TLS noi bo o 127.0.0.1:8443  -> sslh route SNI vpn6.hangocthanh.io.vn vao day
+#
+# LUU Y CONG: sslh hien tai (dang CLI don gian) forward TOAN BO TLS -> 127.0.0.1:8443
+# = memory-caddy. Vi vay derper KHONG duoc dung 8443 (dung Caddy) -> dung 8444.
+# Cutover (mai) phai nang sslh len dang config co SNI: vpn6 SNI -> 8444 (derper),
+# con lai -> 8443 (Caddy). Xem README.md.
+#
+# Derper KHONG chiem 443/80 cong, ma:
+#   - Nghe TLS noi bo o 127.0.0.1:8444  -> sslh route SNI vpn6.hangocthanh.io.vn vao day
 #   - Cert Let's Encrypt qua TLS-ALPN-01 (sslh forward raw TLS theo SNI, derper tu lam cert)
 #   - http-port=-1 (tat HTTP, khong can cong 80 — Caddy memory-stack van giu 80)
 #   - STUN 3478/udp mo THANG ra host (UDP, sslh khong dinh toi)
@@ -15,7 +21,7 @@ services:
     restart: unless-stopped
     command:
       - --hostname=vpn6.hangocthanh.io.vn
-      - --a=:8443            # TLS listener noi bo (sslh route vao)
+      - --a=:8444            # TLS listener noi bo (sslh route SNI vpn6 vao; 8443 = Caddy)
       - --http-port=-1       # tat HTTP -> cert qua TLS-ALPN-01, khong dung cong 80
       - --certmode=letsencrypt
       - --certdir=/data/derper-certs
@@ -23,7 +29,7 @@ services:
       - --stun-port=3478
       - --verify-clients=false
     ports:
-      - "127.0.0.1:8443:8443"   # CHI localhost: chi sslh (tren host) goi toi
+      - "127.0.0.1:8444:8444"   # CHI localhost: chi sslh (tren host) goi toi
       - "3478:3478/udp"         # STUN cong cong (can ufw allow 3478/udp)
     volumes:
       - derper_certs:/data/derper-certs

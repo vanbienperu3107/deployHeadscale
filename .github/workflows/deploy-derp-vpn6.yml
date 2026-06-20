@@ -1,12 +1,12 @@
 name: Deploy DERP (vpn6 - derper chuan qua sslh)
 
-# vpn6 = derper CHUAN (giong vpn4), nghe noi bo :8443, sslh route SNI vpn6 vao.
+# vpn6 = derper CHUAN (giong vpn4), nghe noi bo :8444, sslh route SNI vpn6 vao.
 # CHI workflow_dispatch — vpn6 la box production (memory-stack). Yeu cau CI pass truoc.
 #
 # Workflow nay CHI deploy phan derper AN TOAN (container derper + ts + reporter).
 # NO KHONG tu dong sua sslh/Caddy — buoc ghep rule SNI vao sslh la THAO TAC TAY
 # (xem derp-vpn6/README.md), lam can than co rollback. Vi vay sau khi chay workflow
-# nay, derper chua co cert (chua ai route 443->8443); cert se cap sau khi them rule sslh.
+# nay, derper chua co cert (chua ai route 443->8444); cert se cap sau khi them rule sslh.
 on:
   workflow_dispatch:
     inputs:
@@ -128,8 +128,8 @@ jobs:
             echo "==> [6/6] Health check (LUU Y: cert + 101 chi co SAU khi them rule sslh)"
             sleep 10
             $SUDO docker compose ps
-            echo "  derper co lang nghe 127.0.0.1:8443 khong:"
-            (ss -tln 2>/dev/null | grep -E ':8443\b' && echo "  -> :8443 LISTEN OK") || echo "  -> chua thay :8443 (xem log derper)"
+            echo "  derper co lang nghe 127.0.0.1:8444 khong:"
+            (ss -tln 2>/dev/null | grep -E ':8444\b' && echo "  -> :8444 LISTEN OK") || echo "  -> chua thay :8444 (xem log derper)"
             echo "  Kiem tra ts-vpn6 join tailnet..."
             for _ in $(seq 1 15); do
               IP=$($SUDO docker exec ts-vpn6 tailscale ip -4 2>/dev/null || true)
@@ -141,7 +141,7 @@ jobs:
             echo ""
             echo "  ============================================================"
             echo "  BUOC TIEP THEO (THU CONG, xem derp-vpn6/README.md):"
-            echo "   1. Them rule sslh: SNI vpn6.hangocthanh.io.vn -> 127.0.0.1:8443"
+            echo "   1. Them rule sslh: SNI vpn6.hangocthanh.io.vn -> 127.0.0.1:8444"
             echo "   2. Reload sslh -> derper se xin cert LE qua TLS-ALPN-01"
             echo "   3. Test: curl -sk -i -H 'Upgrade: DERP' https://vpn6.hangocthanh.io.vn/derp"
             echo "      KY VONG: 101 Switching Protocols (khong con 426)"
