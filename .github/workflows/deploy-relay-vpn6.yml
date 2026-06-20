@@ -138,11 +138,13 @@ jobs:
             sleep 10
             $SUDO docker compose ps
             echo "  Kiem tra /relay/probe (cho Caddy xin cert + relay len, toi da 120s)..."
+            # Dung if/then/fi (KHONG dung '[ ] && break') vi duoi script_stop(set -e)
+            # mot test that bai se lam thoat ca script -> bao 'failure' gia.
             for _ in $(seq 1 20); do
-              CODE=$(curl -sk -o /dev/null -w "%{http_code}" \
-                "https://vpn6.hangocthanh.io.vn/relay/probe" 2>/dev/null || echo 000)
-              echo "  /relay/probe: HTTP $CODE"
-              [ "$CODE" = "200" ] && break
+              CODE=$(curl -sk --max-time 10 -o /dev/null -w "%{http_code}" \
+                "https://vpn6.hangocthanh.io.vn/relay/probe" 2>/dev/null || true)
+              echo "  /relay/probe: HTTP ${CODE:-000}"
+              if [ "$CODE" = "200" ]; then echo "  Relay OK qua Caddy"; break; fi
               sleep 6
             done
             echo "  Kiem tra ts-vpn6 join tailnet..."
