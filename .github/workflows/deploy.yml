@@ -92,15 +92,6 @@ jobs:
             # da tro vao day) -> node-dedup goi LocalAPI ping duoc.
             $SUDO docker compose run --rm --no-deps --entrypoint sh tailscale -c 'rm -f /var/run/tailscale/tailscaled.sock' >/dev/null 2>&1 || true
             $SUDO docker compose pull
-            # Don container 'derp-backend' ket truoc khi up: neu container ten nay
-            # ton tai nhung KHONG thuoc compose project hien tai (tao tu lan truoc /
-            # build khac), `up` bao "name already in use" va FAIL ca stack. Xoa no
-            # roi `up` tao lai sach. AN TOAN vi derp-backend la STATELESS (DB Neon
-            # cloud, khong volume; chi bind-mount config/derp.yaml:ro) -> chi chop
-            # ~vai giay dashboard DERP, KHONG dung headscale/collector/caddy/VPN
-            # traffic. --force-recreate von cung tao lai no moi deploy nen khong them
-            # gian doan. Chi nham dung derp-backend, khong dung service khac.
-            $SUDO docker rm -f derp-backend >/dev/null 2>&1 || true
             # --force-recreate để container đọc lại Caddyfile/config.yaml (bind-mount đổi
             # không tự trigger restart). Volume dữ liệu vẫn giữ nguyên (keys, db, certs).
             $SUDO docker compose up -d --build --force-recreate --remove-orphans
