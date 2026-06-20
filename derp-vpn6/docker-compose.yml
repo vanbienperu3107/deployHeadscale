@@ -1,0 +1,75 @@
+# vpn6 = DERP CHUAN (derper) giong vpn4 — KHONG dung custom relay tcp/udp.
+# Khac vpn4 o CHO DUY NHAT: vpn6 la box memory-stack, da co sslh nghe 443.
+# Vi vay derper KHONG chiem 443/80 cong, ma:
+#   - Nghe TLS noi bo o 127.0.0.1:8443  -> sslh route SNI vpn6.hangocthanh.io.vn vao day
+#   - Cert Let's Encrypt qua TLS-ALPN-01 (sslh forward raw TLS theo SNI, derper tu lam cert)
+#   - http-port=-1 (tat HTTP, khong can cong 80 — Caddy memory-stack van giu 80)
+#   - STUN 3478/udp mo THANG ra host (UDP, sslh khong dinh toi)
+# => derper van la code chuan, KHONG mix. sslh chi them 1 rule SNI (xem README.md).
+services:
+  derper:
+    build:
+      context: ../derp-vpn3   # dung Dockerfile.derper cua vpn3 (giong vpn4/vpn5)
+      dockerfile: Dockerfile.derper
+    container_name: derper
+    restart: unless-stopped
+    command:
+      - --hostname=vpn6.hangocthanh.io.vn
+      - --a=:8443            # TLS listener noi bo (sslh route vao)
+      - --http-port=-1       # tat HTTP -> cert qua TLS-ALPN-01, khong dung cong 80
+      - --certmode=letsencrypt
+      - --certdir=/data/derper-certs
+      - --stun
+      - --stun-port=3478
+      - --verify-clients=false
+    ports:
+      - "127.0.0.1:8443:8443"   # CHI localhost: chi sslh (tren host) goi toi
+      - "3478:3478/udp"         # STUN cong cong (can ufw allow 3478/udp)
+    volumes:
+      - derper_certs:/data/derper-certs
+
+  # Tailscale sidecar: vpn6 join tailnet voi hostname=vpn6.
+  tailscale:
+    image: tailscale/tailscale:latest
+    container_name: ts-vpn6
+    hostname: vpn6
+    restart: unless-stopped
+    environment:
+      - TS_AUTHKEY=${TS_AUTHKEY:-}
+      - TS_EXTRA_ARGS=--login-server=https://vpn2.hangocthanh.io.vn --hostname=vpn6 --accept-dns=false
+      - TS_STATE_DIR=/var/lib/tailscale
+      - TS_USERSPACE=false
+      - TS_SOCKET=/var/run/tailscale/tailscaled.sock
+    volumes:
+      - tailscale_vpn6:/var/lib/tailscale
+      - ts_sock:/var/run/tailscale
+    devices:
+      - /dev/net/tun
+    cap_add:
+      - NET_ADMIN
+
+  # Ping-reporter: moi 30s ping tung peer, POST ket qua len collector voi src='vpn6'.
+  # network_mode service:tailscale -> co IP tailnet de POST toi collector
+  # (100.64.0.1:8090) qua WireGuard. Khong co cai nay thi POST timeout.
+  ping-reporter:
+    image: python:3.12-slim
+    container_name: ping-reporter-vpn6
+    restart: unless-stopped
+    network_mode: "service:tailscale"
+    command: ["python3", "/app/reporter.py"]
+    environment:
+      - REPORTER_NAME=vpn6
+      - TS_SOCKET=/var/run/tailscale/tailscaled.sock
+      - POLL_INTERVAL=30
+      - COLLECTOR_PORT=8090
+      - PING_TIMEOUT=8
+    volumes:
+      - ../ping-reporter/reporter.py:/app/reporter.py:ro
+      - ts_sock:/var/run/tailscale
+    depends_on:
+      - tailscale
+
+volumes:
+  derper_certs:
+  tailscale_vpn6:
+  ts_sock:

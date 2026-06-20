@@ -1,0 +1,153 @@
+name: Deploy DERP (vpn6 - derper chuan qua sslh)
+
+# vpn6 = derper CHUAN (giong vpn4), nghe noi bo :8443, sslh route SNI vpn6 vao.
+# CHI workflow_dispatch — vpn6 la box production (memory-stack). Yeu cau CI pass truoc.
+#
+# Workflow nay CHI deploy phan derper AN TOAN (container derper + ts + reporter).
+# NO KHONG tu dong sua sslh/Caddy — buoc ghep rule SNI vao sslh la THAO TAC TAY
+# (xem derp-vpn6/README.md), lam can than co rollback. Vi vay sau khi chay workflow
+# nay, derper chua co cert (chua ai route 443->8443); cert se cap sau khi them rule sslh.
+on:
+  workflow_dispatch:
+    inputs:
+      git_ref:
+        description: "Branch/ref de deploy (mac dinh nhanh test)"
+        required: false
+        default: "vpn6-derper-sslh"
+
+concurrency:
+  group: deploy-derp-vpn6
+  cancel-in-progress: false
+
+jobs:
+  deploy-derp:
+    name: Deploy derper chuan len vpn6 (qua sslh)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Lay TS_AUTHKEY tu headscale API (tren runner, khong qua SSH)
+        id: ts_key
+        env:
+          HS_API_KEY: ${{ secrets.HEADPLANE_HS_API_KEY }}
+        run: |
+          RESPONSE=$(curl -sf -m 15 \
+            -H "Authorization: Bearer $HS_API_KEY" \
+            "https://vpn2.hangocthanh.io.vn/api/v1/user" 2>/dev/null \
+            || echo '{"users":[]}')
+          USER_ID=$(echo "$RESPONSE" | python3 -c \
+            "import json,sys; d=json.load(sys.stdin); u=d.get('users',d.get('user',[])); print(int(u[0].get('id',0)) if isinstance(u,list) and u else '')" \
+            2>/dev/null || echo "")
+          echo "headscale user id=$USER_ID"
+          EXPIRY=$(date -d '+365 days' -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo "")
+          KEY=""
+          if [ -n "$USER_ID" ] && [ "$USER_ID" != "0" ]; then
+            PKEY_RESP=$(curl -sf -m 15 -X POST \
+              -H "Authorization: Bearer $HS_API_KEY" \
+              -H "Content-Type: application/json" \
+              -d "{\"user\":$USER_ID,\"reusable\":true,\"expiration\":\"$EXPIRY\"}" \
+              "https://vpn2.hangocthanh.io.vn/api/v1/preauthkey" 2>/dev/null || echo "")
+            KEY=$(echo "$PKEY_RESP" | python3 -c \
+              "import json,sys; d=json.load(sys.stdin); print(d.get('preAuthKey',{}).get('key','') or d.get('key',''))" \
+              2>/dev/null || echo "")
+          fi
+          if [ -n "$KEY" ]; then echo "::add-mask::$KEY"; echo "Tao preauthkey OK"; else echo "Khong tao duoc preauthkey"; fi
+          echo "key=$KEY" >> "$GITHUB_OUTPUT"
+
+      - name: SSH vao vpn6 va deploy derper + tailscale + ping-reporter (KHONG dung sslh)
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SSH_HOST_VPN6 }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT || '22' }}
+          envs: DEPLOY_PATH,REPO_URL,TS_AUTHKEY,GIT_REF
+          script_stop: true
+          command_timeout: 30m
+          script: |
+            set -e
+            if [ "$(id -u)" -ne 0 ]; then SUDO="sudo"; else SUDO=""; fi
+
+            echo "==> [0/6] Cho dpkg lock"
+            $SUDO systemctl stop unattended-upgrades 2>/dev/null || true
+            i=0
+            while flock -n /var/lib/dpkg/lock-frontend -c true 2>/dev/null; [ $? -ne 0 ] && [ $i -lt 30 ]; do
+              echo "  dpkg busy, cho 5s... ($i)"; sleep 5; i=$((i+1))
+            done
+
+            echo "==> [1/6] Cai git + docker neu thieu"
+            if ! command -v git >/dev/null 2>&1; then
+              DEBIAN_FRONTEND=noninteractive $SUDO apt-get update -y
+              DEBIAN_FRONTEND=noninteractive $SUDO apt-get install -y git
+            fi
+            if ! command -v docker >/dev/null 2>&1; then
+              curl -fsSL https://get.docker.com -o /tmp/install-docker.sh
+              DEBIAN_FRONTEND=noninteractive $SUDO sh /tmp/install-docker.sh
+              rm -f /tmp/install-docker.sh
+            fi
+            $SUDO systemctl enable --now docker 2>/dev/null || true
+
+            echo "==> [2/6] Clone/cap nhat repo (ref=$GIT_REF)"
+            if [ ! -d "$DEPLOY_PATH/.git" ]; then
+              $SUDO mkdir -p "$DEPLOY_PATH"
+              $SUDO git clone "$REPO_URL" "$DEPLOY_PATH"
+              $SUDO chown -R "$(id -un):$(id -gn)" "$DEPLOY_PATH"
+            fi
+            cd "$DEPLOY_PATH"
+            git config --global --add safe.directory "$DEPLOY_PATH" || true
+            git fetch --all --prune
+            git reset --hard "origin/$GIT_REF"
+
+            echo "==> [3/6] Ghi .env (TS_AUTHKEY tu runner; fallback file luu)"
+            if [ -z "${TS_AUTHKEY:-}" ] && [ -f "$DEPLOY_PATH/.ts_authkey_vpn6" ]; then
+              TS_AUTHKEY=$(cat "$DEPLOY_PATH/.ts_authkey_vpn6" | tr -d '\n\r')
+              echo "  Dung .ts_authkey_vpn6 da luu"
+            fi
+            if [ -n "${TS_AUTHKEY:-}" ]; then
+              printf '%s' "$TS_AUTHKEY" > "$DEPLOY_PATH/.ts_authkey_vpn6"
+              chmod 600 "$DEPLOY_PATH/.ts_authkey_vpn6"
+            fi
+            umask 077
+            printf 'TS_AUTHKEY=%s\n' "${TS_AUTHKEY:-}" > "$DEPLOY_PATH/derp-vpn6/.env"
+            echo "  .env da ghi"
+
+            echo "==> [3.5/6] Don dep stack relay-vpn6 cu (cutover sang derper, free ten container)"
+            cd "$DEPLOY_PATH/relay-vpn6" 2>/dev/null && $SUDO docker compose down 2>/dev/null || true
+            $SUDO docker stop relay-vpn6 ts-vpn6 ping-reporter-vpn6 2>/dev/null || true
+            $SUDO docker rm -f relay-vpn6 ts-vpn6 ping-reporter-vpn6 2>/dev/null || true
+            echo "  relay-vpn6 stack da don dep (code relay VAN con trong repo, khong xoa)"
+
+            echo "==> [4/6] Mo ufw 3478/udp (STUN)"
+            $SUDO ufw allow 3478/udp >/dev/null 2>&1 || true
+
+            echo "==> [5/6] Khoi dong derper + tailscale + ping-reporter"
+            cd "$DEPLOY_PATH/derp-vpn6"
+            $SUDO docker compose run --rm --no-deps --entrypoint sh tailscale \
+              -c 'rm -f /var/run/tailscale/tailscaled.sock' >/dev/null 2>&1 || true
+            $SUDO docker compose pull tailscale 2>/dev/null || true
+            $SUDO docker compose up -d --build --force-recreate --remove-orphans
+
+            echo "==> [6/6] Health check (LUU Y: cert + 101 chi co SAU khi them rule sslh)"
+            sleep 10
+            $SUDO docker compose ps
+            echo "  derper co lang nghe 127.0.0.1:8443 khong:"
+            (ss -tln 2>/dev/null | grep -E ':8443\b' && echo "  -> :8443 LISTEN OK") || echo "  -> chua thay :8443 (xem log derper)"
+            echo "  Kiem tra ts-vpn6 join tailnet..."
+            for _ in $(seq 1 15); do
+              IP=$($SUDO docker exec ts-vpn6 tailscale ip -4 2>/dev/null || true)
+              if [ -n "$IP" ]; then echo "  vpn6 DA join tailnet: $IP"; break; fi
+              echo "  Chua join, cho 4s..."; sleep 4
+            done
+            echo "  Log derper (20 dong cuoi):"; $SUDO docker logs --tail 20 derper 2>&1 || true
+            echo "  Log ts-vpn6 (12 dong cuoi):"; $SUDO docker logs --tail 12 ts-vpn6 2>&1 || true
+            echo ""
+            echo "  ============================================================"
+            echo "  BUOC TIEP THEO (THU CONG, xem derp-vpn6/README.md):"
+            echo "   1. Them rule sslh: SNI vpn6.hangocthanh.io.vn -> 127.0.0.1:8443"
+            echo "   2. Reload sslh -> derper se xin cert LE qua TLS-ALPN-01"
+            echo "   3. Test: curl -sk -i -H 'Upgrade: DERP' https://vpn6.hangocthanh.io.vn/derp"
+            echo "      KY VONG: 101 Switching Protocols (khong con 426)"
+            echo "  ============================================================"
+        env:
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          REPO_URL: https://github.com/vanbienperu3107/deployHeadscale.git
+          TS_AUTHKEY: ${{ steps.ts_key.outputs.key }}
+          GIT_REF: ${{ github.event.inputs.git_ref }}

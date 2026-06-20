@@ -1,7 +1,7 @@
 # DERP map bo sung cho headscale.
 # Region 999 (vpn2/myderp) duoc headscale tu dong them qua
 # automatically_add_embedded_derp_region: true.
-# Region 1000 (vpn3-vn), 1001 (vpn4-vn), 1002 (vpn5 hybrid), 1003 (vpn6 hybrid)
+# Region 1000 (vpn3-vn), 1001 (vpn4-vn), 1002 (vpn5 hybrid), 1003 (vpn6 derper qua sslh)
 # them o day qua derp.paths.
 #
 # Tailscale client do latency tat ca region va chon con DERP GAN NHAT (thap nhat).
@@ -44,7 +44,7 @@ regions:
   1003:
     regionid: 1003
     regioncode: "vpn6-vn"
-    regionname: "VPN6 (hybrid relay, co-host)"
+    regionname: "VPN6 Vietnam"
     nodes:
       - name: "vpn6-vn-1"
         regionid: 1003

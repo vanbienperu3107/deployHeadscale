@@ -425,3 +425,104 @@ def test_relay_vpn6_caddy_snippet_ton_tai():
     txt = snippet.read_text()
     assert "vpn6.hangocthanh.io.vn" in txt, "snippet phai co domain vpn6"
     assert "relay-vpn6:8080" in txt, "snippet phai reverse_proxy toi relay-vpn6:8080"
+
+
+# ---------- derp-vpn6 (DERP chuan giong vpn4, dung chung 443 qua sslh) ----------
+# Nhanh vpn6-derper-sslh: vpn6 chuyen tu custom relay sang derper chuan.
+# Khac vpn4: nghe noi bo :8443 (sslh route SNI vao), --http-port=-1 (cert TLS-ALPN-01).
+
+def test_derp_vpn6_compose_ton_tai():
+    compose = ROOT / "derp-vpn6" / "docker-compose.yml"
+    assert compose.exists(), "derp-vpn6/docker-compose.yml phai ton tai"
+
+
+def test_derp_vpn6_co_derper_service():
+    compose = ROOT / "derp-vpn6" / "docker-compose.yml"
+    data = yaml.safe_load(compose.read_text())
+    assert "derper" in data.get("services", {}), (
+        "derp-vpn6 phai co service 'derper' (DERP chuan, KHONG phai relay lai)"
+    )
+
+
+def test_derp_vpn6_nghe_noi_bo_8443():
+    """derper vpn6 nghe :8443 va CHI bind localhost (sslh tren host route SNI vao)."""
+    compose = ROOT / "derp-vpn6" / "docker-compose.yml"
+    data = yaml.safe_load(compose.read_text())
+    cmd_str = " ".join(str(c) for c in data["services"]["derper"].get("command", []))
+    assert "--a=:8443" in cmd_str, "derper vpn6 phai nghe :8443 (sslh route vao)"
+    ports_str = " ".join(str(p) for p in data["services"]["derper"].get("ports", []))
+    assert "127.0.0.1:8443:8443" in ports_str, (
+        "derper vpn6 phai bind 127.0.0.1:8443 (chi sslh tren host goi toi)"
+    )
+    assert "443:443" not in ports_str, (
+        "derper vpn6 KHONG duoc chiem cong 443 (sslh dang giu)"
+    )
+
+
+def test_derp_vpn6_http_port_tat():
+    """--http-port=-1 -> cert qua TLS-ALPN-01, khong dung cong 80 (Caddy memory-stack giu)."""
+    compose = ROOT / "derp-vpn6" / "docker-compose.yml"
+    data = yaml.safe_load(compose.read_text())
+    cmd_str = " ".join(str(c) for c in data["services"]["derper"].get("command", []))
+    assert "--http-port=-1" in cmd_str, (
+        "derper vpn6 phai dat --http-port=-1 (tat HTTP, cert qua TLS-ALPN-01)"
+    )
+
+
+def test_derp_vpn6_co_stun_3478():
+    compose = ROOT / "derp-vpn6" / "docker-compose.yml"
+    data = yaml.safe_load(compose.read_text())
+    cmd_str = " ".join(str(c) for c in data["services"]["derper"].get("command", []))
+    ports_str = " ".join(str(p) for p in data["services"]["derper"].get("ports", []))
+    assert "--stun" in cmd_str, "derper vpn6 phai bat --stun"
+    assert "3478" in ports_str, "derper vpn6 phai expose 3478/udp (STUN)"
+
+
+def test_derp_vpn6_hostname_vpn6():
+    compose = ROOT / "derp-vpn6" / "docker-compose.yml"
+    data = yaml.safe_load(compose.read_text())
+    cmd_str = " ".join(str(c) for c in data["services"]["derper"].get("command", []))
+    assert "vpn6.hangocthanh.io.vn" in cmd_str, (
+        "derp-vpn6 compose phai dung --hostname=vpn6.hangocthanh.io.vn"
+    )
+
+
+def test_derp_vpn6_reporter_netns_sidecar():
+    compose = ROOT / "derp-vpn6" / "docker-compose.yml"
+    data = yaml.safe_load(compose.read_text())
+    nm = data["services"]["ping-reporter"].get("network_mode")
+    assert nm == "service:tailscale", (
+        "ping-reporter vpn6 phai co network_mode: service:tailscale"
+    )
+
+
+def test_derp_vpn6_readme_huong_dan_sslh():
+    """README phai mo ta rule sslh SNI -> derper noi bo (huong dan cutover mai)."""
+    readme = ROOT / "derp-vpn6" / "README.md"
+    assert readme.exists(), "derp-vpn6/README.md phai ton tai"
+    txt = readme.read_text(encoding="utf-8").lower()
+    assert "sslh" in txt and "sni" in txt, "README phai noi ve sslh + SNI"
+    assert "8443" in txt, "README phai noi port noi bo 8443"
+
+
+def test_deploy_derp_vpn6_workflow_dispatch_only():
+    """Workflow deploy vpn6 CHI workflow_dispatch (box prod, khong auto-deploy)."""
+    wf = ROOT / ".github" / "workflows" / "deploy-derp-vpn6.yml"
+    assert wf.exists(), "deploy-derp-vpn6.yml phai ton tai"
+    data = yaml.safe_load(wf.read_text())
+    # YAML 1.1: key 'on' co the parse thanh True -> thu ca hai.
+    on_block = data.get("on", data.get(True))
+    assert on_block is not None, "workflow phai co block 'on'"
+    assert "workflow_dispatch" in on_block, "phai co workflow_dispatch"
+    assert "push" not in on_block, "KHONG duoc auto-deploy khi push"
+    assert "schedule" not in on_block, "KHONG duoc auto-deploy theo schedule"
+
+
+def test_relay_vpn6_code_van_giu_khong_xoa():
+    """Yeu cau nguoi dung: KHONG xoa code relay tcp/udp khi them derper vpn6."""
+    assert (ROOT / "relay-vpn5" / "server.go").exists(), (
+        "relay-vpn5/server.go (code mix tcp/udp) phai VAN con — khong duoc xoa"
+    )
+    assert (ROOT / "relay-vpn6" / "docker-compose.yml").exists(), (
+        "relay-vpn6/docker-compose.yml phai VAN con — khong duoc xoa"
+    )
