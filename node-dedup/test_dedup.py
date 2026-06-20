@@ -15,7 +15,7 @@ from dedup import (aggregate_latency, init_db, init_latency_db,
                    probe_derp_region, query_all_server_pings, query_current_relay,
                    query_devices, query_latest_netcheck, record_netcheck, record_report,
                    render_derp_html, render_stats_html,
-                   server_ping_all, validate_report, _parse_derp_regions,
+                   server_ping_all, stale_reporters, validate_report, _parse_derp_regions,
                    DERP_PROBE_URLS)
 
 
@@ -99,6 +99,29 @@ def test_route_approval_no_routes_or_no_id_skipped():
         {"availableRoutes": ["10.0.0.0/8"]},                        # thieu id -> bo
     ]
     assert plan_route_approvals(raw) == []
+
+
+def test_stale_reporters_all_fresh():
+    now = 1000
+    rows = [{"src": "collector", "ts": 990}, {"src": "vpn3", "ts": 995},
+            {"src": "vpn4", "ts": 980}]
+    assert stale_reporters(rows, ["collector", "vpn3", "vpn4"], now, 180) == []
+
+
+def test_stale_reporters_one_missing():
+    now = 1000
+    rows = [{"src": "collector", "ts": 990}, {"src": "vpn3", "ts": 995}]
+    assert stale_reporters(rows, ["collector", "vpn3", "vpn4"], now, 180) == ["vpn4"]
+
+
+def test_stale_reporters_old_sample_excluded():
+    now = 1000
+    rows = [{"src": "vpn3", "ts": 800}]  # 200s cu > window 180 -> coi nhu im
+    assert stale_reporters(rows, ["vpn3"], now, 180) == ["vpn3"]
+
+
+def test_stale_reporters_empty_expected_never_fails():
+    assert stale_reporters([{"src": "vpn3", "ts": 1}], [], 1000, 180) == []
 
 
 def test_normalize_camel_and_snake():

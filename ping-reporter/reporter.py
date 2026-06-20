@@ -61,7 +61,8 @@ def get_peers_and_collector():
     if not status:
         return [], None
     peers = []
-    collector_ip = None
+    collector_ip = None         # fallback: collector OFFLINE (chi dung khi khong co ban online)
+    collector_online_ip = None  # uu tien: collector dang ONLINE
     debug_online = []
     debug_offline = []
     for _, peer in (status.get("Peer") or {}).items():
@@ -72,10 +73,17 @@ def get_peers_and_collector():
         host = (peer.get("HostName") or (peer.get("DNSName") or "").split(".")[0]).lower()
         online = bool(peer.get("Online"))
         if host == COLLECTOR_HOSTNAME:
-            collector_ip = ip4  # lay IP du Online hay khong
+            # Sau deploy co the ton tai 2 node 'collector' (ban cu OFFLINE + ban moi
+            # ONLINE) -> uu tien ban ONLINE, tranh POST vao IP chet. Chi dung ban
+            # offline khi khong tim thay ban online nao.
+            if online:
+                collector_online_ip = ip4
+            elif collector_ip is None:
+                collector_ip = ip4
         elif online:
             peers.append((host, ip4))
         (debug_online if online else debug_offline).append(host)
+    collector_ip = collector_online_ip or collector_ip
     if not collector_ip:
         log("DEBUG peers Online=%s Offline=%s" % (debug_online, debug_offline))
     return peers, collector_ip

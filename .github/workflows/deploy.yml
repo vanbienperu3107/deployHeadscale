@@ -130,7 +130,10 @@ jobs:
             # thay vi dung authkey. Neu chua join -> xoa state + re-up voi authkey.
             if [ -n "$TS_AUTHKEY" ]; then
               joined=0
-              for _ in $(seq 1 8); do
+              # Cho toi 60s (state co san thuong join lai trong vai giay). Cho lau
+              # hon TRUOC khi xoa state -> tranh churn danh tinh node 'collector'
+              # khong can thiet moi lan join hoi cham (lam reporter mat dau collector).
+              for _ in $(seq 1 30); do
                 if $SUDO docker exec ts-collector tailscale ip -4 >/dev/null 2>&1; then joined=1; break; fi
                 sleep 2
               done
@@ -168,6 +171,26 @@ jobs:
             echo ""
             echo "==> Health: /stats cong khai chua dang nhap -> mong 302 (Caddy forward_auth)"
             curl -k -sS -o /dev/null -w "  http_code=%{http_code}\n" --resolve vpn2.hangocthanh.io.vn:443:127.0.0.1 "https://vpn2.hangocthanh.io.vn/stats" || echo "curl FAIL"
+            echo ""
+            echo "==> [SMOKE] Reporter tu xa da bao cao chua? (GATE: fail deploy neu thieu)"
+            # Cac reporter BAT BUOC phai bao cao (sua list khi them/bot node DERP).
+            # vpn5/vpn6 dang WIP -> chua dua vao gate.
+            EXPECTED_REPORTERS="${EXPECTED_REPORTERS:-vpn3,vpn4}"
+            HEALTH_WINDOW=200
+            smoke_ok=0
+            for _ in $(seq 1 18); do   # ~3 phut (18 x 10s) cho reporter join lai + chu ky 30s
+              out=$($SUDO docker exec caddy sh -c "wget -q -O - 'http://node-dedup:8090/metrics/health?expect=${EXPECTED_REPORTERS}&window=${HEALTH_WINDOW}'" 2>/dev/null || true)
+              echo "  health: $out"
+              if printf '%s' "$out" | grep -q '"ok": *true'; then smoke_ok=1; break; fi
+              sleep 10
+            done
+            if [ "$smoke_ok" != "1" ]; then
+              echo "  [SMOKE FAIL] reporter chua bao cao trong ${HEALTH_WINDOW}s (expected=$EXPECTED_REPORTERS)."
+              echo "  -> Deploy stack VAN chay, nhung tinh nang ping-reporter dang hong. Kiem:"
+              echo "     docker logs --tail 40 ping-reporter-vpn3   (tren node DERP tuong ung)"
+              exit 1
+            fi
+            echo "  [SMOKE OK] tat ca reporter bat buoc ($EXPECTED_REPORTERS) dang bao cao."
             echo ""
             echo "==> Trang thai container"
             $SUDO docker compose ps 2>&1 | tail -12 || true

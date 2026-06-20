@@ -97,6 +97,19 @@ def test_empty_peer_list():
     assert peers == [] and collector_ip is None
 
 
+def test_prefers_online_collector_over_offline_duplicate():
+    # Sau deploy/churn: 2 node 'collector' - ban cu OFFLINE (IP .9) + ban moi ONLINE
+    # (IP .1). Reporter PHAI chon ban ONLINE de khong POST vao IP chet.
+    status = _make_status([
+        {"HostName": "collector", "TailscaleIPs": ["100.64.0.9"], "Online": False},
+        {"HostName": "collector", "TailscaleIPs": ["100.64.0.1"], "Online": True},
+        {"HostName": "itop",      "TailscaleIPs": ["100.64.0.2"], "Online": True},
+    ])
+    with _mock_status(status):
+        peers, collector_ip = get_peers_and_collector()
+    assert collector_ip == "100.64.0.1"  # ban ONLINE, khong phai .9 offline
+
+
 def test_all_peers_offline_collector_still_found():
     # Tat ca offline (sau khi join tailnet, truoc khi disco hoan thanh) nhung
     # collector van phai duoc tim thay de POST.

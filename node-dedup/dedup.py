@@ -56,6 +56,7 @@ import sys
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 
 HS_API_URL = os.environ.get("HS_API_URL", "http://headscale:8080").rstrip("/")
@@ -387,6 +388,15 @@ def aggregate_latency(rows):
             "last_ts": latest["ts"],
         })
     return out
+
+
+def stale_reporters(rows, expected_srcs, now, window):
+    """PURE: tra ve danh sach src trong expected_srcs KHONG co sample nao trong
+    [now-window, now]. Dung cho smoke-gate sau deploy: neu reporter (vd vpn3/vpn4)
+    khong bao cao trong window giay -> coi nhu hong. rows: [{src, ts}, ...]."""
+    cutoff = now - window
+    fresh = {r.get("src") for r in rows if (r.get("ts") or 0) >= cutoff}
+    return [s for s in expected_srcs if s not in fresh]
 
 
 def record_report(conn, report, now):
@@ -978,6 +988,23 @@ def make_metrics_handler(conn, lock):
                     rows = query_latency(conn, LATENCY_WINDOW)
                 self._send(200, {"window_s": LATENCY_WINDOW,
                                  "pairs": aggregate_latency(rows)})
+                return
+            if p == "/metrics/health":
+                # Smoke-gate sau deploy. ?expect=collector,vpn3,vpn4 & window=180(giay).
+                # Tra 503 + danh sach 'stale' neu reporter nao do khong bao cao kip ->
+                # deploy.yml bat duoc va FAIL (do) thay vi hong am tham.
+                qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+                expect = [s.strip() for s in qs.get("expect", [""])[0].split(",") if s.strip()]
+                try:
+                    window = int(qs.get("window", ["180"])[0] or "180")
+                except ValueError:
+                    window = 180
+                with lock:
+                    rows = query_latency(conn, max(window, 1))
+                stale = stale_reporters(rows, expect, int(time.time()), window)
+                self._send(200 if not stale else 503,
+                           {"ok": not stale, "stale": stale,
+                            "expected": expect, "window_s": window})
                 return
             if p in ("/stats", "/metrics/stats", "/metrics/dashboard", ""):
                 with lock:
