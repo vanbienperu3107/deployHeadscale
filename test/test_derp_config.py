@@ -88,12 +88,18 @@ def test_vpn4_ip_dung():
 
 # ---------- headscale config: failover setup ----------
 
-def test_headscale_config_co_derp_paths():
-    """config.yaml phai chi toi derp.yaml de headscale tai region vpn3."""
+def test_headscale_config_co_derp_source_dong():
+    """DERP map DONG: config.yaml lay region tu derp-backend (DB Postgres) qua derp.urls
+    + auto_update (thay cho derp.paths tinh). Bat/tat/them node tren dashboard -> headscale
+    tu fetch lai /derpmap.json, client tu chuyen, khong reload."""
     cfg = load_hs()
-    paths = cfg.get("derp", {}).get("paths", [])
-    assert len(paths) >= 1, (
-        "config.yaml: derp.paths phai co it nhat 1 path (tro toi derp.yaml)"
+    derp = cfg.get("derp", {})
+    urls = derp.get("urls", [])
+    assert any("derpmap.json" in u for u in urls), (
+        f"config.yaml: derp.urls phai tro toi /derpmap.json cua derp-backend. Hien tai: {urls}"
+    )
+    assert derp.get("auto_update_enabled") is True, (
+        "derp.auto_update_enabled phai = true (headscale tu fetch lai DERP map dinh ky)"
     )
 
 
@@ -101,29 +107,34 @@ def test_headscale_co_2_region_de_failover():
     """
     Khi 1 region chet, client phai co region du phong.
     - Region 999 (embedded vpn2): tu dong them boi automatically_add_embedded_derp_region
-    - Region 1000 (vpn3): tu config/derp.yaml qua derp.paths
+    - Cac region DONG (1000+): tu derp-backend (DB Postgres) qua derp.urls
     -> Tong >= 2 region -> failover tu dong (tailscale tu chuyen ~5-15s).
     """
     cfg = load_hs()
-    derp_srv = cfg.get("derp", {}).get("server", {})
+    derp = cfg.get("derp", {})
+    derp_srv = derp.get("server", {})
     auto_embedded = derp_srv.get("automatically_add_embedded_derp_region", False)
-    paths = cfg.get("derp", {}).get("paths", [])
+    urls = derp.get("urls", [])
 
     has_embedded = auto_embedded and derp_srv.get("enabled", False)
-    has_external = len(paths) >= 1
+    has_external = any("derpmap.json" in u for u in urls)
 
     assert has_embedded and has_external, (
-        "Can 2 DERP region de failover: "
+        "Can 2 nguon DERP de failover: "
         f"embedded={'ON' if has_embedded else 'OFF'} (region 999, vpn2), "
-        f"external={'ON' if has_external else 'OFF'} (vpn3 qua derp.paths)"
+        f"external={'ON' if has_external else 'OFF'} (region dong qua derp-backend/derp.urls)"
     )
 
 
 def test_headscale_khong_dung_derp_tailscale_com():
-    """Full self-host: phai tat URLs cua Tailscale Inc."""
+    """Full self-host: derp.urls CHI duoc tro toi self-host (derp-backend), KHONG duoc dung
+    DERP cua Tailscale Inc (controlplane.tailscale.com)."""
     cfg = load_hs()
     urls = cfg.get("derp", {}).get("urls", [])
-    assert urls == [], f"derp.urls phai rong (full self-host). Hien tai: {urls}"
+    for u in urls:
+        assert "tailscale.com" not in u, (
+            f"derp.urls khong duoc tro toi Tailscale Inc (full self-host). Vi pham: {u}"
+        )
 
 
 # ---------- derp-vpn3 docker-compose ----------
