@@ -113,14 +113,17 @@ jobs:
             : "${CADDYFILE:=/home/thanh/memory-stack/Caddyfile}"
             : "${CADDY_CT:=memory-caddy}"
             if [ -f "$CADDYFILE" ]; then
-              if ! grep -q "vpn6.hangocthanh.io.vn" "$CADDYFILE"; then
+              # Dung 'if grep; then skip; else append' (KHONG dung 'if ! grep') vi
+              # duoi script_stop(set -e) cua appleboy, '! grep' khi tim THAY pattern
+              # tra ve 1 -> thoat script. Tach nhanh nay tranh failure gia khi re-run.
+              if grep -q "vpn6.hangocthanh.io.vn" "$CADDYFILE"; then
+                echo "  Site vpn6 da co trong Caddyfile (skip append)"
+              else
                 TS=$(date +%Y%m%d-%H%M%S)
                 $SUDO cp "$CADDYFILE" "$CADDYFILE.bak.$TS"
                 echo "  Backup: $CADDYFILE.bak.$TS"
                 grep -v '^#' "$DEPLOY_PATH/relay-vpn6/caddy-vpn6.caddy" | $SUDO tee -a "$CADDYFILE" >/dev/null
                 echo "  Da append site vpn6"
-              else
-                echo "  Site vpn6 da co trong Caddyfile (skip append)"
               fi
               if $SUDO docker exec "$CADDY_CT" caddy validate --config /etc/caddy/Caddyfile >/dev/null 2>&1; then
                 $SUDO docker exec "$CADDY_CT" caddy reload --config /etc/caddy/Caddyfile && echo "  Caddy reload OK (zero-downtime)"
