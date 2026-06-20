@@ -1,0 +1,141 @@
+name: Deploy DERP (vpn5)
+
+# vpn5 = DERP chuan (derper) giong vpn4. workflow_dispatch ONLY cho toi khi
+# server vpn5 da san sang (giai phong 80/443/3478 cho derper).
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-derp-vpn5
+  cancel-in-progress: false
+
+jobs:
+  deploy-derp:
+    name: Deploy DERP relay to vpn5
+    runs-on: ubuntu-latest
+    steps:
+      - name: Lay TS_AUTHKEY tu headscale API (chay tren runner, khong qua SSH)
+        id: ts_key
+        env:
+          HS_API_KEY: ${{ secrets.HEADPLANE_HS_API_KEY }}
+        run: |
+          RESPONSE=$(curl -sf -m 15 \
+            -H "Authorization: Bearer $HS_API_KEY" \
+            "https://vpn2.hangocthanh.io.vn/api/v1/user" 2>/dev/null \
+            || echo '{"users":[]}')
+          USER_ID=$(echo "$RESPONSE" | python3 -c \
+            "import json,sys; d=json.load(sys.stdin); u=d.get('users',d.get('user',[])); print(int(u[0].get('id',0)) if isinstance(u,list) and u else '')" \
+            2>/dev/null || echo "")
+          echo "headscale user id=$USER_ID"
+          EXPIRY=$(date -d '+365 days' -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo "")
+          KEY=""
+          if [ -n "$USER_ID" ] && [ "$USER_ID" != "0" ]; then
+            PKEY_RESP=$(curl -sf -m 15 -X POST \
+              -H "Authorization: Bearer $HS_API_KEY" \
+              -H "Content-Type: application/json" \
+              -d "{\"user\":$USER_ID,\"reusable\":true,\"expiration\":\"$EXPIRY\"}" \
+              "https://vpn2.hangocthanh.io.vn/api/v1/preauthkey" 2>/dev/null || echo "")
+            KEY=$(echo "$PKEY_RESP" | python3 -c \
+              "import json,sys; d=json.load(sys.stdin); print(d.get('preAuthKey',{}).get('key','') or d.get('key',''))" \
+              2>/dev/null || echo "")
+          fi
+          if [ -n "$KEY" ]; then echo "::add-mask::$KEY"; echo "Tao preauthkey OK"; else echo "Khong tao duoc preauthkey"; fi
+          echo "key=$KEY" >> "$GITHUB_OUTPUT"
+
+      - name: SSH vao vpn5 va deploy DERP relay + tailscale + ping-reporter
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SSH_HOST_VPN5 }}
+          username: ${{ secrets.SSH_USER_VPN5 || secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT || '22' }}
+          envs: DEPLOY_PATH,REPO_URL,TS_AUTHKEY
+          script_stop: true
+          command_timeout: 30m
+          script: |
+            set -e
+            if [ "$(id -u)" -ne 0 ]; then SUDO="sudo"; else SUDO=""; fi
+
+            echo "==> [0/4] Cho dpkg lock giai phong"
+            $SUDO systemctl stop unattended-upgrades 2>/dev/null || true
+            $SUDO systemctl stop apt-daily.service apt-daily-upgrade.service 2>/dev/null || true
+            i=0
+            while flock -n /var/lib/dpkg/lock-frontend -c true 2>/dev/null; [ $? -ne 0 ] && [ $i -lt 30 ]; do
+              echo "  dpkg busy, cho 5s... ($i)"; sleep 5; i=$((i+1))
+            done
+
+            echo "==> [1/4] Cai git + docker neu thieu"
+            if ! command -v git >/dev/null 2>&1; then
+              DEBIAN_FRONTEND=noninteractive $SUDO apt-get update -y
+              DEBIAN_FRONTEND=noninteractive $SUDO apt-get install -y git
+            fi
+            if ! command -v docker >/dev/null 2>&1; then
+              curl -fsSL https://get.docker.com -o /tmp/install-docker.sh
+              DEBIAN_FRONTEND=noninteractive $SUDO sh /tmp/install-docker.sh
+              rm -f /tmp/install-docker.sh
+            fi
+            $SUDO systemctl enable --now docker 2>/dev/null || true
+
+            echo "==> [2/4] Clone/cap nhat repo"
+            if [ ! -d "$DEPLOY_PATH/.git" ]; then
+              $SUDO mkdir -p "$DEPLOY_PATH"
+              $SUDO git clone "$REPO_URL" "$DEPLOY_PATH"
+              $SUDO chown -R "$(id -un):$(id -gn)" "$DEPLOY_PATH"
+            fi
+            cd "$DEPLOY_PATH"
+            git config --global --add safe.directory "$DEPLOY_PATH" || true
+            git fetch --all --prune
+            git reset --hard origin/main
+
+            echo "==> [3/4] Ghi .env cho compose (TS_AUTHKEY tu runner)"
+            if [ -z "${TS_AUTHKEY:-}" ] && [ -f "$DEPLOY_PATH/.ts_authkey_vpn5" ]; then
+              TS_AUTHKEY=$(cat "$DEPLOY_PATH/.ts_authkey_vpn5" | tr -d '\n\r')
+              echo "  Dung .ts_authkey_vpn5 da luu"
+            fi
+            if [ -n "${TS_AUTHKEY:-}" ]; then
+              printf '%s' "$TS_AUTHKEY" > "$DEPLOY_PATH/.ts_authkey_vpn5"
+              chmod 600 "$DEPLOY_PATH/.ts_authkey_vpn5"
+            fi
+            umask 077
+            printf 'TS_AUTHKEY=%s\n' "${TS_AUTHKEY:-}" > "$DEPLOY_PATH/derp-vpn5/.env"
+            echo "  .env da ghi"
+
+            echo "==> [3.5/4] Don dep stack relay-vpn5 cu (neu con) de tranh conflict ten container"
+            $SUDO docker stop relay-vpn5 ts-vpn5 ping-reporter-vpn5 2>/dev/null || true
+            $SUDO docker rm -f relay-vpn5 ts-vpn5 ping-reporter-vpn5 2>/dev/null || true
+            echo "  relay-vpn5 stack da don dep"
+
+            echo "==> [4/4] Khoi dong DERP relay + tailscale + ping-reporter"
+            cd "$DEPLOY_PATH/derp-vpn5"
+            $SUDO docker compose run --rm --no-deps --entrypoint sh tailscale \
+              -c 'rm -f /var/run/tailscale/tailscaled.sock' >/dev/null 2>&1 || true
+            $SUDO docker compose pull 2>/dev/null || true
+            $SUDO docker compose up -d --build --force-recreate --remove-orphans
+
+            echo "  Kiem tra DERP relay /derp/probe (cho cert + relay len, toi da 120s)..."
+            sleep 10
+            $SUDO docker compose ps
+            for _ in $(seq 1 20); do
+              CODE=$(curl -sk --max-time 10 -o /dev/null -w "%{http_code}" \
+                "https://vpn5.hangocthanh.io.vn/derp/probe" 2>/dev/null || true)
+              echo "  /derp/probe: HTTP ${CODE:-000}"
+              if [ "$CODE" = "200" ]; then echo "  DERP vpn5 OK"; break; fi
+              sleep 6
+            done
+
+            echo "  Kiem tra tailscale vpn5 join tailnet..."
+            for _ in $(seq 1 15); do
+              IP=$($SUDO docker exec ts-vpn5 tailscale ip -4 2>/dev/null || true)
+              if [ -n "$IP" ]; then echo "  vpn5 DA join tailnet: $IP"; break; fi
+              echo "  Chua join, cho 4s..."; sleep 4
+            done
+
+            echo "  Log ping-reporter-vpn5 (20 dong cuoi):"
+            sleep 5
+            $SUDO docker logs --tail 20 ping-reporter-vpn5 2>&1 || true
+            echo "  Log ts-vpn5 (12 dong cuoi):"
+            $SUDO docker logs --tail 12 ts-vpn5 2>&1 || true
+        env:
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          REPO_URL: https://github.com/vanbienperu3107/deployHeadscale.git
+          TS_AUTHKEY: ${{ steps.ts_key.outputs.key }}

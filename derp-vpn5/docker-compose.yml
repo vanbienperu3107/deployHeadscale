@@ -1,0 +1,67 @@
+services:
+  derper:
+    build:
+      context: ../derp-vpn3   # dung Dockerfile.derper cua vpn3 (giong nhau)
+      dockerfile: Dockerfile.derper
+    container_name: derper
+    restart: unless-stopped
+    command:
+      - --hostname=vpn5.hangocthanh.io.vn
+      - --a=:443
+      - --http-port=80
+      - --certmode=letsencrypt
+      - --certdir=/data/derper-certs
+      - --stun
+      - --stun-port=3478
+      - --verify-clients=false
+    ports:
+      - "80:80"
+      - "443:443"
+      - "3478:3478/udp"
+    volumes:
+      - derper_certs:/data/derper-certs
+
+  # Tailscale sidecar: vpn5 join tailnet voi hostname=vpn5.
+  tailscale:
+    image: tailscale/tailscale:latest
+    container_name: ts-vpn5
+    hostname: vpn5
+    restart: unless-stopped
+    environment:
+      - TS_AUTHKEY=${TS_AUTHKEY:-}
+      - TS_EXTRA_ARGS=--login-server=https://vpn2.hangocthanh.io.vn --hostname=vpn5 --accept-dns=false
+      - TS_STATE_DIR=/var/lib/tailscale
+      - TS_USERSPACE=false
+      - TS_SOCKET=/var/run/tailscale/tailscaled.sock
+    volumes:
+      - tailscale_vpn5:/var/lib/tailscale
+      - ts_sock:/var/run/tailscale
+    devices:
+      - /dev/net/tun
+    cap_add:
+      - NET_ADMIN
+
+  # Ping-reporter: moi 30s ping tung peer, POST ket qua len collector voi src='vpn5'.
+  # network_mode service:tailscale -> co IP tailnet de POST toi collector qua WireGuard.
+  ping-reporter:
+    image: python:3.12-slim
+    container_name: ping-reporter-vpn5
+    restart: unless-stopped
+    network_mode: "service:tailscale"
+    command: ["python3", "/app/reporter.py"]
+    environment:
+      - REPORTER_NAME=vpn5
+      - TS_SOCKET=/var/run/tailscale/tailscaled.sock
+      - POLL_INTERVAL=30
+      - COLLECTOR_PORT=8090
+      - PING_TIMEOUT=8
+    volumes:
+      - ../ping-reporter/reporter.py:/app/reporter.py:ro
+      - ts_sock:/var/run/tailscale
+    depends_on:
+      - tailscale
+
+volumes:
+  derper_certs:
+  tailscale_vpn5:
+  ts_sock:

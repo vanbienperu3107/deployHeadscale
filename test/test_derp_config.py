@@ -208,6 +208,50 @@ def test_derp_vpn4_reporter_dung_netns_sidecar():
     )
 
 
+# ---------- derp-vpn5 (DERP chuan, doi tu relay lai sang giong vpn4) ----------
+
+def test_derp_vpn5_compose_ton_tai():
+    compose = ROOT / "derp-vpn5" / "docker-compose.yml"
+    assert compose.exists(), "derp-vpn5/docker-compose.yml phai ton tai"
+
+
+def test_derp_vpn5_compose_co_derper_service():
+    compose = ROOT / "derp-vpn5" / "docker-compose.yml"
+    data = yaml.safe_load(compose.read_text())
+    assert "derper" in data.get("services", {}), (
+        "derp-vpn5 phai co service 'derper' (DERP chuan, khong phai relay lai)"
+    )
+
+
+def test_derp_vpn5_expose_port_443_va_3478():
+    compose = ROOT / "derp-vpn5" / "docker-compose.yml"
+    data = yaml.safe_load(compose.read_text())
+    ports = data["services"]["derper"].get("ports", [])
+    ports_str = " ".join(str(p) for p in ports)
+    assert "443" in ports_str, "derp-vpn5 phai expose port 443 (DERP/HTTPS)"
+    assert "3478" in ports_str, "derp-vpn5 phai expose port 3478/udp (STUN)"
+
+
+def test_derp_vpn5_hostname_trong_compose():
+    compose = ROOT / "derp-vpn5" / "docker-compose.yml"
+    data = yaml.safe_load(compose.read_text())
+    cmd = data["services"]["derper"].get("command", [])
+    cmd_str = " ".join(str(c) for c in cmd)
+    assert "vpn5.hangocthanh.io.vn" in cmd_str, (
+        "derp-vpn5 compose phai dung --hostname=vpn5.hangocthanh.io.vn"
+    )
+
+
+def test_derp_vpn5_reporter_dung_netns_sidecar():
+    """ping-reporter vpn5 phai chung netns voi sidecar de POST toi collector qua WireGuard."""
+    compose = ROOT / "derp-vpn5" / "docker-compose.yml"
+    data = yaml.safe_load(compose.read_text())
+    nm = data["services"]["ping-reporter"].get("network_mode")
+    assert nm == "service:tailscale", (
+        "ping-reporter vpn5 phai co network_mode: service:tailscale"
+    )
+
+
 def test_derp_co_3_region_total():
     """>=4 DERP region ngoai (1000 vpn3 + 1001 vpn4 + 1002 vpn5 + 1003 vpn6) + embedded 999."""
     d = load_derp()

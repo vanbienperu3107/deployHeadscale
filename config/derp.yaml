@@ -33,7 +33,7 @@ regions:
   1002:
     regionid: 1002
     regioncode: "vpn5-us"
-    regionname: "VPN5 US (hybrid relay)"
+    regionname: "VPN5 US"
     nodes:
       - name: "vpn5-us-1"
         regionid: 1002
