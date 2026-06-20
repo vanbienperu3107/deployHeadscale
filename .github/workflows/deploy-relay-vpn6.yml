@@ -1,8 +1,14 @@
 name: Deploy Relay (vpn6 - co-host Caddy)
 
-# CHI CHAY KHI DUOC GOI TAY — vpn6 la box production (memory-stack claude.hangocthanh.io.vn),
-# KHONG auto-deploy. Yeu cau CI pass tren main truoc khi bam Run.
+# Tu deploy SAU KHI CI pass tren main (giong vpn3/vpn4) -> vpn6 khong con "troi"
+# khi reporter.py / config doi ma quen deploy. Van chay tay duoc (workflow_dispatch).
+# Luu y: vpn6 co-host tren box production memory-stack (claude.hangocthanh.io.vn);
+# deploy la zero-downtime (Caddy reload) nhung SE chay moi lan main thay doi.
 on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
   workflow_dispatch:
 
 concurrency:
@@ -13,6 +19,8 @@ jobs:
   deploy:
     name: Deploy hybrid relay to vpn6 (co-host)
     runs-on: ubuntu-latest
+    # Chi deploy khi CI pass (workflow_run) hoac khi bam chay tay.
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     steps:
       - name: Lay TS_AUTHKEY tu headscale API (tren runner, khong qua SSH)
         id: ts_key

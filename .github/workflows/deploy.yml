@@ -174,8 +174,10 @@ jobs:
             echo ""
             echo "==> [SMOKE] Reporter tu xa da bao cao chua? (GATE: fail deploy neu thieu)"
             # Cac reporter BAT BUOC phai bao cao (sua list khi them/bot node DERP).
-            # vpn5/vpn6 dang WIP -> chua dua vao gate.
-            EXPECTED_REPORTERS="${EXPECTED_REPORTERS:-vpn3,vpn4}"
+            # vpn6 da auto-deploy (deploy-relay-vpn6 chay song song sau CI) -> gate
+            # cho luon; ~3 phut retry du de vpn6 redeploy + reporter POST lan dau.
+            # vpn5 con WIP -> chua dua vao gate.
+            EXPECTED_REPORTERS="${EXPECTED_REPORTERS:-vpn3,vpn4,vpn6}"
             HEALTH_WINDOW=200
             smoke_ok=0
             for _ in $(seq 1 18); do   # ~3 phut (18 x 10s) cho reporter join lai + chu ky 30s
