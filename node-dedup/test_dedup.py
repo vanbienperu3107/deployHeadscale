@@ -14,7 +14,8 @@ from dedup import (aggregate_latency, init_db, init_latency_db,
                    probe_derp_region, query_all_server_pings, query_current_relay,
                    query_devices, query_latest_netcheck, record_netcheck, record_report,
                    render_derp_html, render_stats_html,
-                   server_ping_all, validate_report, _parse_derp_regions)
+                   server_ping_all, validate_report, _parse_derp_regions,
+                   DERP_PROBE_URLS)
 
 
 def mk(id, host, given, user="u", online=False, last=0, ips=None):
@@ -524,6 +525,33 @@ def test_render_derp_html_no_pings():
     page = render_derp_html(regions, [], 1000, all_pings=None)
     assert "vpn2" in page and "vpn3" in page
     assert "__PINGS__" not in page
+
+
+def test_derp_probe_urls_co_vpn5_vpn6():
+    """DERP_PROBE_URLS mac dinh phai co vpn5 + vpn6 (de hien card + nguon tren /derp)."""
+    assert "vpn5" in DERP_PROBE_URLS, "DERP_PROBE_URLS phai co vpn5"
+    assert "vpn6" in DERP_PROBE_URLS, "DERP_PROBE_URLS phai co vpn6"
+    codes = [r["code"] for r in _parse_derp_regions(DERP_PROBE_URLS)]
+    assert "vpn6-vn" in codes and "vpn5-us" in codes
+    # vpn5/vpn6 la relay -> probe /relay/probe (khong phai /derp/probe)
+    urls = {r["code"]: r["url"] for r in _parse_derp_regions(DERP_PROBE_URLS)}
+    assert urls["vpn6-vn"].endswith("/relay/probe")
+
+
+def test_render_derp_html_vpn5_vpn6_nguon_label():
+    """Nguon cho vpn5-us/vpn6-vn phai map ve 'vpn5'/'vpn6' (strip hau to dia ly)."""
+    regions = [
+        {"code": "vpn5-us", "url": "https://vpn5.../relay/probe", "ok": True, "latency_ms": 9.0, "error": None},
+        {"code": "vpn6-vn", "url": "https://vpn6.../relay/probe", "ok": True, "latency_ms": 9.0, "error": None},
+    ]
+    all_pings = {
+        "vpn6": [{"hostname": "itop", "ip": "100.64.0.6", "relay": "direct",
+                  "rtt_ms": 30.0, "ok": True, "ts": 1000}],
+    }
+    page = render_derp_html(regions, [], 1000, all_pings=all_pings)
+    # Nguon hien 'vpn6' (khong phai 'vpn6-vn') va co data ping vpn6
+    assert ">vpn6<" in page or "vpn6</td>" in page
+    assert "30.0ms" in page          # data src=vpn6 hien duoc (khop _code_to_src)
 
 
 def test_query_all_server_pings_multi_src():

@@ -65,7 +65,10 @@ DERP_PROBE_URLS = os.environ.get(
     "DERP_PROBE_URLS",
     "myderp=https://vpn2.hangocthanh.io.vn/derp/probe,"
     "vpn3-vn=https://vpn3.hangocthanh.io.vn/derp/probe,"
-    "vpn4-vn=https://vpn4.hangocthanh.io.vn/derp/probe",
+    "vpn4-vn=https://vpn4.hangocthanh.io.vn/derp/probe,"
+    # vpn5/vpn6 la relay lai -> endpoint /relay/probe (khong phai /derp/probe)
+    "vpn5-us=https://vpn5.hangocthanh.io.vn/relay/probe,"
+    "vpn6-vn=https://vpn6.hangocthanh.io.vn/relay/probe",
 )
 
 # 1 connection SQLite dung chung giua main-loop va HTTP thread -> phai khoa.
@@ -760,17 +763,21 @@ def render_derp_html(regions, peers, now, all_pings=None):
             return '<span class="tag %s">via %s</span>' % (css, html.escape(disp))
         return '<span class="bad">%s</span>' % html.escape(path or "?")
 
+    def _strip_geo(code):
+        # bo hau to dia ly "-vn"/"-us"/... (dau '-' + 2 ky tu) neu co
+        return code[:-3] if (len(code) > 3 and code[-3] == "-") else code
+
     def _src_label(code):
-        """DERP region code -> nhan hien thi (vpn2/vpn3/vpn4...)."""
+        """DERP region code -> nhan hien thi (vpn2/vpn3/vpn4/vpn5/vpn6...)."""
         if code == "myderp":
             return "vpn2"
-        return code[:-3] if code.endswith("-vn") else code
+        return _strip_geo(code)
 
     def _code_to_src(code):
         """DERP region code -> src_name trong DB node_latency (khop REPORTER_NAME)."""
         if code == "myderp":
             return "collector"
-        return code[:-3] if code.endswith("-vn") else code
+        return _strip_geo(code)
 
     trows = ""
     pings = all_pings or {}
