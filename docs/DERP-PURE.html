@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>DERP thuần — derper chính chủ (giao thức &amp; call flow)</title>
+<style>
+  :root{
+    --bg:#0a0f1e; --panel:#111a30; --panel2:#0e1628; --line:#1f2c47;
+    --txt:#dbe3f4; --muted:#8a98b8; --head:#aab6d6;
+    --blue:#5b8cff; --blue-bg:#1b2a52; --purple:#8b5bff; --purple-bg:#26214f;
+    --green:#36c28b; --green-bg:#10342a; --red:#ff6b7d; --red-bg:#3a1620;
+    --amber:#e7b35a; --amber-bg:#3a2f12; --accent:#7aa2ff;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:linear-gradient(180deg,#070b16,#0a0f1e 240px);
+       color:var(--txt);font:15px/1.65 system-ui,"Segoe UI",Roboto,Arial,sans-serif;
+       padding:32px 18px 80px}
+  .wrap{max-width:1040px;margin:0 auto}
+  h1{font-size:26px;margin:0 0 6px;letter-spacing:.2px}
+  h2{font-size:19px;margin:38px 0 12px;padding-bottom:8px;border-bottom:1px solid var(--line);color:#eaf0ff}
+  h3{font-size:15.5px;margin:22px 0 8px;color:var(--head)}
+  p,li{color:var(--txt)} .sub{color:var(--muted);margin:0 0 22px}
+  a{color:var(--accent)}
+  code{background:#0c1426;border:1px solid var(--line);border-radius:5px;
+       padding:1px 6px;font:13px/1.5 "Cascadia Code",Consolas,monospace;color:#cfe0ff}
+  pre{background:var(--panel2);border:1px solid var(--line);border-radius:10px;
+      padding:14px 16px;overflow:auto;font:12.5px/1.55 "Cascadia Code",Consolas,monospace;color:#cfe0ff}
+  pre .c{color:#6b7aa0;font-style:italic}
+  table{width:100%;border-collapse:collapse;margin:10px 0;background:var(--panel);
+        border:1px solid var(--line);border-radius:10px;overflow:hidden}
+  th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top;font-size:13.5px}
+  th{background:#0e1830;color:var(--head);font-weight:600}
+  tr:last-child td{border-bottom:0}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 18px;margin:14px 0}
+  .note{background:var(--panel2);border-left:3px solid var(--blue);border-radius:0 10px 10px 0;
+        padding:12px 16px;margin:14px 0;color:#cdd8f2;font-size:13.8px}
+  .warn{border-left-color:var(--amber)} .ok{border-left-color:var(--green)}
+  .tag{display:inline-block;border-radius:999px;padding:2px 10px;font-size:12px;font-weight:600;white-space:nowrap}
+  .t-blue{background:var(--blue-bg);color:#b9ccff} .t-purple{background:var(--purple-bg);color:#cdbcff}
+  .t-green{background:var(--green-bg);color:#7fe6bd} .t-red{background:var(--red-bg);color:#ffb3bd}
+  .t-amber{background:var(--amber-bg);color:#f1cf94}
+  .mono{font-family:"Cascadia Code",Consolas,monospace}
+  /* architecture row */
+  .arch{display:flex;gap:14px;flex-wrap:wrap;align-items:stretch;margin:8px 0}
+  .grp{flex:1;min-width:200px;border:1px solid var(--line);border-radius:12px;padding:12px;background:var(--panel2)}
+  .grp h4{margin:0 0 10px;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px}
+  .box{background:#13203c;border:1px solid #27406e;border-radius:9px;padding:9px 11px;margin:7px 0;font-size:13px}
+  .box b{color:#eaf0ff} .box small{color:var(--muted);display:block;margin-top:2px;font-size:11.5px}
+  .flowarrow{color:var(--accent);font-weight:700;text-align:center;margin:4px 0;font-size:13px}
+  /* sequence */
+  .seq{counter-reset:step;margin:10px 0}
+  .step{display:grid;grid-template-columns:34px 1fr;gap:12px;align-items:start;padding:9px 0;border-bottom:1px dashed var(--line)}
+  .step:last-child{border-bottom:0}
+  .step .n{counter-increment:step;width:28px;height:28px;border-radius:50%;
+           background:var(--blue-bg);color:#bcd0ff;font-weight:700;font-size:13px;
+           display:flex;align-items:center;justify-content:center}
+  .step .n::before{content:counter(step)}
+  .step .act{font-size:13.5px}
+  .lane{font-size:11.5px;color:var(--muted);font-weight:600;margin-bottom:2px}
+  .lane .a{color:#bcd0ff} .lane .b{color:#cdbcff}
+  .alt{background:var(--green-bg);border:1px solid #1c5a44;border-radius:8px;padding:8px 11px;margin:8px 0 8px 46px;font-size:12.6px;color:#7fe6bd}
+  .alt.f{background:var(--red-bg);border-color:#6a2230;color:#ffb3bd}
+  ul,ol{margin:8px 0;padding-left:22px} li{margin:4px 0}
+  footer{color:var(--muted);font-size:12.5px;margin-top:40px;border-top:1px solid var(--line);padding-top:14px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>DERP thuần — <span class="mono" style="font-size:20px">derper</span> chính chủ</h1>
+  <p class="sub">DERP relay chính chủ của Tailscale (<code>derp-vpn3/</code>, <code>derp-vpn4/</code>):
+     nó là gì · giao thức · call flow từng tính năng — và khác gì với DERP embed. &nbsp;·&nbsp;
+     Bản đọc offline; nguồn chuẩn là <code>DERP-PURE.md</code>.</p>
+
+  <h2>0 · DERP thuần là gì?</h2>
+  <p>Đây là <b><code>derper</code> chính chủ</b> của Tailscale (reference implementation), build từ source
+     <code>tailscale.com/cmd/derper</code> pin <code>v1.80.0</code>. Chạy <b>độc lập</b>, tự quản TLS, làm 2 việc cốt lõi:</p>
+  <table>
+    <thead><tr><th>Vai trò</th><th>Cổng</th><th>Ý nghĩa</th></tr></thead>
+    <tbody>
+      <tr><td><span class="tag t-blue">DERP relay</span></td><td><code>:443</code> HTTPS/WebSocket</td><td>Chuyển tiếp gói WireGuard giữa client <b>khi không đi direct được</b> (fallback)</td></tr>
+      <tr><td><span class="tag t-green">STUN server</span></td><td><code>:3478/udp</code></td><td>Giúp client phát hiện địa chỉ public để <b>thử direct</b> (đục NAT)</td></tr>
+      <tr><td><span class="tag t-amber">ACME HTTP-01</span></td><td><code>:80</code></td><td>Let's Encrypt xác thực domain để cấp cert</td></tr>
+    </tbody>
+  </table>
+  <div class="note"><b>Triết lý:</b> trong Tailscale, <b>direct (WireGuard UDP P2P) là ưu tiên</b>, <b>DERP là dự phòng</b>.
+     STUN của derper giúp client đi direct; chỉ khi không đục được NAT mới chạy qua DERP.
+     (DERP embed mới là bản đặc biệt cho mạng chặn UDP — xem §5.)</div>
+  <div class="note warn"><b>Bảo mật:</b> derper <b>không đọc được nội dung</b> — payload là WireGuard mã hoá đầu-cuối;
+     derper chỉ thấy public key để định tuyến. <code>--verify-clients=false</code> = relay <b>mở</b> (dữ liệu vẫn an toàn); có thể siết theo tailnet (F4).</div>
+
+  <div class="arch">
+    <div class="grp"><h4>Client A</h4><div class="box"><b>tailscaled</b><small>chạy netcheck</small></div></div>
+    <div class="grp"><h4>DERP thuần (vpn3 / vpn4)</h4>
+      <div class="box"><b>derper (chính chủ)</b><small>TLS tự quản · STUN · relay</small></div></div>
+    <div class="grp"><h4>Client B / Peer</h4><div class="box"><b>tailscaled</b><small>đích đến</small></div></div>
+  </div>
+  <div class="flowarrow">1. netcheck + STUN :3478 (tìm địa chỉ public) &nbsp;→&nbsp; 2. thử DIRECT P2P &nbsp;→&nbsp; 3. fail thì relay DERP qua TLS 443</div>
+  <p style="color:var(--muted);font-size:13px">Client học relay này qua <b>DERPMap</b> do headscale (vpn2) phát.</p>
+
+  <h2>1 · Giao thức</h2>
+  <p>DERP thuần nói <b>đúng giao thức DERP v2</b> — vì nó <i>chính là</i> bản tham chiếu mà DERP embed mô phỏng.
+     Khung tin (frame 5-byte header + payload), bảng frame types, magic <code>DERP🔑</code>, handshake 5 bước
+     <b>giống hệt</b> <a href="DERP-EMBED.html">DERP-EMBED</a> §1 — không lặp lại. Khác biệt nằm ở <i>transport</i> &amp; <i>tính năng</i>:</p>
+  <table>
+    <thead><tr><th>Khía cạnh</th><th>DERP thuần (<code>derper</code>)</th><th>DERP embed (hybrid)</th></tr></thead>
+    <tbody>
+      <tr><td>Kết thúc TLS</td><td><b>chính derper</b> (<code>--certmode=letsencrypt</code>)</td><td>reverse proxy (Caddy/Traefik)</td></tr>
+      <tr><td>STUN</td><td><b>có</b> (<code>--stun --stun-port=3478</code>)</td><td>không</td></tr>
+      <tr><td>Cầu UDP→peer</td><td><b>không</b> (chỉ relay client↔client)</td><td>có</td></tr>
+      <tr><td>Lắng nghe</td><td><code>:443</code>, <code>:80</code>, <code>:3478/udp</code> trực tiếp</td><td><code>:8080</code> sau proxy + <code>:41641/udp</code></td></tr>
+      <tr><td>Kiểm soát truy cập</td><td><code>--verify-clients</code> (tùy chọn)</td><td>không</td></tr>
+    </tbody>
+  </table>
+
+  <h2>2 · Call flow từng tính năng</h2>
+
+  <h3>F1 — Relay gói giữa client (chức năng DERP cốt lõi)</h3>
+  <p>derper là một <b>switchboard mã hoá</b>: client gửi gói kèm public key đích, derper chuyển tới client đích đang nối.</p>
+  <div class="panel seq">
+    <div class="step"><div class="n"></div><div class="act"><div class="lane"><span class="a">A</span> / <span class="b">B</span> → derper</div>Mỗi client: Upgrade DERP qua TLS 443 → handshake (ServerKey/ClientInfo/ServerInfo)</div></div>
+    <div class="step"><div class="n"></div><div class="act"><div class="lane"><span class="a">A</span> → derper</div><code>FrameSendPacket(destKey=B, wgData)</code></div></div>
+    <div class="step"><div class="n"></div><div class="act"><div class="lane">derper → <span class="b">B</span></div><code>FrameRecvPacket(srcKey=A, wgData)</code> — chuyển theo public key, KHÔNG giải mã được</div></div>
+    <div class="step"><div class="n"></div><div class="act"><div class="lane">derper</div>Khi 1 peer rớt → gửi <code>FramePeerGone(peerKey)</code> cho client liên quan; <code>FrameKeepAlive</code> định kỳ</div></div>
+  </div>
+  <div class="note">Nhiều client cùng 1 derper = <b>mesh sao</b>. derper còn hỗ trợ <b>mesh giữa nhiều DERP server</b> (mesh key) —
+     triển khai này chạy <b>1 node/region, không bật mesh</b>.</div>
+
+  <h3>F2 — STUN server (<code>--stun :3478</code>) — bệ phóng cho DIRECT</h3>
+  <p>Tính năng giúp <b>tránh</b> phải dùng DERP. Client cần biết <code>IP:port</code> public của mình (sau NAT) để bên kia gửi UDP trực tiếp.</p>
+  <div class="panel seq">
+    <div class="step"><div class="n"></div><div class="act"><div class="lane"><span class="a">Client</span> → STUN :3478</div>STUN Binding Request (UDP)</div></div>
+    <div class="step"><div class="n"></div><div class="act"><div class="lane">STUN → <span class="a">Client</span></div>Binding Response = địa chỉ public (IP:port sau NAT)</div></div>
+    <div class="step"><div class="n"></div><div class="act"><div class="lane">Client</div>netcheck dùng kết quả + đo RTT từng DERP region → chọn <b>preferred DERP</b></div></div>
+    <div class="step"><div class="n"></div><div class="act"><div class="lane"><span class="a">Client</span> → <span class="b">Peer</span></div>thử gửi WireGuard UDP trực tiếp (hole punching)</div></div>
+  </div>
+  <div class="alt">Đục NAT thành công → <b>DIRECT (P2P), KHÔNG qua DERP</b></div>
+  <div class="alt f">Thất bại → fallback relay qua DERP (F1)</div>
+  <p style="color:var(--muted);font-size:13px">STUN là một phần của <b>netcheck</b> client chạy để chọn DERP gần nhất và hole-punch → 1 DERP tốt vừa relay vừa chạy STUN.</p>
+
+  <h3>F3 — TLS / cấp chứng chỉ (<code>--certmode=letsencrypt</code>)</h3>
+  <p>Khác DERP embed (proxy lo TLS), <b>derper tự xin và tự phục vụ cert</b>.</p>
+  <div class="panel seq">
+    <div class="step"><div class="n"></div><div class="act"><div class="lane">derper → Let's Encrypt</div>yêu cầu cert cho <code>--hostname</code> (PHẢI khớp DNS → IP VPS)</div></div>
+    <div class="step"><div class="n"></div><div class="act"><div class="lane">LE → cổng 80</div>thử thách HTTP-01 tại <code>/.well-known/acme-challenge/…</code></div></div>
+    <div class="step"><div class="n"></div><div class="act"><div class="lane">derper (cổng 80) → LE</div>trả lời đúng token → LE cấp cert</div></div>
+    <div class="step"><div class="n"></div><div class="act"><div class="lane">derper</div>lưu cert vào <code>--certdir=/data/derper-certs</code> (volume) → phục vụ HTTPS :443, tự gia hạn</div></div>
+  </div>
+  <div class="note warn">Cần: DNS <code>--hostname</code> trỏ đúng IP VPS, <b>cổng 80 và 443 mở</b> ra Internet. Cert ở volume <code>derper_certs</code> → sống qua restart.</div>
+
+  <h3>F4 — Kiểm soát truy cập (<code>--verify-clients</code>)</h3>
+  <table>
+    <thead><tr><th>Giá trị</th><th>Hành vi</th><th>Khi nào dùng</th></tr></thead>
+    <tbody>
+      <tr><td><code>false</code> <span class="tag t-amber">hiện tại</span></td><td>DERP <b>mở</b> — client nào cũng relay được. Dữ liệu vẫn an toàn (WireGuard E2E).</td><td>đơn giản, hiệu năng, không lộ nội dung</td></tr>
+      <tr><td><code>true</code> + <code>--verify-clients-url=https://vpn2…</code></td><td>derper hỏi headscale: client có thuộc tailnet không → chỉ phục vụ node hợp lệ</td><td>chống lạm dụng băng thông relay bởi node lạ</td></tr>
+    </tbody>
+  </table>
+  <p style="color:var(--muted);font-size:13px">vpn3/vpn4 hiện đặt <code>false</code>. Bật <code>true</code> là <b>thay đổi hành vi</b> → cần plan/duyệt riêng.</p>
+
+  <h3>F5 — Đăng ký vào headscale DERPMap (client học được relay này)</h3>
+  <ul>
+    <li>headscale (vpn2) phục vụ <b>DERPMap</b> (vd <code>derp.urls</code> / <code>derpmap.json</code>); mỗi region khai <code>hostname</code>, port, có STUN hay không.</li>
+    <li>Client tải DERPMap → netcheck (F2) đo RTT từng region → chọn <b>preferred DERP</b> → khi cần fallback thì nối relay đó (F1).</li>
+    <li>Region code (vd <code>vpn3-vn</code>, <code>vpn4-vn</code>) là nhãn trên dashboard, khớp <code>REPORTER_NAME</code> của ping-reporter.</li>
+  </ul>
+
+  <h3>F6 — Quan hệ với sidecar &amp; ping-reporter (giám sát)</h3>
+  <div class="note ok"><b>Quan trọng:</b> trong <code>derp-vpn3/</code>/<code>derp-vpn4/</code> có container <code>tailscale</code> (sidecar) và
+     <code>ping-reporter</code>, nhưng <b>derper KHÔNG cần sidecar để relay</b>. derper là relay công khai, độc lập. Sidecar chỉ để:
+     join tailnet làm node <code>vpn3</code>/<code>vpn4</code> (hiện trên dashboard) và cho <code>ping-reporter</code> đo latency
+     (<a href="PING-REPORTER.html">PING-REPORTER</a>). Sidecar chết → <b>relay vẫn chạy</b>, chỉ mất số liệu giám sát.
+     (Trái lại, DERP embed <i>cần</i> sidecar để biết UDP endpoint.)</div>
+
+  <h2>3 · Triển khai</h2>
+  <h3>Tham số <code>derper</code> (vpn3 — vpn4 chỉ khác hostname)</h3>
+<pre>--hostname=vpn3.hangocthanh.io.vn   <span class="c"># PHẢI khớp DNS → IP VPS</span>
+--a=:443                            <span class="c"># HTTPS / DERP WebSocket</span>
+--http-port=80                     <span class="c"># ACME HTTP-01 + HTTP</span>
+--certmode=letsencrypt             <span class="c"># derper tự quản TLS</span>
+--certdir=/data/derper-certs       <span class="c"># volume derper_certs (giữ cert qua restart)</span>
+--stun                             <span class="c"># bật STUN server</span>
+--stun-port=3478                   <span class="c"># cổng STUN (UDP)</span>
+--verify-clients=false             <span class="c"># relay mở (xem F4)</span></pre>
+  <h3>Cổng &amp; build</h3>
+  <ul>
+    <li><b>Cổng ra Internet:</b> <code>80/tcp</code> (ACME), <code>443/tcp</code> (HTTPS+DERP), <code>3478/udp</code> (STUN).</li>
+    <li><b>Build:</b> <code>golang:1.23-alpine</code> → <code>go install tailscale.com/cmd/derper@v1.80.0</code> → runtime <code>alpine:3.20</code>. <b>Pin version</b> để tái tạo image.</li>
+    <li><b>Không secret:</b> DERP thuần không cần key (<code>.env.example</code> chỉ tham khảo <code>DERP_DOMAIN</code>). vpn4 dùng lại <code>Dockerfile.derper</code> của vpn3.</li>
+  </ul>
+  <h3>Di chuyển sang server mới (server migration)</h3>
+  <ol>
+    <li>DNS <code>vpnN…</code> trỏ <b>IP VPS mới</b>; mở <code>80/tcp</code>, <code>443/tcp</code>, <code>3478/udp</code>.</li>
+    <li><code>docker compose up -d --build</code> trong <code>derp-vpnN/</code>. derper <b>tự xin cert mới</b> qua ACME (cổng 80 reachable). Không bắt buộc copy volume cert.</li>
+    <li>Cập nhật <b>DERPMap</b> trên headscale nếu IP/region đổi. DNS giữ hostname → client tự kết nối lại sau khi DNS trỏ IP mới.</li>
+    <li>(Tùy chọn) copy volume <code>tailscale_vpnN</code> để sidecar giữ identity node giám sát.</li>
+    <li>Xác minh: <code>curl -I https://vpnN…</code> (cert hợp lệ); <code>tailscale netcheck</code> thấy region; dashboard có latency.</li>
+  </ol>
+
+  <h2>4 · File ↔ chức năng</h2>
+  <table>
+    <thead><tr><th>File</th><th>Chức năng</th></tr></thead>
+    <tbody>
+      <tr><td><code>derp-vpn3/Dockerfile.derper</code></td><td>build derper chính chủ (pin <code>v1.80.0</code>)</td></tr>
+      <tr><td><code>derp-vpn3/docker-compose.yml</code></td><td>derper + sidecar + ping-reporter (vpn3)</td></tr>
+      <tr><td><code>derp-vpn4/docker-compose.yml</code></td><td>tương tự, dùng lại Dockerfile vpn3</td></tr>
+      <tr><td><code>derp-vpn3/.env.example</code></td><td>tham khảo <code>DERP_DOMAIN</code> (không secret)</td></tr>
+    </tbody>
+  </table>
+
+  <h2>5 · DERP thuần vs DERP embed — chọn cái nào?</h2>
+  <table>
+    <thead><tr><th>Tiêu chí</th><th>DERP thuần (<code>derper</code>)</th><th>DERP embed (hybrid)</th></tr></thead>
+    <tbody>
+      <tr><td>Bản chất</td><td>relay chính chủ + STUN</td><td>relay tự viết + cầu UDP</td></tr>
+      <tr><td>Mạng chặn UDP (Squid)?</td><td>client vào được qua 443, nhưng peer-to-peer vẫn fallback DERP 2 chặng</td><td><b>tối ưu</b>: relay tự đi UDP tới peer → gần direct</td></tr>
+      <tr><td>STUN/NAT traversal</td><td><b>có</b> — giúp client đi direct</td><td>không (giả định mạng đã chặn UDP)</td></tr>
+      <tr><td>TLS</td><td>tự quản</td><td>sau reverse proxy</td></tr>
+      <tr><td>Độ phức tạp vận hành</td><td>thấp (1 binary chính chủ)</td><td>cao hơn (code riêng + proxy)</td></tr>
+      <tr><td>Khi nào dùng</td><td>DERP region phổ thông cho cả tailnet</td><td>điểm vào cho mạng chặn UDP cứng</td></tr>
+    </tbody>
+  </table>
+  <div class="note"><b>Tóm lại:</b> <code>derper</code> là xương sống DERP tiêu chuẩn (mọi node hưởng lợi từ STUN + fallback).
+     <b>embed</b> là giải pháp đặc thù đặt ở rìa mạng bị chặn UDP. Hai cái bổ sung, không thay thế nhau.</div>
+
+  <footer>
+    Nguồn chuẩn: <code>docs/DERP-PURE.md</code> · Bản HTML self-contained (không hotlink ngoài, mở offline).
+    Liên quan: <a href="DERP-EMBED.html">DERP-EMBED</a> · <a href="PING-REPORTER.html">PING-REPORTER</a>.
+  </footer>
+</div>
+</body>
+</html>
