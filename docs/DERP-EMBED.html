@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>DERP embed — hybrid relay tự viết (giao thức &amp; call flow)</title>
+<style>
+  :root{
+    --bg:#0a0f1e; --panel:#111a30; --panel2:#0e1628; --line:#1f2c47;
+    --txt:#dbe3f4; --muted:#8a98b8; --head:#aab6d6;
+    --blue:#5b8cff; --blue-bg:#1b2a52; --purple:#8b5bff; --purple-bg:#26214f;
+    --green:#36c28b; --green-bg:#10342a; --red:#ff6b7d; --red-bg:#3a1620;
+    --amber:#e7b35a; --amber-bg:#3a2f12; --accent:#7aa2ff;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:linear-gradient(180deg,#070b16,#0a0f1e 240px);
+       color:var(--txt);font:15px/1.65 system-ui,"Segoe UI",Roboto,Arial,sans-serif;
+       padding:32px 18px 80px}
+  .wrap{max-width:1040px;margin:0 auto}
+  h1{font-size:26px;margin:0 0 6px;letter-spacing:.2px}
+  h2{font-size:19px;margin:38px 0 12px;padding-bottom:8px;border-bottom:1px solid var(--line);color:#eaf0ff}
+  h3{font-size:15.5px;margin:22px 0 8px;color:var(--head)}
+  p,li{color:var(--txt)} .sub{color:var(--muted);margin:0 0 22px}
+  a{color:var(--accent)}
+  code{background:#0c1426;border:1px solid var(--line);border-radius:5px;
+       padding:1px 6px;font:13px/1.5 "Cascadia Code",Consolas,monospace;color:#cfe0ff}
+  pre{background:var(--panel2);border:1px solid var(--line);border-radius:10px;
+      padding:14px 16px;overflow:auto;font:12.5px/1.55 "Cascadia Code",Consolas,monospace;color:#cfe0ff}
+  pre .c{color:#6b7aa0;font-style:italic}
+  table{width:100%;border-collapse:collapse;margin:10px 0;background:var(--panel);
+        border:1px solid var(--line);border-radius:10px;overflow:hidden}
+  th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top;font-size:13.5px}
+  th{background:#0e1830;color:var(--head);font-weight:600}
+  tr:last-child td{border-bottom:0}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 18px;margin:14px 0}
+  .note{background:var(--panel2);border-left:3px solid var(--blue);border-radius:0 10px 10px 0;
+        padding:12px 16px;margin:14px 0;color:#cdd8f2;font-size:13.8px}
+  .warn{border-left-color:var(--amber)}
+  .tag{display:inline-block;border-radius:999px;padding:2px 10px;font-size:12px;font-weight:600;white-space:nowrap}
+  .t-blue{background:var(--blue-bg);color:#b9ccff} .t-purple{background:var(--purple-bg);color:#cdbcff}
+  .t-green{background:var(--green-bg);color:#7fe6bd} .t-red{background:var(--red-bg);color:#ffb3bd}
+  .t-amber{background:var(--amber-bg);color:#f1cf94}
+  .mono{font-family:"Cascadia Code",Consolas,monospace}
+  /* architecture row */
+  .arch{display:flex;gap:14px;flex-wrap:wrap;align-items:stretch;margin:8px 0}
+  .grp{flex:1;min-width:230px;border:1px solid var(--line);border-radius:12px;padding:12px;background:var(--panel2)}
+  .grp h4{margin:0 0 10px;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px}
+  .box{background:#13203c;border:1px solid #27406e;border-radius:9px;padding:9px 11px;margin:7px 0;font-size:13px}
+  .box b{color:#eaf0ff} .box small{color:var(--muted);display:block;margin-top:2px;font-size:11.5px}
+  .flowarrow{color:var(--accent);font-weight:700;text-align:center;margin:4px 0}
+  /* frame layout */
+  .frame{display:flex;border:1px solid #27406e;border-radius:8px;overflow:hidden;margin:10px 0;font-size:12.5px}
+  .frame div{padding:10px 12px;border-right:1px solid #27406e;background:#13203c}
+  .frame div:last-child{border-right:0;flex:1}
+  .frame .lbl{color:#bcd0ff;font-weight:600} .frame small{color:var(--muted);display:block}
+  /* sequence */
+  .seq{counter-reset:step;margin:10px 0}
+  .step{display:grid;grid-template-columns:34px 1fr;gap:12px;align-items:start;padding:9px 0;border-bottom:1px dashed var(--line)}
+  .step:last-child{border-bottom:0}
+  .step .n{counter-increment:step;width:28px;height:28px;border-radius:50%;
+           background:var(--blue-bg);color:#bcd0ff;font-weight:700;font-size:13px;
+           display:flex;align-items:center;justify-content:center}
+  .step .n::before{content:counter(step)}
+  .step .act{font-size:13.5px}
+  .lane{font-size:11.5px;color:var(--muted);font-weight:600;margin-bottom:2px}
+  .lane .a{color:#bcd0ff} .lane .b{color:#cdbcff}
+  .alt{background:var(--amber-bg);border:1px solid #5a4a1e;border-radius:8px;padding:8px 11px;margin:8px 0 8px 46px;font-size:12.6px;color:#f1cf94}
+  /* decision tree */
+  .tree{margin:10px 0}
+  .tree .q{background:#13203c;border:1px solid #27406e;border-radius:9px;padding:9px 12px;margin:6px 0;font-weight:600;color:#eaf0ff}
+  .tree .opt{margin:4px 0 4px 26px;padding:9px 12px;border-radius:9px;font-size:13px}
+  .o1{background:var(--green-bg);border:1px solid #1c5a44} .o2{background:var(--purple-bg);border:1px solid #4a3a8a} .o3{background:var(--red-bg);border:1px solid #6a2230}
+  ul,ol{margin:8px 0;padding-left:22px} li{margin:4px 0}
+  footer{color:var(--muted);font-size:12.5px;margin-top:40px;border-top:1px solid var(--line);padding-top:14px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>DERP embed — hybrid relay tự viết</h1>
+  <p class="sub">DERP relay viết lại bằng Go (<code>relay-vpn5/</code>, dùng lại cho vpn6):
+     nó là gì · giao thức trao đổi · call flow từng tính năng. &nbsp;·&nbsp;
+     Bản đọc offline; nguồn chuẩn là <code>DERP-EMBED.md</code>.</p>
+
+  <h2>0 · DERP embed là gì?</h2>
+  <p>Đây <b>không phải</b> <code>derper</code> chính chủ của Tailscale — mà là DERP relay
+     viết lại bằng Go, gọi là <b>hybrid</b> vì làm 2 việc cùng lúc:</p>
+  <table>
+    <thead><tr><th>Phía</th><th>Cổng</th><th>Việc làm</th></tr></thead>
+    <tbody>
+      <tr><td><span class="tag t-blue">TCP — giao thức DERP v2</span></td><td><code>:8080</code> (sau TLS Caddy/Traefik)</td><td>Nhận kết nối DERP qua <code>Upgrade: DERP</code>, relay gói WireGuard</td></tr>
+      <tr><td><span class="tag t-green">UDP — cầu WireGuard</span></td><td><code>:41641/udp</code></td><td>Với peer <i>có</i> UDP endpoint → gửi thẳng gói WireGuard qua UDP, không relay 2 chặng</td></tr>
+    </tbody>
+  </table>
+  <div class="note"><b>Vì sao cần?</b> Đúng kịch bản <b>công ty chặn UDP (Squid)</b>: client TCP-only
+     kết nối relay qua <b>TCP/443</b> (được phép), rồi relay tự làm chặng UDP tới peer UDP-capable
+     → client vẫn đạt hiệu năng <i>gần direct</i> thay vì double-relay.</div>
+  <div class="note warn"><b>Bảo mật:</b> relay <b>không đọc được nội dung</b>. Payload là gói WireGuard
+     mã hoá đầu-cuối (ChaCha20-Poly1305); relay chỉ thấy <b>public key</b> để định tuyến. Phần bắt tay
+     dùng <b>NaCl box</b> (curve25519 + xsalsa20 + poly1305) để xác thực client sở hữu key — không mã hoá dữ liệu.</div>
+
+  <div class="arch">
+    <div class="grp"><h4>Công ty (chặn UDP)</h4>
+      <div class="box"><b>Client ITOPS</b><small>TCP-only</small></div></div>
+    <div class="grp"><h4>DERP embed (vpn5 / vpn6)</h4>
+      <div class="box"><b>Reverse proxy TLS</b><small>Traefik / Caddy — chấm dứt TLS</small></div>
+      <div class="flowarrow">▼</div>
+      <div class="box"><b>relay (Go)</b><small>TCP DERP + UDP bridge</small></div>
+      <div class="flowarrow">⇄ Resolve endpoint</div>
+      <div class="box"><b>sidecar tailscaled</b><small>LocalAPI: ai có UDP endpoint?</small></div></div>
+    <div class="grp"><h4>Peer UDP-capable</h4>
+      <div class="box"><b>vd vpn2 / votam</b><small>có endpoint UDP</small></div></div>
+  </div>
+  <div class="flowarrow" style="font-size:13.5px">
+    Client ══ DERP qua TLS 443 (TCP, Upgrade: DERP) ══▶ relay ══ gói WireGuard qua UDP 41641 ══▶ Peer &nbsp; (reply UDP ◀══)
+  </div>
+
+  <h2>1 · Giao thức trao đổi (DERP protocol v2)</h2>
+  <h3>1.1 Khung tin (frame) — <code>frame.go</code></h3>
+  <div class="frame">
+    <div><span class="lbl">type</span><small>1 byte</small></div>
+    <div><span class="lbl">length</span><small>4 byte big-endian (uint32)</small></div>
+    <div><span class="lbl">payload</span><small>length byte</small></div>
+  </div>
+  <p><code>length</code> tối đa <code>maxFrameSize = 65535 + 64</code> (lớn hơn → lỗi “frame too large”).
+     <code>readFrame</code>/<code>writeFrame</code> đọc/ghi đúng khuôn này.</p>
+
+  <h3>1.2 Bảng frame types</h3>
+  <table>
+    <thead><tr><th>Hex</th><th>Tên</th><th>Chiều</th><th>Payload</th></tr></thead>
+    <tbody>
+      <tr><td class="mono">0x01</td><td><code>frameServerKey</code></td><td>S→C</td><td><code>magic[8]</code> + <code>serverPubKey[32]</code></td></tr>
+      <tr><td class="mono">0x02</td><td><code>frameClientInfo</code></td><td>C→S</td><td><code>clientPubKey[32]</code> + NaCl box(json)</td></tr>
+      <tr><td class="mono">0x03</td><td><code>frameServerInfo</code></td><td>S→C</td><td>NaCl box(json <code>{version:2}</code>)</td></tr>
+      <tr><td class="mono">0x04</td><td><code>frameSendPacket</code></td><td>C→S</td><td><code>destPubKey[32]</code> + gói WireGuard</td></tr>
+      <tr><td class="mono">0x05</td><td><code>frameRecvPacket</code></td><td>S→C</td><td><code>srcPubKey[32]</code> + gói WireGuard</td></tr>
+      <tr><td class="mono">0x06</td><td><code>frameKeepAlive</code></td><td>S→C</td><td>(rỗng) — mỗi ~60s</td></tr>
+      <tr><td class="mono">0x07</td><td><code>frameNotePreferred</code></td><td>C→S</td><td><code>[1]byte</code> cờ — chỉ thông tin</td></tr>
+      <tr><td class="mono">0x08</td><td><code>framePeerGone</code></td><td>S→C</td><td><code>peerPubKey[32]</code> + <code>[1]byte</code> lý do</td></tr>
+      <tr><td class="mono">0x12</td><td><code>framePing</code></td><td>cả 2</td><td><code>[8]byte</code></td></tr>
+      <tr><td class="mono">0x13</td><td><code>framePong</code></td><td>cả 2</td><td><code>[8]byte</code> (echo)</td></tr>
+    </tbody>
+  </table>
+  <p>Magic = <code>"DERP🔑"</code> = <span class="mono">44 45 52 50 f0 9f 94 91</span> · <code>protocolVersion = 2</code>.</p>
+
+  <h3>1.3 Bắt tay (handshake)</h3>
+  <div class="panel seq">
+    <div class="step"><div class="n"></div><div class="act"><div class="lane"><span class="a">client</span> → <span class="b">proxy → relay</span></div>HTTP GET, header <code>Upgrade: DERP</code> → proxy về relay (HTTP <code>:8080</code>)</div></div>
+    <div class="step"><div class="n"></div><div class="act"><div class="lane">relay</div>Hijack TCP conn. Nếu KHÔNG có <code>DERP-Fast-Start: 1</code> → gửi <code>HTTP/1.1 101 Switching Protocols</code></div></div>
+    <div class="step"><div class="n"></div><div class="act"><div class="lane"><span class="b">relay</span> → <span class="a">client</span></div><code>FrameServerKey</code> = <code>magic[8]</code> + <code>serverPubKey[32]</code></div></div>
+    <div class="step"><div class="n"></div><div class="act"><div class="lane"><span class="a">client</span> → <span class="b">relay</span></div><code>FrameClientInfo</code> = <code>clientPubKey[32]</code> + NaCl box(json)</div></div>
+    <div class="step"><div class="n"></div><div class="act"><div class="lane">relay</div><code>OpenFrom(clientKey, sealed)</code> chứng minh client sở hữu key — sai → đóng kết nối</div></div>
+    <div class="step"><div class="n"></div><div class="act"><div class="lane"><span class="b">relay</span> → <span class="a">client</span></div><code>FrameServerInfo</code> = NaCl box(json <code>{version:2}</code>) → đăng ký <code>clients[clientKey]</code></div></div>
+  </div>
+  <p style="color:var(--muted);font-size:13px">Sau đó vào vòng chính: relay gửi <code>FrameKeepAlive</code> mỗi 60s; client gửi <code>FrameSendPacket</code>/<code>Ping</code>/<code>NotePreferred</code>…</p>
+
+  <h2>2 · Call flow từng tính năng</h2>
+
+  <h3>F1 — Handshake / connect (<code>server.go: handleConn</code>)</h3>
+  <ol>
+    <li><code>Handler()</code>: path <code>/derp/probe</code> hoặc <code>/relay/probe</code> → <code>200 OK</code> (health)</li>
+    <li>Yêu cầu header <code>Upgrade: DERP</code>; thiếu → <code>426 Upgrade Required</code></li>
+    <li><code>Hijack()</code> lấy TCP thô; gửi <code>101</code> (trừ khi <code>DERP-Fast-Start: 1</code>, Tailscale ≥ v1.86)</li>
+    <li><code>FrameServerKey</code> → đọc <code>FrameClientInfo</code> (deadline 10s) → <code>OpenFrom</code> xác thực → <code>FrameServerInfo</code></li>
+    <li>Đăng ký <code>clientConn</code> vào <code>clients[clientKey]</code></li>
+    <li><code>defer</code>: rớt → xoá <code>clients</code> + <code>sessions.RemoveAll(clientKey)</code></li>
+  </ol>
+
+  <h3>F2 — Định tuyến gói (<code>dispatch → route</code>) <span class="tag t-purple">tính năng cốt lõi</span></h3>
+  <p><code>FrameSendPacket</code> payload = <code>destPubKey[32]</code> + <code>wgData</code>. <code>route()</code> xét cây 3 nhánh cho mỗi gói:</p>
+  <div class="tree">
+    <div class="q">destKey đang kết nối TCP ở relay này?</div>
+    <div class="opt o1"><b>Có — Option 1 (local TCP):</b> <code>destCC.sendRecvPacket(srcKey, wgData)</code> = <code>FrameRecvPacket</code> trên TCP của dest. Zero-hop, nhanh nhất (DERP cổ điển).</div>
+    <div class="q">Không → EndpointCache.Resolve có UDP endpoint?</div>
+    <div class="opt o2"><b>Có — Option 2 (cầu UDP):</b> <code>sessions.GetOrCreate(src,dst)</code> → <code>SendUDP(wgData)</code> tới <code>dstAddr</code>. Reply UDP → <code>onReply</code> → <code>src.sendRecvPacket(dstKey, reply)</code> (bơm vào luồng DERP của src). Send lỗi → <code>Invalidate(dst)</code> + <code>Remove(session)</code>.</div>
+    <div class="opt o3"><b>Không — Option 3:</b> DROP + log <i>“no path”</i> (bình thường không xảy ra).</div>
+  </div>
+  <div class="panel seq">
+    <div class="step"><div class="n"></div><div class="act"><div class="lane"><span class="a">src</span> → <span class="b">relay</span></div><code>FrameSendPacket(destKey, wgData)</code></div></div>
+    <div class="step"><div class="n"></div><div class="act"><div class="lane">relay → EndpointCache</div><code>Resolve(destKey)</code> → <code>udpAddr</code> (CurAddr / public Addr)</div></div>
+    <div class="step"><div class="n"></div><div class="act"><div class="lane">relay → Session</div><code>GetOrCreate(src,dst,udpAddr,onReply)</code> → <code>SendUDP(wgData)</code></div></div>
+    <div class="step"><div class="n"></div><div class="act"><div class="lane">Session → <span class="b">dst</span></div>gói WireGuard qua UDP → dst trả reply UDP</div></div>
+    <div class="step"><div class="n"></div><div class="act"><div class="lane">Session → relay → <span class="a">src</span></div><code>onReply(dstKey, reply)</code> → <code>FrameRecvPacket(src=dstKey, reply)</code> lên TCP của src</div></div>
+  </div>
+
+  <h3>F3 — Khám phá endpoint (<code>endpoint.go: EndpointCache</code>)</h3>
+  <ul>
+    <li><code>Run(ctx)</code>: nền, mỗi <code>cache-ttl</code> (mặc định 5s) gọi <code>refresh</code> đọc <code>LocalClient.Status()</code> của sidecar.</li>
+    <li>Phân loại: <code>CurAddr != "" &amp;&amp; Relay == ""</code> → <span class="tag t-green">UDP-capable</span>; ngược lại <span class="tag t-blue">TCP-only</span>.</li>
+    <li><code>Resolve(destKey)</code> ưu tiên (1) <code>CurAddr</code>, (2) endpoint public đầu tiên trong <code>Addrs</code> (thử lạc quan). Không có → TCP-only.</li>
+    <li><code>Invalidate(k)</code>: xoá cache 1 peer khi UDP send lỗi → lần sau refresh lại.</li>
+  </ul>
+
+  <h3>F4 — Quản lý session (<code>session.go: SessionTable</code>)</h3>
+  <ul>
+    <li>1 session = cặp <code>(src, dst)</code> + <b>1 UDP socket tạm riêng</b> (<code>ListenUDP</code> port 0) → reply không lẫn, nhiều session tới cùng dst dùng port nguồn khác nhau.</li>
+    <li><code>GetOrCreate</code>: có sẵn thì trả lại (cập nhật <code>dstAddr</code> nếu <b>roaming</b>); chưa có thì tạo socket + chạy <code>readLoop</code>.</li>
+    <li><code>readLoop</code>: đọc UDP từ dst; <b>lọc theo IP nguồn</b> (đúng dst IP; cho phép đổi <i>port</i> do NAT roaming) → <code>onReply(dstKey, payload)</code>.</li>
+    <li><code>Remove</code> / <code>RemoveAll</code>: đóng socket khi xoá 1 session / khi client src rớt.</li>
+  </ul>
+
+  <h3>F5 — Keepalive &amp; Ping/Pong (<code>server.go</code>)</h3>
+  <ul>
+    <li>Vòng chính dùng <code>kaTicker</code> 60s → <code>FrameKeepAlive</code>. Đọc frame trong goroutine riêng để keepalive vẫn tick khi không có dữ liệu.</li>
+    <li><code>framePing</code> (8 byte) → echo <code>framePong</code>. <code>frameNotePreferred</code> → bỏ qua. Frame lạ → bỏ qua (forward-compat).</li>
+  </ul>
+
+  <h3>F6 — Lưu server key bền (<code>main.go: loadOrGenKey</code>)</h3>
+  <ul>
+    <li>Đọc key từ <code>-key-file</code> (<code>/data/relay.key</code>, volume <code>relay_data</code>). Hỏng/không có → sinh <code>key.NewNode()</code> rồi ghi (0600).</li>
+    <li><b>Vì sao quan trọng:</b> <code>serverPubKey</code> trong <code>FrameServerKey</code> phải ổn định qua restart, nếu không client thấy “server lạ”.</li>
+  </ul>
+
+  <h3>F7 — Health probe &amp; graceful shutdown</h3>
+  <ul>
+    <li><code>GET /derp/probe</code> / <code>/relay/probe</code> → <code>200 OK</code> (CI/CD &amp; load balancer; deploy vpn6 kiểm <code>…/relay/probe</code>).</li>
+    <li><code>SIGINT</code>/<code>SIGTERM</code> → <code>httpSrv.Shutdown(5s)</code> + huỷ context (dừng cache refresh).</li>
+  </ul>
+
+  <h2>3 · Triển khai &amp; transport</h2>
+  <table>
+    <thead><tr><th>Thành phần</th><th>vpn5</th><th>vpn6</th></tr></thead>
+    <tbody>
+      <tr><td>Reverse proxy TLS</td><td>Traefik (<code>pangolin_network</code>)</td><td>Caddy <code>memory-caddy</code> (<code>memory-stack_memnet</code>)</td></tr>
+      <tr><td>Cert</td><td>Let's Encrypt (Traefik)</td><td>Let's Encrypt (Caddy, HTTP-01)</td></tr>
+      <tr><td>Host</td><td><code>vpn5.hangocthanh.io.vn</code></td><td><code>vpn6.hangocthanh.io.vn</code></td></tr>
+      <tr><td>Route</td><td><code>Host(...) → relay-vpn5:8080</code></td><td><code>reverse_proxy relay-vpn6:8080</code></td></tr>
+    </tbody>
+  </table>
+  <ul>
+    <li><b>TLS chấm dứt ở proxy</b>; relay nhận HTTP thường ở <code>:8080</code>. WebSocket/<code>Upgrade</code> được proxy hỗ trợ sẵn → DERP đi qua bình thường.</li>
+    <li><b>UDP 41641</b> publish ra host (mở <code>ufw 41641/udp</code>) cho chặng WireGuard.</li>
+    <li><b>Sidecar tailscale</b> join tailnet làm node <code>vpnX</code>; relay đọc LocalAPI qua socket chia sẻ <code>ts_sock</code>.</li>
+    <li><b>Build</b>: <code>golang:1.24-alpine</code> → binary tĩnh; thư viện <code>tailscale.com v1.86.0</code>. vpn6 <b>dùng lại</b> Dockerfile + <code>*.go</code> của vpn5.</li>
+  </ul>
+
+  <h3>File ↔ chức năng</h3>
+  <table>
+    <thead><tr><th>File</th><th>Chức năng</th></tr></thead>
+    <tbody>
+      <tr><td><code>main.go</code></td><td>khởi tạo, key bền, HTTP server, shutdown</td></tr>
+      <tr><td><code>server.go</code></td><td>handshake, dispatch, <b>route</b> (3 nhánh), clientConn</td></tr>
+      <tr><td><code>frame.go</code></td><td>đọc/ghi frame, hằng số frame types + magic</td></tr>
+      <tr><td><code>session.go</code></td><td>SessionTable, UDP socket tạm, readLoop reply, roaming</td></tr>
+      <tr><td><code>endpoint.go</code></td><td>EndpointCache: hỏi sidecar ai có UDP endpoint</td></tr>
+      <tr><td><code>Dockerfile</code></td><td>build 2 stage (Go → alpine)</td></tr>
+      <tr><td><code>docker-compose.yml</code> (vpn5/vpn6)</td><td>relay + sidecar + ping-reporter</td></tr>
+      <tr><td><code>traefik-…yml</code> / <code>caddy-vpn6.caddy</code></td><td>cấu hình reverse proxy</td></tr>
+    </tbody>
+  </table>
+
+  <h2>4 · Di chuyển sang server mới (server migration)</h2>
+  <h3>4.1 Chuyển một relay (vpn5/vpn6) sang VPS mới</h3>
+  <ol>
+    <li>DNS <code>vpnX.hangocthanh.io.vn</code> trỏ IP VPS mới; mở <code>ufw 41641/udp</code>.</li>
+    <li>Bảo toàn <b><code>relay_data</code></b> (chứa <code>relay.key</code>) nếu muốn giữ server pubkey → client không học lại key. Không copy thì relay sinh key mới (client cập nhật qua DERPMap).</li>
+    <li>Deploy: <code>docker compose up -d --build</code> trong <code>relay-vpnX/</code>. Sidecar join lại bằng <code>TS_AUTHKEY</code>; proxy xin cert mới.</li>
+    <li>Cập nhật <b>DERPMap</b> (<code>derp.urls</code> / dashboard derp-backend) nếu IP/region đổi.</li>
+    <li>Xác minh: <code>curl -k https://vpnX.../relay/probe</code> = <code>OK</code>; log thấy <i>“endpoint cache refreshed: N peers”</i>.</li>
+  </ol>
+  <h3>4.2 Lưu ý transport</h3>
+  <ul>
+    <li>Proxy phải giữ <code>Upgrade</code>/WebSocket và <b>không</b> đặt timeout ngắn cho kết nối DERP (dài hạn — <code>ReadTimeout/WriteTimeout = 0</code>).</li>
+    <li>Đổi proxy (Traefik ↔ Caddy): chỉ cần route <code>Host → relay:8080</code> + passthrough header; giao thức DERP không đổi.</li>
+  </ul>
+
+  <footer>
+    Nguồn chuẩn: <code>docs/DERP-EMBED.md</code> · Bản HTML self-contained (không hotlink ngoài, mở offline).
+    Tài liệu liên quan: <code>docs/PING-REPORTER.md</code> (đo latency của các relay này).
+  </footer>
+</div>
+</body>
+</html>
