@@ -11,6 +11,7 @@ from dedup import (aggregate_latency, init_db, init_latency_db,
                    is_allowed_report_src, is_tailnet_ip,
                    latency_series, normalize, parse_pingresult,
                    peer_relay_from_status, pingable_nodes, plan_actions,
+                   plan_route_approvals,
                    probe_derp_region, query_all_server_pings, query_current_relay,
                    query_devices, query_latest_netcheck, record_netcheck, record_report,
                    render_derp_html, render_stats_html,
@@ -70,6 +71,34 @@ def test_offline_only_group_keeps_latest():
     acts = plan_actions(nodes)
     assert {a["id"] for a in acts if a["action"] == "delete"} == {"1"}
     assert any(a["action"] == "rename" and a["id"] == "2" and a["to"] == "h" for a in acts)
+
+
+def test_route_approval_advertised_route_gets_approved():
+    # node quang ba 10.0.0.0/8 nhung chua duyet -> phai duyet (camelCase API)
+    raw = [{"id": 5, "availableRoutes": ["10.0.0.0/8"], "approvedRoutes": []}]
+    assert plan_route_approvals(raw) == [("5", ["10.0.0.0/8"])]
+
+
+def test_route_approval_idempotent_when_already_approved():
+    # da duyet het route quang ba -> khong lam gi (tranh goi API thua)
+    raw = [{"id": 5, "availableRoutes": ["10.0.0.0/8"],
+            "approvedRoutes": ["10.0.0.0/8"]}]
+    assert plan_route_approvals(raw) == []
+
+
+def test_route_approval_union_keeps_existing():
+    # them route moi nhung GIU route da duyet (hop, da sap xep)
+    raw = [{"id": 7, "available_routes": ["192.168.1.0/24"],
+            "approved_routes": ["10.0.0.0/8"]}]
+    assert plan_route_approvals(raw) == [("7", ["10.0.0.0/8", "192.168.1.0/24"])]
+
+
+def test_route_approval_no_routes_or_no_id_skipped():
+    raw = [
+        {"id": 9, "availableRoutes": [], "approvedRoutes": []},   # khong quang ba
+        {"availableRoutes": ["10.0.0.0/8"]},                        # thieu id -> bo
+    ]
+    assert plan_route_approvals(raw) == []
 
 
 def test_normalize_camel_and_snake():

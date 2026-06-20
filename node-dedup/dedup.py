@@ -32,8 +32,16 @@ Bien moi truong:
   HS_API_KEY    (bat buoc) - headscale apikey
   POLL_INTERVAL (giay, mac dinh 30)
   DB_PATH       (mac dinh /data/devices.db)
-  DRY_RUN       (true/false) - true = chi LOG ke hoach, khong xoa/doi ten that
+  DRY_RUN       (true/false) - true = chi LOG ke hoach, khong xoa/doi ten/duyet that
   METRICS_PORT  (mac dinh 8090) - cong HTTP collector (lang nghe trong tailnet)
+  AUTO_APPROVE_ROUTES (true/false, mac dinh true) - TU DUYET moi route node quang ba
+
+PHAN 3 - AUTO-APPROVE ROUTES (server-side, hanh vi rieng cua ban):
+Headscale mac dinh bat route phai duyet tay (hoac autoApprovers theo tag/user).
+Vong poll nay doc availableRoutes cua tung node va goi
+POST /api/v1/node/{id}/approve_routes de duyet SACH moi route dang quang ba ->
+moi may cu quang ba la dung duoc ngay, KHONG can tag, KHONG can sua client.
+Ton trong DRY_RUN. Tat bang AUTO_APPROVE_ROUTES=false.
 """
 import html
 import http.client
@@ -55,6 +63,9 @@ HS_API_KEY = os.environ.get("HS_API_KEY", "")
 POLL_INTERVAL = int(os.environ.get("POLL_INTERVAL", "30"))
 DB_PATH = os.environ.get("DB_PATH", "/data/devices.db")
 DRY_RUN = os.environ.get("DRY_RUN", "true").lower() in ("1", "true", "yes")
+# TU DUYET MOI ROUTE node quang ba (server-side, khong tag, khong duyet tay).
+# Day la hanh vi RIENG cua ban (khong phai mac dinh Headscale). Tat = "false".
+AUTO_APPROVE_ROUTES = os.environ.get("AUTO_APPROVE_ROUTES", "true").lower() in ("1", "true", "yes")
 METRICS_PORT = int(os.environ.get("METRICS_PORT", "8090"))
 LATENCY_WINDOW = int(os.environ.get("LATENCY_WINDOW", "3600"))  # cua so tong hop GET
 # Socket LocalAPI cua tailscale sidecar (chia se qua volume) -> server tu ping node.
@@ -79,12 +90,16 @@ def log(*a):
     print(time.strftime("%Y-%m-%dT%H:%M:%S"), *a, flush=True)
 
 
-def _api(method, path):
+def _api(method, path, body=None):
+    data = None
     req = urllib.request.Request(HS_API_URL + path, method=method)
     req.add_header("Authorization", "Bearer " + HS_API_KEY)
-    with urllib.request.urlopen(req, timeout=15) as r:
-        body = r.read().decode()
-        return json.loads(body) if body.strip() else {}
+    if body is not None:
+        data = json.dumps(body).encode()
+        req.add_header("Content-Type", "application/json")
+    with urllib.request.urlopen(req, data=data, timeout=15) as r:
+        resp = r.read().decode()
+        return json.loads(resp) if resp.strip() else {}
 
 
 def _g(d, *keys, default=None):
@@ -236,6 +251,30 @@ def apply_action(a):
         _api("DELETE", "/api/v1/node/%s" % a["id"])
     elif a["action"] == "rename":
         _api("POST", "/api/v1/node/%s/rename/%s" % (a["id"], a["to"]))
+
+
+def plan_route_approvals(raw_nodes):
+    """PURE: TU DUYET MOI route node quang ba (khong can tag/duyet tay).
+
+    Voi moi node co route 'available' (dang quang ba) chua nam trong 'approved',
+    tra ve (node_id, routes_can_set) voi routes = HOP(approved, available) -> chi
+    THEM, khong bao gio bo route da duyet. Khong co gi can lam -> [].
+    Idempotent: khi tat ca route quang ba da duyet -> khong tra hanh dong nao.
+
+    Doc tu node JSON tho cua Headscale API: availableRoutes/approvedRoutes
+    (camelCase HTTP) hoac available_routes/approved_routes (snake_case CLI).
+    Duyet bang: POST /api/v1/node/{id}/approve_routes  body {"routes":[...]}.
+    """
+    out = []
+    for n in raw_nodes:
+        nid = str(_g(n, "id", default="") or "")
+        if not nid:
+            continue
+        available = set(_g(n, "availableRoutes", "available_routes", default=[]) or [])
+        approved = set(_g(n, "approvedRoutes", "approved_routes", default=[]) or [])
+        if available - approved:  # co route quang ba chua duyet
+            out.append((nid, sorted(approved | available)))
+    return out
 
 
 def init_db(conn):
@@ -998,6 +1037,20 @@ def main():
                     record_samples(conn, SRC_NAME, samples, int(time.time()))
                 up = sum(1 for s in samples if s["ok"])
                 log("server ping: %d/%d node OK" % (up, len(samples)))
+            # TU DUYET route (server-side): cu node nao quang ba route -> duyet sach,
+            # khong can tag, khong duyet tay, ap dung cho MOI may. Doc tu 'raw' vi
+            # normalize() khong giu field route.
+            if AUTO_APPROVE_ROUTES:
+                for nid, routes in plan_route_approvals(raw):
+                    if DRY_RUN:
+                        log("[DRY] APPROVE-ROUTES node", nid, "->", routes)
+                    else:
+                        try:
+                            _api("POST", "/api/v1/node/%s/approve_routes" % nid,
+                                 {"routes": routes})
+                            log("APPROVE-ROUTES node", nid, "->", routes)
+                        except Exception as e:  # noqa: BLE001
+                            log("approve-routes loi node", nid, repr(e))
             for a in plan_actions(nodes):
                 label = a.get("name") or a.get("from", "")
                 if a["action"] == "skip":
