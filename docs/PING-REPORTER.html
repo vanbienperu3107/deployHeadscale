@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Ping-reporter — cách chạy, sequence &amp; call flow</title>
+<style>
+  :root{
+    --bg:#0a0f1e; --panel:#111a30; --panel2:#0e1628; --line:#1f2c47;
+    --txt:#dbe3f4; --muted:#8a98b8; --head:#aab6d6;
+    --blue:#5b8cff; --blue-bg:#1b2a52; --purple:#8b5bff; --purple-bg:#26214f;
+    --green:#36c28b; --green-bg:#10342a; --red:#ff6b7d; --red-bg:#3a1620;
+    --amber:#e7b35a; --amber-bg:#3a2f12; --accent:#7aa2ff;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:linear-gradient(180deg,#070b16,#0a0f1e 240px);
+       color:var(--txt);font:15px/1.65 system-ui,"Segoe UI",Roboto,Arial,sans-serif;
+       padding:32px 18px 80px}
+  .wrap{max-width:1040px;margin:0 auto}
+  h1{font-size:26px;margin:0 0 6px;letter-spacing:.2px}
+  h2{font-size:19px;margin:38px 0 12px;padding-bottom:8px;border-bottom:1px solid var(--line);color:#eaf0ff}
+  h3{font-size:15.5px;margin:22px 0 8px;color:var(--head)}
+  p,li{color:var(--txt)} .sub{color:var(--muted);margin:0 0 22px}
+  a{color:var(--accent)}
+  code{background:#0c1426;border:1px solid var(--line);border-radius:5px;
+       padding:1px 6px;font:13px/1.5 "Cascadia Code",Consolas,monospace;color:#cfe0ff}
+  pre{background:var(--panel2);border:1px solid var(--line);border-radius:10px;
+      padding:14px 16px;overflow:auto;font:12.5px/1.55 "Cascadia Code",Consolas,monospace;color:#cfe0ff}
+  pre .k{color:#9db8ff} pre .s{color:#7fd6a8} pre .c{color:#6b7aa0;font-style:italic}
+  table{width:100%;border-collapse:collapse;margin:10px 0;background:var(--panel);
+        border:1px solid var(--line);border-radius:10px;overflow:hidden}
+  th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top;font-size:13.5px}
+  th{background:#0e1830;color:var(--head);font-weight:600}
+  tr:last-child td{border-bottom:0}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 18px;margin:14px 0}
+  .note{background:var(--panel2);border-left:3px solid var(--blue);border-radius:0 10px 10px 0;
+        padding:12px 16px;margin:14px 0;color:#cdd8f2;font-size:13.8px}
+  .tag{display:inline-block;border-radius:999px;padding:2px 10px;font-size:12px;font-weight:600;white-space:nowrap}
+  .t-blue{background:var(--blue-bg);color:#b9ccff} .t-purple{background:var(--purple-bg);color:#cdbcff}
+  .t-green{background:var(--green-bg);color:#7fe6bd} .t-red{background:var(--red-bg);color:#ffb3bd}
+  .t-amber{background:var(--amber-bg);color:#f1cf94}
+  /* architecture boxes */
+  .arch{display:flex;gap:14px;flex-wrap:wrap;align-items:stretch;margin:8px 0}
+  .grp{flex:1;min-width:280px;border:1px solid var(--line);border-radius:12px;padding:12px;background:var(--panel2)}
+  .grp h4{margin:0 0 10px;font-size:13px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px}
+  .box{background:#13203c;border:1px solid #27406e;border-radius:9px;padding:9px 11px;margin:7px 0;font-size:13px}
+  .box b{color:#eaf0ff} .box small{color:var(--muted);display:block;margin-top:2px;font-size:11.5px}
+  .flowarrow{color:var(--accent);font-weight:700;text-align:center;margin:2px 0}
+  /* sequence diagram */
+  .seq{counter-reset:step;margin:10px 0}
+  .step{display:grid;grid-template-columns:34px 150px 1fr;gap:12px;align-items:start;
+        padding:10px 0;border-bottom:1px dashed var(--line)}
+  .step:last-child{border-bottom:0}
+  .step .n{counter-increment:step;width:28px;height:28px;border-radius:50%;
+           background:var(--blue-bg);color:#bcd0ff;font-weight:700;font-size:13px;
+           display:flex;align-items:center;justify-content:center}
+  .step .n::before{content:counter(step)}
+  .lane{font-size:12px;font-weight:600}
+  .lane .from{color:#bcd0ff} .lane .arr{color:var(--muted);margin:0 4px} .lane .to{color:#cdbcff}
+  .step .act{font-size:13.5px}
+  .step .act .api{color:#7fd6a8}
+  .alt{background:var(--amber-bg);border:1px solid #5a4a1e;border-radius:8px;padding:8px 11px;margin:8px 0 8px 46px;font-size:12.8px;color:#f1cf94}
+  ul{margin:8px 0 8px 0;padding-left:20px} li{margin:4px 0}
+  .legend{display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 0}
+  footer{color:var(--muted);font-size:12.5px;margin-top:40px;border-top:1px solid var(--line);padding-top:14px}
+  .kvtag{font-size:11.5px;color:var(--muted)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>Ping-reporter — cách chạy, sequence &amp; call flow</h1>
+  <p class="sub">Cơ chế đo độ trễ giữa các node trong tailnet, và vì sao dashboard
+     <code>/derp</code> đôi khi chỉ hiện <b>vpn2</b> còn vpn3/vpn4/vpn5/vpn6 báo
+     <span class="tag t-red">ping-reporter chưa chạy</span>. &nbsp;·&nbsp;
+     Bản đọc offline; nguồn chuẩn là <code>PING-REPORTER.md</code>.</p>
+
+  <h2>0 · TL;DR — vì sao chỉ có vpn2 có số?</h2>
+  <p>Bảng <i>“Ping từ từng server → node”</i> gộp <b>2 nguồn khác nhau</b> vào chung bảng SQLite <code>node_latency</code>:</p>
+  <table>
+    <thead><tr><th>Nguồn hiển thị</th><th>Ai tạo ra</th><th>Chạy ở đâu</th><th>Phụ thuộc gì</th></tr></thead>
+    <tbody>
+      <tr><td><span class="tag t-blue">vpn2</span></td><td><code>node-dedup</code> <b>tự ping</b> (<code>SRC_NAME=collector</code>)</td><td>trên vpn2</td><td>luôn có, không cần reporter</td></tr>
+      <tr><td><span class="tag t-purple">vpn3 / vpn4 / vpn6</span></td><td>container <b>ping-reporter</b></td><td>trên <i>chính</i> node đó</td><td>cần reporter chạy + POST về được collector</td></tr>
+      <tr><td><span class="tag t-amber">vpn5</span></td><td><i>(chưa có)</i></td><td>—</td><td>repo <code>relay-vpn5</code>/<code>derp-vpn5</code> <b>chưa có</b> service ping-reporter</td></tr>
+    </tbody>
+  </table>
+  <div class="note"><b>vpn2 luôn có số</b> vì đó là collector tự đi ping mọi node qua LocalAPI của sidecar.
+     Các hàng còn lại trống khi reporter trên node đó chưa chạy / chưa POST được về collector.
+     <b>vpn5</b> sẽ luôn trống cho tới khi thêm service reporter.</div>
+  <p>Một hàng (vd <code>vpn3</code>) chỉ có số khi đủ <b>5 mắt xích</b>:</p>
+  <ul>
+    <li>container <code>ping-reporter-vpn3</code> đang chạy trên vpn3</li>
+    <li>sidecar <code>ts-vpn3</code> đã join tailnet (có IP <code>100.64.x.y</code>)</li>
+    <li>reporter tìm thấy peer tên <code>collector</code> <b>ONLINE</b> qua LocalAPI</li>
+    <li><code>ts-forward</code> (socat trong netns collector của vpn2) còn sống</li>
+    <li><code>node-dedup</code> trên vpn2 còn sống</li>
+  </ul>
+
+  <h2>1 · Kiến trúc tổng quan</h2>
+  <p>Hai chiều đo đổ vào cùng một bảng <code>node_latency</code>, rồi dashboard đọc ra.</p>
+  <div class="arch">
+    <div class="grp">
+      <h4>Relay node (vpn3 / vpn4 / vpn6)</h4>
+      <div class="box"><b>ping-reporter</b> <small>reporter.py · chiều 1</small></div>
+      <div class="flowarrow">│ LocalAPI qua unix socket ▼</div>
+      <div class="box"><b>sidecar tailscaled</b> <small>ts-vpn3 · có IP tailnet</small></div>
+    </div>
+    <div class="grp">
+      <h4>vpn2 — control + collector</h4>
+      <div class="box"><b>ts-forward (socat)</b> <small>listen :8090 trong netns collector (100.64.0.1)</small></div>
+      <div class="flowarrow">▼</div>
+      <div class="box"><b>node-dedup</b> <small>dedup.py · HTTP :8090 + self-ping (chiều 2)</small></div>
+      <div class="flowarrow">▼ ▲ self-ping qua LocalAPI sidecar 'collector'</div>
+      <div class="box"><b>SQLite</b> <small>node_latency / devices</small></div>
+    </div>
+  </div>
+  <div class="flowarrow" style="font-size:14px;margin:6px 0">
+    ping-reporter ══ POST /metrics/report → 100.64.0.1:8090 ══▶ ts-forward → node-dedup
+  </div>
+  <div class="note"><b>Vì sao cần <code>ts-forward</code>?</b> <code>node-dedup</code> đã tách khỏi netns
+     sidecar (chạy container riêng để <code>/stats</code> luôn sống kể cả khi sidecar restart) nên
+     <b>không còn IP tailnet</b>. <code>ts-forward</code> (socat) chạy <i>trong</i> netns sidecar
+     <code>collector</code> (IP tailnet <code>100.64.0.1</code>), lắng nghe <code>:8090</code> rồi forward
+     sang <code>node-dedup:8090</code>. Reporter POST tới <code>100.64.0.1:8090</code> → tới được node-dedup.</div>
+
+  <h2>2 · Sequence — một vòng poll của reporter (mặc định 30s)</h2>
+  <div class="panel seq">
+    <div class="step"><div class="n"></div>
+      <div class="lane"><span class="from">reporter</span><span class="arr">→</span><span class="to">LocalAPI</span></div>
+      <div class="act"><span class="api">GET /localapi/v0/status</span> — lấy danh sách Peer (Online, IP, HostName)</div></div>
+    <div class="step"><div class="n"></div>
+      <div class="lane"><span class="from">reporter</span></div>
+      <div class="act"><code>get_peers_and_collector()</code> — tách peers ONLINE + tìm IP node <code>collector</code> (ưu tiên bản ONLINE, bỏ bản trùng OFFLINE)</div></div>
+    <div class="alt">Nếu không thấy <code>collector</code> ONLINE → log <i>“collector chua thay…”</i> → ngủ, thử lại vòng sau.</div>
+    <div class="step"><div class="n"></div>
+      <div class="lane"><span class="from">reporter</span><span class="arr">→</span><span class="to">LocalAPI → peer</span></div>
+      <div class="act"><span class="api">POST /localapi/v0/ping?ip=&lt;peer&gt;&amp;type=disco</span> — lặp cho từng peer online</div></div>
+    <div class="step"><div class="n"></div>
+      <div class="lane"><span class="from">LocalAPI</span><span class="arr">→</span><span class="to">reporter</span></div>
+      <div class="act"><code>LatencySeconds</code>, path = <span class="tag t-green">direct</span> nếu có <code>Endpoint</code>, ngược lại <span class="tag t-purple">derp:&lt;code&gt;</span></div></div>
+    <div class="step"><div class="n"></div>
+      <div class="lane"><span class="from">reporter</span><span class="arr">→</span><span class="to">ts-forward</span></div>
+      <div class="act"><span class="api">POST /metrics/report</span> <code>{hostname:"vpn3", samples:[…]}</code> → 100.64.0.1:8090</div></div>
+    <div class="step"><div class="n"></div>
+      <div class="lane"><span class="from">node-dedup</span><span class="arr">→</span><span class="to">SQLite</span></div>
+      <div class="act"><code>_authed()</code> → <code>validate_report()</code> → <code>record_report()</code> → <code>INSERT node_latency (src='vpn3')</code></div></div>
+    <div class="step"><div class="n"></div>
+      <div class="lane"><span class="from">node-dedup</span><span class="arr">→</span><span class="to">reporter</span></div>
+      <div class="act"><code>200 {ok:true, stored:N}</code> → reporter log <i>“[vpn3] ping k/n OK → collector …: OK”</i></div></div>
+  </div>
+  <p class="kvtag">Dashboard đọc độc lập (tự refresh 30s): trình duyệt → Caddy(+SSO) → node-dedup → <code>query_all_server_pings()</code>/<code>query_latency()</code> → SQLite → HTML bảng.</p>
+
+  <h2>3 · Call flow chi tiết (hàm ↔ biến môi trường)</h2>
+  <h3>3.1 Phía reporter — <code>ping-reporter/reporter.py</code></h3>
+  <table>
+    <thead><tr><th>Bước</th><th>Hàm</th><th>Việc làm</th><th>ENV</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td><code>get_peers_and_collector()</code></td><td>đọc <code>status</code> qua unix socket → peers ONLINE + IP <code>collector</code> (ưu tiên ONLINE)</td><td><code>TS_SOCKET</code></td></tr>
+      <tr><td>2</td><td><code>ping_peer(ip4)</code></td><td>disco ping; tính <code>rtt_ms</code>, <code>path</code> (direct / derp:&lt;region&gt;)</td><td><code>PING_TIMEOUT</code></td></tr>
+      <tr><td>3</td><td><code>post_to_collector()</code></td><td>POST <code>/metrics/report</code> với <code>{hostname,ipv4:"",mac:"",samples}</code></td><td><code>COLLECTOR_PORT</code></td></tr>
+      <tr><td>4</td><td><code>main()</code></td><td>vòng lặp + ngủ; nhãn nguồn = <code>REPORTER_NAME</code></td><td><code>REPORTER_NAME</code>, <code>POLL_INTERVAL</code></td></tr>
+    </tbody>
+  </table>
+  <p>Hằng số <code>COLLECTOR_HOSTNAME = "collector"</code>. Payload mẫu gửi đi:</p>
+<pre><span class="c">// POST http://100.64.0.1:8090/metrics/report</span>
+{
+  <span class="k">"hostname"</span>: <span class="s">"vpn3"</span>, <span class="k">"ipv4"</span>: <span class="s">""</span>, <span class="k">"mac"</span>: <span class="s">""</span>,
+  <span class="k">"samples"</span>: [
+    {<span class="k">"dst"</span>:<span class="s">"vpn4"</span>, <span class="k">"dst_ip"</span>:<span class="s">"100.64.0.4"</span>, <span class="k">"rtt_ms"</span>:95.6, <span class="k">"path"</span>:<span class="s">"derp:vpn4-vn"</span>, <span class="k">"ok"</span>:true}
+  ]
+}</pre>
+
+  <h3>3.2 Phía collector — <code>node-dedup/dedup.py</code></h3>
+  <table>
+    <thead><tr><th>Bước</th><th>Hàm</th><th>Việc làm</th></tr></thead>
+    <tbody>
+      <tr><td>A</td><td><code>do_POST</code> → <code>/metrics/report</code></td><td><code>_authed()</code> = <code>is_allowed_report_src(ip)</code> (tailnet/loopback <b>hoặc</b> dải docker riêng — vì socat làm mất IP tailnet gốc)</td></tr>
+      <tr><td>B</td><td><code>validate_report(body)</code></td><td>kiểm tra/định dạng <code>samples</code></td></tr>
+      <tr><td>C</td><td><code>record_report()</code></td><td>cập nhật <code>devices.mac</code> + <code>INSERT node_latency</code> với <code>src = report["hostname"]</code></td></tr>
+      <tr><td>D</td><td>self-ping: <code>server_ping_all()</code> → <code>record_samples(…, SRC_NAME="collector")</code></td><td>vpn2 tự ping mọi node ONLINE qua LocalAPI → <b>nguồn vpn2</b></td></tr>
+      <tr><td>E</td><td><code>do_GET /derp</code> → <code>query_all_server_pings()</code> → <code>render_derp_html()</code></td><td>render bảng; <code>_code_to_src</code>: <code>myderp→collector</code>, còn lại cắt hậu tố <code>-vn</code>/<code>-us</code></td></tr>
+    </tbody>
+  </table>
+  <div class="note"><b>Quy tắc nhãn dashboard</b> (<code>render_derp_html</code>): với mỗi DERP region, nếu không có
+     dữ liệu và <code>src_key != "collector"</code> → in <span class="tag t-red">ping-reporter chưa chạy</span>;
+     nếu là <code>collector</code> (nhãn vpn2) → chỉ in <i>“chưa có dữ liệu”</i>.</div>
+
+  <h2>4 · Cấu hình mỗi node</h2>
+  <p>Mỗi relay node khai báo service <code>ping-reporter</code> trong compose của nó
+     (<code>derp-vpn3/</code>, <code>derp-vpn4/</code>, <code>relay-vpn6/</code>):</p>
+<pre><span class="k">ping-reporter:</span>
+  image: python:3.12-slim
+  container_name: ping-reporter-vpn3        <span class="c"># đổi theo node</span>
+  restart: unless-stopped
+  network_mode: <span class="s">"service:tailscale"</span>          <span class="c"># BẮT BUỘC: chung netns sidecar</span>
+  command: [<span class="s">"python3"</span>, <span class="s">"/app/reporter.py"</span>]
+  environment:
+    - REPORTER_NAME=vpn3                      <span class="c"># PHẢI khớp DERP region code</span>
+    - TS_SOCKET=/var/run/tailscale/tailscaled.sock
+    - POLL_INTERVAL=30
+    - COLLECTOR_PORT=8090
+    - PING_TIMEOUT=8
+  volumes:
+    - ../ping-reporter/reporter.py:/app/reporter.py:ro
+    - ts_sock:/var/run/tailscale                <span class="c"># socket LocalAPI chia sẻ</span>
+  depends_on: [ tailscale ]</pre>
+  <ul>
+    <li><b><code>network_mode: "service:tailscale"</code></b> — reporter dùng chung netns sidecar nên có IP tailnet để POST qua WireGuard. Thiếu → POST timeout.</li>
+    <li><b><code>REPORTER_NAME</code></b> phải trùng DERP region code (vpn3/vpn4/vpn6) thì dashboard mới ghép đúng hàng.</li>
+    <li><b><code>ts_sock</code></b> — socket <code>tailscaled.sock</code> chia sẻ giữa sidecar và reporter.</li>
+  </ul>
+
+  <h2>5 · Troubleshooting — hàng trống thì kiểm tra gì</h2>
+  <table>
+    <thead><tr><th>Triệu chứng</th><th>Nguyên nhân khả dĩ</th><th>Cách kiểm tra</th></tr></thead>
+    <tbody>
+      <tr><td>Hàng vpn3/vpn4/vpn6 trống</td><td>container reporter chưa chạy</td><td><code>docker ps | grep ping-reporter-vpnX</code> ; <code>docker logs ping-reporter-vpnX</code></td></tr>
+      <tr><td>Log <i>collector chua thay trong tailnet</i></td><td>sidecar chưa join / node collector (vpn2) offline</td><td><code>docker exec ts-vpnX tailscale status</code></td></tr>
+      <tr><td>Log <i>POST collector ERR</i></td><td><code>ts-forward</code> hoặc <code>node-dedup</code> chết trên vpn2</td><td>trên vpn2: <code>docker ps | grep -E 'ts-forward|node-dedup'</code></td></tr>
+      <tr><td>Log <i>khong co peer online ngoai collector</i></td><td>thật sự không có peer online</td><td>bình thường nếu tailnet trống</td></tr>
+      <tr><td>Hàng vpn5 luôn trống</td><td><b>chưa có</b> service reporter trong relay-vpn5/derp-vpn5</td><td>thêm service ping-reporter (đang hoãn)</td></tr>
+      <tr><td>Hàng vpn2 cũng trống</td><td><code>node-dedup</code> hoặc sidecar collector chết</td><td>trên vpn2: <code>docker logs node-dedup</code></td></tr>
+    </tbody>
+  </table>
+  <p>Kiểm tra nhanh toàn cục (smoke gate dùng trong deploy):</p>
+<pre><span class="c"># 503 + danh sách 'stale' nếu reporter chưa báo</span>
+curl -s <span class="s">'http://node-dedup:8090/metrics/health?expect=vpn3,vpn4,vpn6&amp;window=180'</span>
+<span class="c"># {"ok":true,"stale":[],...}  hoặc  {"ok":false,"stale":["vpn4"],...}</span></pre>
+  <p class="kvtag"><code>.github/workflows/deploy.yml</code> gọi đúng endpoint này sau deploy: reporter nào “stale” thì job FAIL (đỏ) thay vì hỏng âm thầm.</p>
+
+  <h2>6 · Di chuyển sang server mới (server migration)</h2>
+  <h3>6.1 Chuyển một relay node (vd vpn3) sang VPS mới</h3>
+  <ol>
+    <li>DNS <code>vpn3.hangocthanh.io.vn</code> trỏ về IP VPS mới (relay/derper tự xin lại cert).</li>
+    <li>Chạy workflow deploy của node (hoặc <code>docker compose up -d --build</code> trong <code>derp-vpn3/</code>). Service ping-reporter tự khởi động lại.</li>
+    <li><b>Không cần đổi gì</b> ở collector: reporter tìm collector theo <i>hostname</i> <code>collector</code>, không hardcode IP. <code>REPORTER_NAME=vpn3</code> giữ nguyên → ghép đúng hàng.</li>
+    <li>Xác minh: <code>docker logs ping-reporter-vpn3</code> thấy <i>“→ collector …: OK”</i> và <code>/metrics/health?expect=vpn3</code> trả <code>ok:true</code>.</li>
+  </ol>
+  <h3>6.2 Chuyển collector / vpn2 sang server mới</h3>
+  <ol>
+    <li>Lịch sử latency &amp; MAC nằm trong volume <code>dedup_data</code> (<code>/data/devices.db</code>) — copy volume nếu muốn giữ lịch sử; không copy thì DB khởi tạo trống (reporter điền lại sau vài vòng).</li>
+    <li>vpn2 mới chạy: sidecar <code>ts-collector</code> join lại hostname <code>collector</code>, <code>ts-forward</code> mở <code>:8090</code>, <code>node-dedup</code> lắng nghe.</li>
+    <li><b>Reporter các node không cần sửa</b>: tự khám phá lại peer <code>collector</code> ONLINE và POST về IP tailnet mới (đã ưu tiên bản ONLINE nếu còn bản cũ OFFLINE).</li>
+    <li><code>node-dedup</code> tự gom/xoá node <code>collector</code> trùng OFFLINE.</li>
+  </ol>
+
+  <h2>7 · File liên quan</h2>
+  <ul>
+    <li><code>ping-reporter/reporter.py</code> — mã reporter (chạy trên relay node)</li>
+    <li><code>ping-reporter/test_reporter.py</code> — unit test (gồm test ưu tiên collector ONLINE)</li>
+    <li><code>node-dedup/dedup.py</code> — collector: nhận <code>/metrics/report</code>, self-ping, render dashboard</li>
+    <li><code>derp-vpn3/</code>, <code>derp-vpn4/</code>, <code>relay-vpn6/</code> docker-compose — khai báo service ping-reporter mỗi node</li>
+    <li><code>docker-compose.yml</code> (vpn2) — <code>node-dedup</code> + sidecar collector + <code>ts-forward</code></li>
+    <li><code>.github/workflows/deploy.yml</code> — smoke gate <code>/metrics/health</code></li>
+  </ul>
+
+  <footer>
+    Nguồn chuẩn: <code>docs/PING-REPORTER.md</code> · Bản HTML self-contained (không hotlink ngoài, mở offline).
+    <div class="legend">
+      <span class="tag t-green">direct = P2P WireGuard UDP</span>
+      <span class="tag t-purple">via DERP = relay qua DERP server</span>
+      <span class="tag t-red">ping-reporter chưa chạy = hàng chưa có dữ liệu reporter</span>
+    </div>
+  </footer>
+</div>
+</body>
+</html>
