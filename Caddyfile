@@ -55,8 +55,27 @@ vpn2.hangocthanh.io.vn {
 		reverse_proxy node-dedup:8090
 	}
 
+	# DERP relay thuc su cua Tailscale clients — KHONG qua auth, proxy thang headscale.
+	# /derp/latency-check va /derp/probe: client dung de do latency/probe DERP region.
+	# /derp (WebSocket Upgrade): ket noi relay thuc su cua client.
+	# Phai dat TRUOC block /derp* de khong bi SSO gate chan.
+	handle /derp/latency-check {
+		reverse_proxy headscale:8080
+	}
+	handle /derp/probe {
+		reverse_proxy headscale:8080
+	}
+	@derp_relay {
+		path /derp
+		header Upgrade websocket
+	}
+	handle @derp_relay {
+		reverse_proxy headscale:8080
+	}
+
 	# Trang DERP status (/derp) - gated bang Google SSO. Hien thi health cua tung
 	# DERP region va node dang relay qua region nao. Du lieu tu node_latency DB.
+	# Chi bat cac request browser thong thuong (khong phai WebSocket/relay client).
 	handle /derp* {
 		forward_auth oauth2-proxy:4180 {
 			uri /oauth2/auth
