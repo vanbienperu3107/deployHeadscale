@@ -88,6 +88,10 @@ def test_vpn4_ip_dung():
 
 # ---------- headscale config: failover setup ----------
 
+# derp-backend chua deploy -> headscale crash neu derp.urls co URL khong reach duoc (FATAL).
+# Tam thoi urls=[] trong config.yaml cho den khi derp-backend deploy xong.
+# Khi restore urls, xoa 2 decorator @pytest.mark.xfail duoi day.
+@pytest.mark.xfail(reason="derp-backend chua deploy; derp.urls=[] tam thoi", strict=False)
 def test_headscale_config_co_derp_source_dong():
     """DERP map DONG: config.yaml lay region tu derp-backend (DB Postgres) qua derp.urls
     + auto_update (thay cho derp.paths tinh). Bat/tat/them node tren dashboard -> headscale
@@ -103,6 +107,7 @@ def test_headscale_config_co_derp_source_dong():
     )
 
 
+@pytest.mark.xfail(reason="derp-backend chua deploy; derp.urls=[] tam thoi", strict=False)
 def test_headscale_co_2_region_de_failover():
     """
     Khi 1 region chet, client phai co region du phong.
