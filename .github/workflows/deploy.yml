@@ -8,6 +8,11 @@ on:
     types: [completed]
     branches: [main]
   workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch để deploy (mặc định: main)'
+        required: false
+        default: 'main'
 
 # Không deploy chồng chéo: hàng đợi 1 lần 1.
 concurrency:
@@ -28,7 +33,7 @@ jobs:
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_KEY }}
           port: ${{ secrets.SSH_PORT || '22' }}
-          envs: DEPLOY_PATH,REPO_URL,OAUTH2_PROXY_CLIENT_ID,OAUTH2_PROXY_CLIENT_SECRET,OAUTH2_PROXY_COOKIE_SECRET,HEADPLANE_COOKIE_SECRET,HEADPLANE_HS_API_KEY,TS_AUTHKEY,DERP_DATABASE_URL,DERP_SESSION_SECRET,DERP_ALLOWED_EMAILS
+          envs: DEPLOY_PATH,REPO_URL,DEPLOY_BRANCH,OAUTH2_PROXY_CLIENT_ID,OAUTH2_PROXY_CLIENT_SECRET,OAUTH2_PROXY_COOKIE_SECRET,HEADPLANE_COOKIE_SECRET,HEADPLANE_HS_API_KEY,TS_AUTHKEY,DERP_DATABASE_URL,DERP_SESSION_SECRET,DERP_ALLOWED_EMAILS,HEADSCALE_DASHBOARD_SECRET
           script_stop: true
           command_timeout: 20m
           script: |
@@ -59,11 +64,11 @@ jobs:
               $SUDO chown -R "$(id -un):$(id -gn)" "$DEPLOY_PATH"
             fi
 
-            echo "==> [4/6] Cập nhật code mới nhất"
+            echo "==> [4/6] Cập nhật code mới nhất (branch: ${DEPLOY_BRANCH:-main})"
             cd "$DEPLOY_PATH"
             git config --global --add safe.directory "$DEPLOY_PATH" || true
             git fetch --all --prune
-            git reset --hard origin/main
+            git reset --hard "origin/${DEPLOY_BRANCH:-main}"
 
             echo "==> [5/7] Ghi .env (secret OIDC) — giá trị KHÔNG in ra log"
             umask 077
@@ -85,6 +90,8 @@ jobs:
               TS_AUTHKEY=$(cat "$DEPLOY_PATH/.ts_authkey")
             fi
             printf 'TS_AUTHKEY=%s\n'                 "$TS_AUTHKEY"                 >> "$DEPLOY_PATH/.env"
+            # Feature B: secret dung giua headscale va derp-backend de xac thuc API /api/internal/derp-map/:nodeKey
+            printf 'HEADSCALE_DASHBOARD_SECRET=%s\n' "$HEADSCALE_DASHBOARD_SECRET" >> "$DEPLOY_PATH/.env"
 
             echo "==> [6/7] Khởi động stack"
             # Xoa symlink socket cu (tailscaled.sock -> /tmp, tu cac lan truoc) trong
@@ -92,15 +99,6 @@ jobs:
             # da tro vao day) -> node-dedup goi LocalAPI ping duoc.
             $SUDO docker compose run --rm --no-deps --entrypoint sh tailscale -c 'rm -f /var/run/tailscale/tailscaled.sock' >/dev/null 2>&1 || true
             $SUDO docker compose pull
-            # Don container 'derp-backend' ket truoc khi up: neu container ten nay
-            # ton tai nhung KHONG thuoc compose project hien tai (tao tu lan truoc /
-            # build khac), `up` bao "name already in use" va FAIL ca stack. Xoa no
-            # roi `up` tao lai sach. AN TOAN vi derp-backend la STATELESS (DB Neon
-            # cloud, khong volume; chi bind-mount config/derp.yaml:ro) -> chi chop
-            # ~vai giay dashboard DERP, KHONG dung headscale/collector/caddy/VPN
-            # traffic. --force-recreate von cung tao lai no moi deploy nen khong them
-            # gian doan. Chi nham dung derp-backend, khong dung service khac.
-            $SUDO docker rm -f derp-backend >/dev/null 2>&1 || true
             # --force-recreate để container đọc lại Caddyfile/config.yaml (bind-mount đổi
             # không tự trigger restart). Volume dữ liệu vẫn giữ nguyên (keys, db, certs).
             $SUDO docker compose up -d --build --force-recreate --remove-orphans
@@ -208,6 +206,7 @@ jobs:
         env:
           DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
           REPO_URL: https://github.com/vanbienperu3107/deployHeadscale.git
+          DEPLOY_BRANCH: ${{ github.event.inputs.branch || 'main' }}
           OAUTH2_PROXY_CLIENT_ID: ${{ secrets.OAUTH2_PROXY_CLIENT_ID }}
           OAUTH2_PROXY_CLIENT_SECRET: ${{ secrets.OAUTH2_PROXY_CLIENT_SECRET }}
           OAUTH2_PROXY_COOKIE_SECRET: ${{ secrets.OAUTH2_PROXY_COOKIE_SECRET }}
@@ -217,3 +216,4 @@ jobs:
           DERP_DATABASE_URL: ${{ secrets.DERP_DATABASE_URL }}
           DERP_SESSION_SECRET: ${{ secrets.DERP_SESSION_SECRET }}
           DERP_ALLOWED_EMAILS: ${{ secrets.DERP_ALLOWED_EMAILS }}
+          HEADSCALE_DASHBOARD_SECRET: ${{ secrets.HEADSCALE_DASHBOARD_SECRET }}
