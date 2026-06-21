@@ -8,6 +8,15 @@ on:
     types: [completed]
     branches: [main]
   workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch để deploy (mặc định: main)'
+        required: false
+        default: 'main'
+      skip_smoke:
+        description: 'Bỏ qua smoke test gate (true/false)'
+        required: false
+        default: 'false'
 
 # Không deploy chồng chéo: hàng đợi 1 lần 1.
 concurrency:
@@ -28,7 +37,7 @@ jobs:
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_KEY }}
           port: ${{ secrets.SSH_PORT || '22' }}
-          envs: DEPLOY_PATH,REPO_URL,OAUTH2_PROXY_CLIENT_ID,OAUTH2_PROXY_CLIENT_SECRET,OAUTH2_PROXY_COOKIE_SECRET,HEADPLANE_COOKIE_SECRET,HEADPLANE_HS_API_KEY,TS_AUTHKEY,DERP_DATABASE_URL,DERP_SESSION_SECRET,DERP_ALLOWED_EMAILS
+          envs: DEPLOY_PATH,REPO_URL,DEPLOY_BRANCH,SKIP_SMOKE,GHCR_PAT,GHCR_USER,OAUTH2_PROXY_CLIENT_ID,OAUTH2_PROXY_CLIENT_SECRET,OAUTH2_PROXY_COOKIE_SECRET,HEADPLANE_COOKIE_SECRET,HEADPLANE_HS_API_KEY,TS_AUTHKEY,DERP_DATABASE_URL,DERP_SESSION_SECRET,DERP_ALLOWED_EMAILS,HEADSCALE_DASHBOARD_SECRET
           script_stop: true
           command_timeout: 20m
           script: |
@@ -59,11 +68,11 @@ jobs:
               $SUDO chown -R "$(id -un):$(id -gn)" "$DEPLOY_PATH"
             fi
 
-            echo "==> [4/6] Cập nhật code mới nhất"
+            echo "==> [4/6] Cập nhật code mới nhất (branch: ${DEPLOY_BRANCH:-main})"
             cd "$DEPLOY_PATH"
             git config --global --add safe.directory "$DEPLOY_PATH" || true
             git fetch --all --prune
-            git reset --hard origin/main
+            git reset --hard "origin/${DEPLOY_BRANCH:-main}"
 
             echo "==> [5/7] Ghi .env (secret OIDC) — giá trị KHÔNG in ra log"
             umask 077
@@ -85,8 +94,14 @@ jobs:
               TS_AUTHKEY=$(cat "$DEPLOY_PATH/.ts_authkey")
             fi
             printf 'TS_AUTHKEY=%s\n'                 "$TS_AUTHKEY"                 >> "$DEPLOY_PATH/.env"
+            # Feature B: secret dung giua headscale va derp-backend de xac thuc API /api/internal/derp-map/:nodeKey
+            printf 'HEADSCALE_DASHBOARD_SECRET=%s\n' "$HEADSCALE_DASHBOARD_SECRET" >> "$DEPLOY_PATH/.env"
 
             echo "==> [6/7] Khởi động stack"
+            # Login vao ghcr.io de pull image private (headscale:0.27.1-pernode).
+            if [ -n "$GHCR_PAT" ]; then
+              printf '%s' "$GHCR_PAT" | $SUDO docker login ghcr.io -u "${GHCR_USER:-vanbienperu3107}" --password-stdin
+            fi
             # Xoa symlink socket cu (tailscaled.sock -> /tmp, tu cac lan truoc) trong
             # volume ts_sock, de tailscaled tao SOCKET THAT trong volume chia se (TS_SOCKET
             # da tro vao day) -> node-dedup goi LocalAPI ping duoc.
@@ -96,57 +111,53 @@ jobs:
             # không tự trigger restart). Volume dữ liệu vẫn giữ nguyên (keys, db, certs).
             $SUDO docker compose up -d --build --force-recreate --remove-orphans
 
-            echo "==> [7/7] Bao dam 'collector' join tailnet (de /stats co latency)"
-            # Buoc 1: chua co key -> tu tao preauth key reusable tren headscale.
-            if [ -z "$TS_AUTHKEY" ]; then
-              echo "  Chua co TS_AUTHKEY -> tu tao tren headscale (key KHONG in ra log)"
-              for _ in $(seq 1 30); do
-                if $SUDO docker exec headscale headscale users list -o json >/dev/null 2>&1; then break; fi
-                sleep 2
-              done
-              USERS_JSON=$($SUDO docker exec headscale headscale users list -o json 2>/dev/null || echo '[]')
-              U_ID=$(printf '%s' "$USERS_JSON" | grep -oE '"id":[ ]*"?[0-9]+' | head -1 | grep -oE '[0-9]+' || true)
-              U_NAME=$(printf '%s' "$USERS_JSON" | grep -oE '"name":[ ]*"[^"]*"' | head -1 | sed -E 's/.*"name":[ ]*"([^"]*)".*/\1/' || true)
-              echo "  user headscale dau tien: id=${U_ID:-?} name=${U_NAME:-?}"
-              for SEL in "$U_ID" "$U_NAME"; do
-                if [ -z "$SEL" ]; then continue; fi
-                OUT=$($SUDO docker exec headscale headscale preauthkeys create --user "$SEL" --reusable --expiration 8760h -o json 2>/tmp/pkerr || true)
-                TS_AUTHKEY=$(printf '%s' "$OUT" | grep -oE '"key":[ ]*"[^"]+"' | head -1 | sed -E 's/.*"key":[ ]*"([^"]+)".*/\1/' || true)
-                if [ -n "$TS_AUTHKEY" ]; then echo "  Tao key OK voi --user $SEL"; break; fi
-                echo "  --user $SEL chua duoc, thu cach khac. Loi:"; cat /tmp/pkerr 2>/dev/null || true
-              done
-              if [ -n "$TS_AUTHKEY" ]; then
-                printf '%s' "$TS_AUTHKEY" > "$DEPLOY_PATH/.ts_authkey"; chmod 600 "$DEPLOY_PATH/.ts_authkey"
-                grep -v '^TS_AUTHKEY=' "$DEPLOY_PATH/.env" > "$DEPLOY_PATH/.env.tmp" 2>/dev/null || true
-                printf 'TS_AUTHKEY=%s\n' "$TS_AUTHKEY" >> "$DEPLOY_PATH/.env.tmp"
-                mv "$DEPLOY_PATH/.env.tmp" "$DEPLOY_PATH/.env"
-                echo "  Da luu .ts_authkey + cap nhat .env"
-              else
-                echo "  CANH BAO: chua tao duoc preauth key (co user chua? dang nhap /admin 1 lan de tao). /stats van chay, chi thieu latency."
+            echo "==> [7/7] Kiem tra collector + tao preauth key neu can"
+            # Dung subshell () + || true: moi loi ben trong khong anh huong parent shell.
+            # Dash (Ubuntu /bin/sh) exit ca khi set +e trong cac $(cmd) substitution;
+            # subshell voi || true ben ngoai la cach duy nhat bao dam parent tiep tuc.
+            (
+              set +e
+              if [ -z "$TS_AUTHKEY" ] && [ -f "$DEPLOY_PATH/.ts_authkey" ]; then
+                TS_AUTHKEY=$(cat "$DEPLOY_PATH/.ts_authkey" 2>/dev/null || true)
               fi
-            fi
-            # Buoc 2: co key roi -> bao dam collector THUC SU join. State cu tu cac lan
-            # crash (authkey trong) khien containerboot lam INTERACTIVE login (authURL)
-            # thay vi dung authkey. Neu chua join -> xoa state + re-up voi authkey.
-            if [ -n "$TS_AUTHKEY" ]; then
-              joined=0
-              # Cho toi 60s (state co san thuong join lai trong vai giay). Cho lau
-              # hon TRUOC khi xoa state -> tranh churn danh tinh node 'collector'
-              # khong can thiet moi lan join hoi cham (lam reporter mat dau collector).
-              for _ in $(seq 1 30); do
-                if $SUDO docker exec ts-collector tailscale ip -4 >/dev/null 2>&1; then joined=1; break; fi
-                sleep 2
-              done
-              if [ "$joined" = "1" ]; then
-                echo "  collector DA join tailnet ($($SUDO docker exec ts-collector tailscale ip -4 2>/dev/null | head -1))"
-              else
-                echo "  collector CHUA join (state cu/interactive) -> xoa state + re-up voi authkey"
-                $SUDO docker compose rm -sf tailscale ts-forward >/dev/null 2>&1 || true
-                $SUDO docker compose run --rm --no-deps --entrypoint sh tailscale -c 'rm -rf /var/lib/tailscale/* 2>/dev/null || true' >/dev/null 2>&1 || true
-                $SUDO docker compose up -d --force-recreate tailscale ts-forward
+              if [ -z "$TS_AUTHKEY" ]; then
+                echo "  Chua co TS_AUTHKEY -> cho headscale san sang roi tao key..."
+                hs_ok=0
+                for i in $(seq 1 15); do
+                  printf '  headscale check %d/15...\n' "$i"
+                  if $SUDO docker exec headscale headscale users list -o json >/dev/null 2>&1; then
+                    hs_ok=1; break
+                  fi
+                  sleep 2
+                done
+                if [ "$hs_ok" = "1" ]; then
+                  USERS_JSON=$($SUDO docker exec headscale headscale users list -o json 2>/dev/null || true)
+                  [ -z "$USERS_JSON" ] && USERS_JSON='[]'
+                  U_ID=$(printf '%s' "$USERS_JSON" | grep -oE '"id"[ ]*:[ ]*"?[0-9]+' | head -1 | grep -oE '[0-9]+' || true)
+                  U_NAME=$(printf '%s' "$USERS_JSON" | grep -oE '"name"[ ]*:[ ]*"[^"]*"' | head -1 | sed -E 's/.*"name"[ ]*:[ ]*"([^"]*)".*/\1/' || true)
+                  echo "  headscale user: id=${U_ID:-?} name=${U_NAME:-?}"
+                  for SEL in "$U_ID" "$U_NAME"; do
+                    if [ -z "$SEL" ]; then continue; fi
+                    OUT=$($SUDO docker exec headscale headscale preauthkeys create --user "$SEL" --reusable --expiration 8760h -o json 2>/dev/null || true)
+                    KEY=$(printf '%s' "$OUT" | grep -oE '"key"[ ]*:[ ]*"[^"]+"' | head -1 | sed -E 's/.*"key"[ ]*:[ ]*"([^"]+)".*/\1/' || true)
+                    if [ -n "$KEY" ]; then
+                      printf '%s' "$KEY" > "$DEPLOY_PATH/.ts_authkey"
+                      chmod 600 "$DEPLOY_PATH/.ts_authkey"
+                      echo "  Tao preauth key OK voi --user $SEL -> luu .ts_authkey"
+                      break
+                    fi
+                  done
+                fi
+                echo "  CANH BAO: chua tao duoc preauth key -> collector chua join, /stats thieu latency."
               fi
-            fi
-            $SUDO docker compose ps
+              col_ip=$($SUDO docker exec ts-collector tailscale ip -4 2>/dev/null || true)
+              if [ -n "$col_ip" ]; then
+                echo "  collector da join tailnet: $col_ip"
+              else
+                echo "  collector chua join tailnet (se tu join sau khi headscale san sang)."
+              fi
+              $SUDO docker compose ps 2>/dev/null | tail -12
+            ) || true
             echo "==> Log oauth2-proxy (chẩn đoán; oauth2-proxy không in secret)"
             sleep 3
             $SUDO docker logs --tail 25 oauth2-proxy 2>&1 || true
@@ -179,26 +190,34 @@ jobs:
             # vpn5 con WIP -> chua dua vao gate.
             EXPECTED_REPORTERS="${EXPECTED_REPORTERS:-vpn3,vpn4,vpn6}"
             HEALTH_WINDOW=200
-            smoke_ok=0
-            for _ in $(seq 1 18); do   # ~3 phut (18 x 10s) cho reporter join lai + chu ky 30s
-              out=$($SUDO docker exec caddy sh -c "wget -q -O - 'http://node-dedup:8090/metrics/health?expect=${EXPECTED_REPORTERS}&window=${HEALTH_WINDOW}'" 2>/dev/null || true)
-              echo "  health: $out"
-              if printf '%s' "$out" | grep -q '"ok": *true'; then smoke_ok=1; break; fi
-              sleep 10
-            done
-            if [ "$smoke_ok" != "1" ]; then
-              echo "  [SMOKE FAIL] reporter chua bao cao trong ${HEALTH_WINDOW}s (expected=$EXPECTED_REPORTERS)."
-              echo "  -> Deploy stack VAN chay, nhung tinh nang ping-reporter dang hong. Kiem:"
-              echo "     docker logs --tail 40 ping-reporter-vpn3   (tren node DERP tuong ung)"
-              exit 1
+            if [ "${SKIP_SMOKE:-false}" = "true" ]; then
+              echo "  [SMOKE SKIPPED] bo qua theo yeu cau (SKIP_SMOKE=true)."
+            else
+              smoke_ok=0
+              for _ in $(seq 1 18); do   # ~3 phut (18 x 10s) cho reporter join lai + chu ky 30s
+                out=$($SUDO docker exec caddy sh -c "wget -q -O - 'http://node-dedup:8090/metrics/health?expect=${EXPECTED_REPORTERS}&window=${HEALTH_WINDOW}'" 2>/dev/null || true)
+                echo "  health: $out"
+                if printf '%s' "$out" | grep -q '"ok": *true'; then smoke_ok=1; break; fi
+                sleep 10
+              done
+              if [ "$smoke_ok" != "1" ]; then
+                echo "  [SMOKE FAIL] reporter chua bao cao trong ${HEALTH_WINDOW}s (expected=$EXPECTED_REPORTERS)."
+                echo "  -> Deploy stack VAN chay, nhung tinh nang ping-reporter dang hong. Kiem:"
+                echo "     docker logs --tail 40 ping-reporter-vpn3   (tren node DERP tuong ung)"
+                exit 1
+              fi
+              echo "  [SMOKE OK] tat ca reporter bat buoc ($EXPECTED_REPORTERS) dang bao cao."
             fi
-            echo "  [SMOKE OK] tat ca reporter bat buoc ($EXPECTED_REPORTERS) dang bao cao."
             echo ""
             echo "==> Trang thai container"
             $SUDO docker compose ps 2>&1 | tail -12 || true
         env:
           DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
           REPO_URL: https://github.com/vanbienperu3107/deployHeadscale.git
+          DEPLOY_BRANCH: ${{ github.event.inputs.branch || 'main' }}
+          SKIP_SMOKE: ${{ github.event.inputs.skip_smoke || 'false' }}
+          GHCR_PAT: ${{ secrets.GHCR_PAT }}
+          GHCR_USER: vanbienperu3107
           OAUTH2_PROXY_CLIENT_ID: ${{ secrets.OAUTH2_PROXY_CLIENT_ID }}
           OAUTH2_PROXY_CLIENT_SECRET: ${{ secrets.OAUTH2_PROXY_CLIENT_SECRET }}
           OAUTH2_PROXY_COOKIE_SECRET: ${{ secrets.OAUTH2_PROXY_COOKIE_SECRET }}
@@ -208,3 +227,4 @@ jobs:
           DERP_DATABASE_URL: ${{ secrets.DERP_DATABASE_URL }}
           DERP_SESSION_SECRET: ${{ secrets.DERP_SESSION_SECRET }}
           DERP_ALLOWED_EMAILS: ${{ secrets.DERP_ALLOWED_EMAILS }}
+          HEADSCALE_DASHBOARD_SECRET: ${{ secrets.HEADSCALE_DASHBOARD_SECRET }}

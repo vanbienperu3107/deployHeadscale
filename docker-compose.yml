@@ -1,9 +1,9 @@
 services:
   headscale:
-    # Dùng 0.27.1 để KHỚP với headscale-admin 0.27 (0.28 đổi định dạng API key
-    # khiến admin báo "Not Authorized"). Volume DB dùng tên mới vì DB 0.28 không
-    # tương thích ngược — headscale 0.27 khởi tạo DB trống.
-    image: headscale/headscale:0.27.1
+    # Custom build với Feature B (per-node DERPMap). Base = 0.27.1; patch thêm
+    # derp/patch.go + mapper/builder.go để headscale gọi dashboard API lấy DERPMap
+    # riêng cho từng node. Xem: github.com/vanbienperu3107/headscale feat/pernode-derpmap
+    image: ghcr.io/vanbienperu3107/headscale:0.27.1-pernode
     container_name: headscale
     restart: unless-stopped
     command: serve
@@ -13,6 +13,9 @@ services:
     environment:
       - HEADSCALE_OIDC_CLIENT_ID=${OAUTH2_PROXY_CLIENT_ID:-}
       - HEADSCALE_OIDC_CLIENT_SECRET=${OAUTH2_PROXY_CLIENT_SECRET:-}
+      # Feature B: secret cho headscale gọi dashboard API /api/internal/derp-map/:nodeKey
+      # Phải khớp với HEADSCALE_DASHBOARD_SECRET trong derp-backend (.env)
+      - HEADSCALE_DERP_DASHBOARD_SECRET=${HEADSCALE_DASHBOARD_SECRET:-}
     volumes:
       - ./config:/etc/headscale
       - headscale_data_027:/var/lib/headscale
@@ -168,33 +171,10 @@ services:
       - tailscale
       - node-dedup
 
-  # derp-backend — API quan ly DERP node (DB Postgres/Neon) + phuc vu dashboard SPA
-  # + endpoint /derpmap.json cho headscale fetch (derp.urls). Image build tu repo
-  # shadcn-admin (CI -> GHCR). Headscale goi /derpmap.json qua mang noi bo compose.
-  # Dashboard cong khai qua Caddy subdomain dashboard.hangocthanh.io.vn (auth Google
-  # do chinh app lo). DB la cloud Neon nen KHONG can volume.
-  derp-backend:
-    image: ghcr.io/vanbienperu3107/derp-backend:latest
-    container_name: derp-backend
-    restart: unless-stopped
-    environment:
-      - DATABASE_URL=${DERP_DATABASE_URL:-}
-      - PORT=8787
-      # Dashboard phuc vu duoi vpn2.hangocthanh.io.vn/app (Caddy handle_path /app/*).
-      - PUBLIC_URL=https://vpn2.hangocthanh.io.vn/app
-      # Tai dung Google OAuth client cua oauth2-proxy (them redirect URI moi o Google Console)
-      - GOOGLE_CLIENT_ID=${OAUTH2_PROXY_CLIENT_ID:-}
-      - GOOGLE_CLIENT_SECRET=${OAUTH2_PROXY_CLIENT_SECRET:-}
-      - SESSION_SECRET=${DERP_SESSION_SECRET:-}
-      - ALLOWED_EMAILS=${DERP_ALLOWED_EMAILS:-hangocthanh3107@gmail.com,hangocthanhperu3107@gmail.com}
-      - SEED_DERP_YAML=/seed/derp.yaml
-      - CLIENT_DIST=/app/client
-      - AUTH_OPTIONAL=false
-      - NODE_ENV=production
-    volumes:
-      - ./config/derp.yaml:/seed/derp.yaml:ro   # seed lan dau (neu DB rong)
-    depends_on:
-      - headscale
+  # derp-backend da TACH sang repo shadcnAdminCustom (deploy doc lap qua workflow
+  # "Deploy DERP dashboard" / tag deploy-dashboard-*). No chay duoi project rieng roi
+  # 'docker network connect' vao mang nay -> Caddy route /app + headscale derp.urls
+  # van goi 'derp-backend:8787' duoc. Khong con dinh nghia service o day.
 
   caddy:
     # Build Caddy kem plugin replace-response (chen nut "Thong ke" vao /admin).
@@ -207,7 +187,6 @@ services:
       - oauth2-proxy
       - headplane
       - node-dedup
-      - derp-backend
     ports:
       - "80:80"
       - "443:443"
