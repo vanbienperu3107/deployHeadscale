@@ -111,57 +111,48 @@ jobs:
             # không tự trigger restart). Volume dữ liệu vẫn giữ nguyên (keys, db, certs).
             $SUDO docker compose up -d --build --force-recreate --remove-orphans
 
-            echo "==> [7/7] Bao dam 'collector' join tailnet (de /stats co latency)"
-            # Buoc 1: chua co key -> tu tao preauth key reusable tren headscale.
+            echo "==> [7/7] Kiem tra collector + tao preauth key neu can"
+            # Tao preauth key neu chua co (ko co trong GitHub Secrets va ko co file .ts_authkey).
+            if [ -z "$TS_AUTHKEY" ] && [ -f "$DEPLOY_PATH/.ts_authkey" ]; then
+              TS_AUTHKEY=$(cat "$DEPLOY_PATH/.ts_authkey" || true)
+            fi
             if [ -z "$TS_AUTHKEY" ]; then
-              echo "  Chua co TS_AUTHKEY -> tu tao tren headscale (key KHONG in ra log)"
-              for _ in $(seq 1 30); do
-                if $SUDO docker exec headscale headscale users list -o json >/dev/null 2>&1; then break; fi
+              echo "  Chua co TS_AUTHKEY -> cho headscale san sang roi tao key..."
+              hs_ok=0
+              for i in $(seq 1 15); do
+                printf '  headscale check %d/15...\n' "$i"
+                if $SUDO docker exec headscale headscale users list -o json >/dev/null 2>&1; then hs_ok=1; break; fi
                 sleep 2
               done
-              USERS_JSON=$($SUDO docker exec headscale headscale users list -o json 2>/dev/null || echo '[]')
-              U_ID=$(printf '%s' "$USERS_JSON" | grep -oE '"id":[ ]*"?[0-9]+' | head -1 | grep -oE '[0-9]+' || true)
-              U_NAME=$(printf '%s' "$USERS_JSON" | grep -oE '"name":[ ]*"[^"]*"' | head -1 | sed -E 's/.*"name":[ ]*"([^"]*)".*/\1/' || true)
-              echo "  user headscale dau tien: id=${U_ID:-?} name=${U_NAME:-?}"
-              for SEL in "$U_ID" "$U_NAME"; do
-                if [ -z "$SEL" ]; then continue; fi
-                OUT=$($SUDO docker exec headscale headscale preauthkeys create --user "$SEL" --reusable --expiration 8760h -o json 2>/tmp/pkerr || true)
-                TS_AUTHKEY=$(printf '%s' "$OUT" | grep -oE '"key":[ ]*"[^"]+"' | head -1 | sed -E 's/.*"key":[ ]*"([^"]+)".*/\1/' || true)
-                if [ -n "$TS_AUTHKEY" ]; then echo "  Tao key OK voi --user $SEL"; break; fi
-                echo "  --user $SEL chua duoc, thu cach khac. Loi:"; cat /tmp/pkerr 2>/dev/null || true
-              done
-              if [ -n "$TS_AUTHKEY" ]; then
-                printf '%s' "$TS_AUTHKEY" > "$DEPLOY_PATH/.ts_authkey"; chmod 600 "$DEPLOY_PATH/.ts_authkey"
-                grep -v '^TS_AUTHKEY=' "$DEPLOY_PATH/.env" > "$DEPLOY_PATH/.env.tmp" 2>/dev/null || true
-                printf 'TS_AUTHKEY=%s\n' "$TS_AUTHKEY" >> "$DEPLOY_PATH/.env.tmp"
-                mv "$DEPLOY_PATH/.env.tmp" "$DEPLOY_PATH/.env"
-                echo "  Da luu .ts_authkey + cap nhat .env"
-              else
-                echo "  CANH BAO: chua tao duoc preauth key (co user chua? dang nhap /admin 1 lan de tao). /stats van chay, chi thieu latency."
+              if [ "$hs_ok" = "1" ]; then
+                USERS_JSON=$($SUDO docker exec headscale headscale users list -o json 2>/dev/null || echo '[]')
+                U_ID=$(printf '%s' "$USERS_JSON" | grep -oE '"id"[ ]*:[ ]*"?[0-9]+' | head -1 | grep -oE '[0-9]+' || true)
+                U_NAME=$(printf '%s' "$USERS_JSON" | grep -oE '"name"[ ]*:[ ]*"[^"]*"' | head -1 | sed -E 's/.*"name"[ ]*:[ ]*"([^"]*)".*/\1/' || true)
+                echo "  headscale user: id=${U_ID:-?} name=${U_NAME:-?}"
+                for SEL in "$U_ID" "$U_NAME"; do
+                  [ -z "$SEL" ] && continue
+                  OUT=$($SUDO docker exec headscale headscale preauthkeys create --user "$SEL" --reusable --expiration 8760h -o json 2>/dev/null || true)
+                  KEY=$(printf '%s' "$OUT" | grep -oE '"key"[ ]*:[ ]*"[^"]+"' | head -1 | sed -E 's/.*"key"[ ]*:[ ]*"([^"]+)".*/\1/' || true)
+                  if [ -n "$KEY" ]; then
+                    TS_AUTHKEY="$KEY"
+                    printf '%s' "$TS_AUTHKEY" > "$DEPLOY_PATH/.ts_authkey" && chmod 600 "$DEPLOY_PATH/.ts_authkey" || true
+                    echo "  Tao preauth key OK voi --user $SEL -> luu .ts_authkey"
+                    break
+                  fi
+                done
+              fi
+              if [ -z "$TS_AUTHKEY" ]; then
+                echo "  CANH BAO: chua tao duoc preauth key -> collector chua join, /stats thieu latency."
               fi
             fi
-            # Buoc 2: co key roi -> bao dam collector THUC SU join. State cu tu cac lan
-            # crash (authkey trong) khien containerboot lam INTERACTIVE login (authURL)
-            # thay vi dung authkey. Neu chua join -> xoa state + re-up voi authkey.
-            if [ -n "$TS_AUTHKEY" ]; then
-              joined=0
-              # Cho toi 60s, in dot moi 2s de giu SSH alive (tranh idle timeout VPS).
-              for i in $(seq 1 30); do
-                if $SUDO docker exec ts-collector tailscale ip -4 >/dev/null 2>&1; then joined=1; break; fi
-                printf '  collector join check %d/30...\n' "$i"
-                sleep 2
-              done
-              if [ "$joined" = "1" ]; then
-                ip4=$($SUDO docker exec ts-collector tailscale ip -4 2>/dev/null || echo '?')
-                echo "  collector DA join tailnet ($ip4)"
-              else
-                echo "  collector CHUA join (state cu/interactive) -> xoa state + re-up voi authkey"
-                $SUDO docker compose rm -sf tailscale ts-forward >/dev/null 2>&1 || true
-                $SUDO docker compose run --rm --no-deps --entrypoint sh tailscale -c 'rm -rf /var/lib/tailscale/* 2>/dev/null || true' >/dev/null 2>&1 || true
-                $SUDO docker compose up -d --force-recreate tailscale ts-forward || true
-              fi
+            # Chi log trang thai collector, KHONG tu dong rm/re-up (tranh crash set -e).
+            col_ip=$($SUDO docker exec ts-collector tailscale ip -4 2>/dev/null || true)
+            if [ -n "$col_ip" ]; then
+              echo "  collector da join tailnet: $col_ip"
+            else
+              echo "  collector chua join tailnet (se tu join sau khi headscale san sang)."
             fi
-            $SUDO docker compose ps || true
+            $SUDO docker compose ps 2>/dev/null | tail -12 || true
             echo "==> Log oauth2-proxy (chẩn đoán; oauth2-proxy không in secret)"
             sleep 3
             $SUDO docker logs --tail 25 oauth2-proxy 2>&1 || true
