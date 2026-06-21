@@ -7,6 +7,9 @@ services:
     container_name: headscale
     restart: unless-stopped
     command: serve
+    depends_on:
+      derp-backend:
+        condition: service_healthy
     # OIDC client (Google) cho đăng ký thiết bị tự động — tái dùng đúng Google
     # OAuth client của oauth2-proxy. Giá trị lấy từ .env (gitignored), nên secret
     # KHÔNG nằm trong repo. config/config.yaml chỉ chứa issuer/scope/allowed_users.
@@ -194,8 +197,12 @@ services:
       - HEADSCALE_DASHBOARD_SECRET=${HEADSCALE_DASHBOARD_SECRET:-}
       - AUTH_OPTIONAL=false
       - NODE_ENV=production
-    depends_on:
-      - headscale
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8787/healthz 2>/dev/null | grep -q ok || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 20s
 
   caddy:
     # Build Caddy kem plugin replace-response (chen nut "Thong ke" vao /admin).
