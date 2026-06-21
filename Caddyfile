@@ -25,12 +25,12 @@ vpn2.hangocthanh.io.vn {
 	# /admin/oidc/callback (vẫn nằm trong /admin → headplane).
 	handle /admin* {
 		# Chen 2 nut co dinh vao goc phai duoi cua trang Headplane:
-		#   "DERP Status" (link sang /derp) va "Thong ke" (link sang /stats).
+		#   "DERP Status" (link sang /derp-status) va "Thong ke" (link sang /stats).
 		# Accept-Encoding identity de Headplane tra HTML khong nen -> replace khop.
 		reverse_proxy headplane:3000 {
 			header_up Accept-Encoding identity
 		}
-		replace `</body>` `<div style="position:fixed;z-index:99999;right:18px;bottom:18px;display:flex;gap:8px"><a href="/derp" target="_blank" title="DERP relay status" style="background:#7c3aed;color:#fff;padding:10px 16px;border-radius:10px;font:600 13px system-ui,Arial,sans-serif;text-decoration:none;box-shadow:0 4px 14px rgba(0,0,0,.45)">&#127760; DERP</a><a href="/stats" target="_blank" title="Xem thong ke latency/MAC" style="background:#2563eb;color:#fff;padding:10px 16px;border-radius:10px;font:600 13px system-ui,Arial,sans-serif;text-decoration:none;box-shadow:0 4px 14px rgba(0,0,0,.45)">&#128202; Th&#7889;ng k&#234;</a></div></body>`
+		replace `</body>` `<div style="position:fixed;z-index:99999;right:18px;bottom:18px;display:flex;gap:8px"><a href="/derp-status" target="_blank" title="DERP relay status" style="background:#7c3aed;color:#fff;padding:10px 16px;border-radius:10px;font:600 13px system-ui,Arial,sans-serif;text-decoration:none;box-shadow:0 4px 14px rgba(0,0,0,.45)">&#127760; DERP</a><a href="/stats" target="_blank" title="Xem thong ke latency/MAC" style="background:#2563eb;color:#fff;padding:10px 16px;border-radius:10px;font:600 13px system-ui,Arial,sans-serif;text-decoration:none;box-shadow:0 4px 14px rgba(0,0,0,.45)">&#128202; Th&#7889;ng k&#234;</a></div></body>`
 	}
 
 	# Captive-portal probe cua client (fork dung domain rieng thay tailscale.com)
@@ -55,28 +55,10 @@ vpn2.hangocthanh.io.vn {
 		reverse_proxy node-dedup:8090
 	}
 
-	# DERP relay thuc su cua Tailscale clients — KHONG qua auth, proxy thang headscale.
-	# /derp/latency-check va /derp/probe: client dung de do latency/probe DERP region.
-	# /derp (WebSocket Upgrade): ket noi relay thuc su cua client.
-	# Phai dat TRUOC block /derp* de khong bi SSO gate chan.
-	handle /derp/latency-check {
-		reverse_proxy headscale:8080
-	}
-	handle /derp/probe {
-		reverse_proxy headscale:8080
-	}
-	@derp_relay {
-		path /derp
-		header Upgrade websocket
-	}
-	handle @derp_relay {
-		reverse_proxy headscale:8080
-	}
-
-	# Trang DERP status (/derp) - gated bang Google SSO. Hien thi health cua tung
-	# DERP region va node dang relay qua region nao. Du lieu tu node_latency DB.
-	# Chi bat cac request browser thong thuong (khong phai WebSocket/relay client).
-	handle /derp* {
+	# DERP status page (/derp-status) - gated bang Google SSO.
+	# Du lieu tu node_latency DB qua node-dedup.
+	# Doi URL tu /derp sang /derp-status de giai phong /derp cho relay thuc su.
+	handle /derp-status* {
 		forward_auth oauth2-proxy:4180 {
 			uri /oauth2/auth
 			copy_headers X-Auth-Request-Email X-Auth-Request-User
@@ -85,25 +67,27 @@ vpn2.hangocthanh.io.vn {
 				redir * /oauth2/start?rd={http.request.uri}
 			}
 		}
+		# Strip /derp-status prefix truoc khi gui den node-dedup
+		uri strip_prefix /derp-status
 		reverse_proxy node-dedup:8090
 	}
 
 	# Dashboard quan ly DERP (shadcn-admin) duoi /app: Caddy strip /app -> derp-backend.
-	# Backend tu lo dang nhap Google + phuc vu SPA + /api. Headscale fetch /derpmap.json
-	# qua mang noi bo compose (http://derp-backend:8787), khong qua Caddy.
-	# Google redirect URI: https://vpn2.hangocthanh.io.vn/app/api/auth/google/callback
+	# derp-backend chua deploy -> tam thoi redirect sang /admin de tranh 502.
+	# Khi derp-backend chay, doi lai: handle_path /app/* { reverse_proxy derp-backend:8787 }
 	handle_path /app/* {
-		reverse_proxy derp-backend:8787
+		redir * /admin 302
 	}
 
-	# Vao root vpn2.hangocthanh.io.vn -> TU REDIRECT sang dashboard /app (khoi go them path).
-	# Chi khop DUNG path '/'; endpoint headscale (/key, /ts2021, /api/v1, /derp...) khong dung '/'.
+	# Vao root vpn2.hangocthanh.io.vn -> redirect sang /admin (headplane).
+	# /app/ da bi 502 vi derp-backend chua deploy.
 	@home path /
 	handle @home {
-		redir * /app/ 302
+		redir * /admin 302
 	}
 
-	# Còn lại → Headscale control plane / API (xác thực bằng API key/node key)
+	# Tat ca con lai (bao gom /derp*, /key, /ts2021, /api/v1, /machine, /register...)
+	# -> Headscale control plane / DERP relay. KHONG qua auth.
 	handle {
 		reverse_proxy headscale:8080
 	}
