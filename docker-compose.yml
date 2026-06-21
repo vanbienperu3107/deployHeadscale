@@ -171,10 +171,31 @@ services:
       - tailscale
       - node-dedup
 
-  # derp-backend da TACH sang repo shadcnAdminCustom (deploy doc lap qua workflow
-  # "Deploy DERP dashboard" / tag deploy-dashboard-*). No chay duoi project rieng roi
-  # 'docker network connect' vao mang nay -> Caddy route /app + headscale derp.urls
-  # van goi 'derp-backend:8787' duoc. Khong con dinh nghia service o day.
+  # Dashboard quan ly DERP (shadcnAdminCustom repo). Image duoc build va push tu
+  # shadcnAdminCustom CI (tag deploy-dashboard-*) -> ghcr.io/vanbienperu3107/derp-backend:latest.
+  # compose pull tu GHCR -> container luon song cung compose stack, khong bi mat sau deploy.
+  # /app/* -> Caddy -> derp-backend:8787. headscale -> /derpmap.json -> chi node enabled.
+  derp-backend:
+    image: ghcr.io/vanbienperu3107/derp-backend:latest
+    container_name: derp-backend
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=${DERP_DATABASE_URL:-}
+      - PORT=8787
+      - PUBLIC_URL=https://vpn2.hangocthanh.io.vn/app
+      # Tai dung Google OAuth client cua oauth2-proxy (cung domain, them callback /app/auth/callback).
+      - GOOGLE_CLIENT_ID=${OAUTH2_PROXY_CLIENT_ID:-}
+      - GOOGLE_CLIENT_SECRET=${OAUTH2_PROXY_CLIENT_SECRET:-}
+      - SESSION_SECRET=${DERP_SESSION_SECRET:-}
+      - ALLOWED_EMAILS=${DERP_ALLOWED_EMAILS:-}
+      # API key headscale de dashboard goi API (tao key, list node...).
+      - HEADSCALE_API_KEY=${HEADPLANE_HS_API_KEY:-}
+      # Secret xac thuc call noi bo headscale -> /api/internal/derp-map/:nodeKey (Feature B).
+      - HEADSCALE_DASHBOARD_SECRET=${HEADSCALE_DASHBOARD_SECRET:-}
+      - AUTH_OPTIONAL=false
+      - NODE_ENV=production
+    depends_on:
+      - headscale
 
   caddy:
     # Build Caddy kem plugin replace-response (chen nut "Thong ke" vao /admin).

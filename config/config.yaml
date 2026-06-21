@@ -36,9 +36,8 @@ derp:
   # urls: tat tam thoi cho den khi derp-backend duoc deploy va ket noi cung network.
   # Khi derp-backend chay, uncomment dong duoi de enable dynamic DERP map.
   paths: []
-  urls: []
-  # urls:
-  #   - http://derp-backend:8787/derpmap.json
+  urls:
+    - http://derp-backend:8787/derpmap.json
   auto_update_enabled: true
   update_frequency: 10s
 
