@@ -112,30 +112,32 @@ jobs:
             $SUDO docker compose up -d --build --force-recreate --remove-orphans
 
             echo "==> [7/7] Kiem tra collector + tao preauth key neu can"
-            # Tao preauth key neu chua co (ko co trong GitHub Secrets va ko co file .ts_authkey).
+            set +e   # Tat set -e cho phan nay de tranh thoat som vi short-circuit &&
             if [ -z "$TS_AUTHKEY" ] && [ -f "$DEPLOY_PATH/.ts_authkey" ]; then
-              TS_AUTHKEY=$(cat "$DEPLOY_PATH/.ts_authkey" || true)
+              TS_AUTHKEY=$(cat "$DEPLOY_PATH/.ts_authkey")
             fi
             if [ -z "$TS_AUTHKEY" ]; then
               echo "  Chua co TS_AUTHKEY -> cho headscale san sang roi tao key..."
               hs_ok=0
               for i in $(seq 1 15); do
                 printf '  headscale check %d/15...\n' "$i"
-                if $SUDO docker exec headscale headscale users list -o json >/dev/null 2>&1; then hs_ok=1; break; fi
+                $SUDO docker exec headscale headscale users list -o json >/dev/null 2>&1 && hs_ok=1 && break
                 sleep 2
               done
               if [ "$hs_ok" = "1" ]; then
-                USERS_JSON=$($SUDO docker exec headscale headscale users list -o json 2>/dev/null || echo '[]')
-                U_ID=$(printf '%s' "$USERS_JSON" | grep -oE '"id"[ ]*:[ ]*"?[0-9]+' | head -1 | grep -oE '[0-9]+' || true)
-                U_NAME=$(printf '%s' "$USERS_JSON" | grep -oE '"name"[ ]*:[ ]*"[^"]*"' | head -1 | sed -E 's/.*"name"[ ]*:[ ]*"([^"]*)".*/\1/' || true)
+                USERS_JSON=$($SUDO docker exec headscale headscale users list -o json 2>/dev/null)
+                [ -z "$USERS_JSON" ] && USERS_JSON='[]'
+                U_ID=$(printf '%s' "$USERS_JSON" | grep -oE '"id"[ ]*:[ ]*"?[0-9]+' | head -1 | grep -oE '[0-9]+')
+                U_NAME=$(printf '%s' "$USERS_JSON" | grep -oE '"name"[ ]*:[ ]*"[^"]*"' | head -1 | sed -E 's/.*"name"[ ]*:[ ]*"([^"]*)".*/\1/')
                 echo "  headscale user: id=${U_ID:-?} name=${U_NAME:-?}"
                 for SEL in "$U_ID" "$U_NAME"; do
-                  [ -z "$SEL" ] && continue
-                  OUT=$($SUDO docker exec headscale headscale preauthkeys create --user "$SEL" --reusable --expiration 8760h -o json 2>/dev/null || true)
-                  KEY=$(printf '%s' "$OUT" | grep -oE '"key"[ ]*:[ ]*"[^"]+"' | head -1 | sed -E 's/.*"key"[ ]*:[ ]*"([^"]+)".*/\1/' || true)
+                  if [ -z "$SEL" ]; then continue; fi
+                  OUT=$($SUDO docker exec headscale headscale preauthkeys create --user "$SEL" --reusable --expiration 8760h -o json 2>/dev/null)
+                  KEY=$(printf '%s' "$OUT" | grep -oE '"key"[ ]*:[ ]*"[^"]+"' | head -1 | sed -E 's/.*"key"[ ]*:[ ]*"([^"]+)".*/\1/')
                   if [ -n "$KEY" ]; then
                     TS_AUTHKEY="$KEY"
-                    printf '%s' "$TS_AUTHKEY" > "$DEPLOY_PATH/.ts_authkey" && chmod 600 "$DEPLOY_PATH/.ts_authkey" || true
+                    printf '%s' "$TS_AUTHKEY" > "$DEPLOY_PATH/.ts_authkey"
+                    chmod 600 "$DEPLOY_PATH/.ts_authkey"
                     echo "  Tao preauth key OK voi --user $SEL -> luu .ts_authkey"
                     break
                   fi
@@ -145,14 +147,14 @@ jobs:
                 echo "  CANH BAO: chua tao duoc preauth key -> collector chua join, /stats thieu latency."
               fi
             fi
-            # Chi log trang thai collector, KHONG tu dong rm/re-up (tranh crash set -e).
-            col_ip=$($SUDO docker exec ts-collector tailscale ip -4 2>/dev/null || true)
+            col_ip=$($SUDO docker exec ts-collector tailscale ip -4 2>/dev/null)
             if [ -n "$col_ip" ]; then
               echo "  collector da join tailnet: $col_ip"
             else
               echo "  collector chua join tailnet (se tu join sau khi headscale san sang)."
             fi
-            $SUDO docker compose ps 2>/dev/null | tail -12 || true
+            $SUDO docker compose ps 2>/dev/null | tail -12
+            set -e   # Bat lai set -e sau phan nay
             echo "==> Log oauth2-proxy (chẩn đoán; oauth2-proxy không in secret)"
             sleep 3
             $SUDO docker logs --tail 25 oauth2-proxy 2>&1 || true
