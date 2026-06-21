@@ -42,6 +42,14 @@ derp:
   auto_update_enabled: true
   update_frequency: 10s
 
+  # Feature B: per-node DERPMap override. headscale gọi dashboard API (30s cache,
+  # 500ms timeout) — node không có assignment sẽ nhận DERPMap mặc định (fail-open).
+  # secret nạp từ env HEADSCALE_DERP_DASHBOARD_SECRET (xem docker-compose.yml).
+  dashboard:
+    enabled: true
+    url: http://derp-backend:8787
+    timeout_ms: 500
+
 # === Node ===
 node:
   expiry: 0    # không tự hết hạn

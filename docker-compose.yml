@@ -1,9 +1,9 @@
 services:
   headscale:
-    # Dùng 0.27.1 để KHỚP với headscale-admin 0.27 (0.28 đổi định dạng API key
-    # khiến admin báo "Not Authorized"). Volume DB dùng tên mới vì DB 0.28 không
-    # tương thích ngược — headscale 0.27 khởi tạo DB trống.
-    image: headscale/headscale:0.27.1
+    # Custom build với Feature B (per-node DERPMap). Base = 0.27.1; patch thêm
+    # derp/patch.go + mapper/builder.go để headscale gọi dashboard API lấy DERPMap
+    # riêng cho từng node. Xem: github.com/vanbienperu3107/headscale feat/pernode-derpmap
+    image: ghcr.io/vanbienperu3107/headscale:0.27.1-pernode
     container_name: headscale
     restart: unless-stopped
     command: serve
@@ -13,6 +13,9 @@ services:
     environment:
       - HEADSCALE_OIDC_CLIENT_ID=${OAUTH2_PROXY_CLIENT_ID:-}
       - HEADSCALE_OIDC_CLIENT_SECRET=${OAUTH2_PROXY_CLIENT_SECRET:-}
+      # Feature B: secret cho headscale gọi dashboard API /api/internal/derp-map/:nodeKey
+      # Phải khớp với HEADSCALE_DASHBOARD_SECRET trong derp-backend (.env)
+      - HEADSCALE_DERP_DASHBOARD_SECRET=${HEADSCALE_DASHBOARD_SECRET:-}
     volumes:
       - ./config:/etc/headscale
       - headscale_data_027:/var/lib/headscale
