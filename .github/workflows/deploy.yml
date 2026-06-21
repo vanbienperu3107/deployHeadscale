@@ -145,15 +145,15 @@ jobs:
             # thay vi dung authkey. Neu chua join -> xoa state + re-up voi authkey.
             if [ -n "$TS_AUTHKEY" ]; then
               joined=0
-              # Cho toi 60s (state co san thuong join lai trong vai giay). Cho lau
-              # hon TRUOC khi xoa state -> tranh churn danh tinh node 'collector'
-              # khong can thiet moi lan join hoi cham (lam reporter mat dau collector).
-              for _ in $(seq 1 30); do
+              # Cho toi 60s, in dot moi 2s de giu SSH alive (tranh idle timeout VPS).
+              for i in $(seq 1 30); do
                 if $SUDO docker exec ts-collector tailscale ip -4 >/dev/null 2>&1; then joined=1; break; fi
+                printf '  collector join check %d/30...\n' "$i"
                 sleep 2
               done
               if [ "$joined" = "1" ]; then
-                echo "  collector DA join tailnet ($($SUDO docker exec ts-collector tailscale ip -4 2>/dev/null | head -1))"
+                ip4=$($SUDO docker exec ts-collector tailscale ip -4 2>/dev/null || echo '?')
+                echo "  collector DA join tailnet ($ip4)"
               else
                 echo "  collector CHUA join (state cu/interactive) -> xoa state + re-up voi authkey"
                 $SUDO docker compose rm -sf tailscale ts-forward >/dev/null 2>&1 || true
