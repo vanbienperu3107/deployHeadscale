@@ -13,6 +13,10 @@ on:
         description: 'Branch để deploy (mặc định: main)'
         required: false
         default: 'main'
+      skip_smoke:
+        description: 'Bỏ qua smoke test gate (true/false)'
+        required: false
+        default: 'false'
 
 # Không deploy chồng chéo: hàng đợi 1 lần 1.
 concurrency:
@@ -190,20 +194,24 @@ jobs:
             # vpn5 con WIP -> chua dua vao gate.
             EXPECTED_REPORTERS="${EXPECTED_REPORTERS:-vpn3,vpn4,vpn6}"
             HEALTH_WINDOW=200
-            smoke_ok=0
-            for _ in $(seq 1 18); do   # ~3 phut (18 x 10s) cho reporter join lai + chu ky 30s
-              out=$($SUDO docker exec caddy sh -c "wget -q -O - 'http://node-dedup:8090/metrics/health?expect=${EXPECTED_REPORTERS}&window=${HEALTH_WINDOW}'" 2>/dev/null || true)
-              echo "  health: $out"
-              if printf '%s' "$out" | grep -q '"ok": *true'; then smoke_ok=1; break; fi
-              sleep 10
-            done
-            if [ "$smoke_ok" != "1" ]; then
-              echo "  [SMOKE FAIL] reporter chua bao cao trong ${HEALTH_WINDOW}s (expected=$EXPECTED_REPORTERS)."
-              echo "  -> Deploy stack VAN chay, nhung tinh nang ping-reporter dang hong. Kiem:"
-              echo "     docker logs --tail 40 ping-reporter-vpn3   (tren node DERP tuong ung)"
-              exit 1
+            if [ "${SKIP_SMOKE:-false}" = "true" ]; then
+              echo "  [SMOKE SKIPPED] bo qua theo yeu cau (SKIP_SMOKE=true)."
+            else
+              smoke_ok=0
+              for _ in $(seq 1 18); do   # ~3 phut (18 x 10s) cho reporter join lai + chu ky 30s
+                out=$($SUDO docker exec caddy sh -c "wget -q -O - 'http://node-dedup:8090/metrics/health?expect=${EXPECTED_REPORTERS}&window=${HEALTH_WINDOW}'" 2>/dev/null || true)
+                echo "  health: $out"
+                if printf '%s' "$out" | grep -q '"ok": *true'; then smoke_ok=1; break; fi
+                sleep 10
+              done
+              if [ "$smoke_ok" != "1" ]; then
+                echo "  [SMOKE FAIL] reporter chua bao cao trong ${HEALTH_WINDOW}s (expected=$EXPECTED_REPORTERS)."
+                echo "  -> Deploy stack VAN chay, nhung tinh nang ping-reporter dang hong. Kiem:"
+                echo "     docker logs --tail 40 ping-reporter-vpn3   (tren node DERP tuong ung)"
+                exit 1
+              fi
+              echo "  [SMOKE OK] tat ca reporter bat buoc ($EXPECTED_REPORTERS) dang bao cao."
             fi
-            echo "  [SMOKE OK] tat ca reporter bat buoc ($EXPECTED_REPORTERS) dang bao cao."
             echo ""
             echo "==> Trang thai container"
             $SUDO docker compose ps 2>&1 | tail -12 || true
@@ -211,6 +219,7 @@ jobs:
           DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
           REPO_URL: https://github.com/vanbienperu3107/deployHeadscale.git
           DEPLOY_BRANCH: ${{ github.event.inputs.branch || 'main' }}
+          SKIP_SMOKE: ${{ github.event.inputs.skip_smoke || 'false' }}
           GHCR_PAT: ${{ secrets.GHCR_PAT }}
           GHCR_USER: vanbienperu3107
           OAUTH2_PROXY_CLIENT_ID: ${{ secrets.OAUTH2_PROXY_CLIENT_ID }}
