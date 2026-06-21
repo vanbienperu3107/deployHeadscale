@@ -42,7 +42,6 @@ jobs:
           command_timeout: 20m
           script: |
             set -e
-            trap 'printf "TRAP ERR line=%s rc=%s\n" "$LINENO" "$?"' ERR
 
             # Dùng sudo nếu không phải root (cần root hoặc sudo NOPASSWD).
             if [ "$(id -u)" -ne 0 ]; then SUDO="sudo"; else SUDO=""; fi
@@ -113,32 +112,30 @@ jobs:
             $SUDO docker compose up -d --build --force-recreate --remove-orphans
 
             echo "==> [7/7] Kiem tra collector + tao preauth key neu can"
-            echo "  dbg7.1 TS_AUTHKEY set=$([ -n "$TS_AUTHKEY" ] && echo yes || echo no)"
             set +e
-            echo "  dbg7.2 set+e done"
             if [ -z "$TS_AUTHKEY" ] && [ -f "$DEPLOY_PATH/.ts_authkey" ]; then
-              echo "  dbg7.3 loading .ts_authkey from file"
-              TS_AUTHKEY=$(cat "$DEPLOY_PATH/.ts_authkey")
+              TS_AUTHKEY=$(cat "$DEPLOY_PATH/.ts_authkey" || true)
             fi
-            echo "  dbg7.4 ts_authkey file check done"
             if [ -z "$TS_AUTHKEY" ]; then
               echo "  Chua co TS_AUTHKEY -> cho headscale san sang roi tao key..."
               hs_ok=0
               for i in $(seq 1 15); do
                 printf '  headscale check %d/15...\n' "$i"
-                $SUDO docker exec headscale headscale users list -o json >/dev/null 2>&1 && hs_ok=1 && break
+                if $SUDO docker exec headscale headscale users list -o json >/dev/null 2>&1; then
+                  hs_ok=1; break
+                fi
                 sleep 2
               done
               if [ "$hs_ok" = "1" ]; then
-                USERS_JSON=$($SUDO docker exec headscale headscale users list -o json 2>/dev/null)
+                USERS_JSON=$($SUDO docker exec headscale headscale users list -o json 2>/dev/null || true)
                 [ -z "$USERS_JSON" ] && USERS_JSON='[]'
-                U_ID=$(printf '%s' "$USERS_JSON" | grep -oE '"id"[ ]*:[ ]*"?[0-9]+' | head -1 | grep -oE '[0-9]+')
-                U_NAME=$(printf '%s' "$USERS_JSON" | grep -oE '"name"[ ]*:[ ]*"[^"]*"' | head -1 | sed -E 's/.*"name"[ ]*:[ ]*"([^"]*)".*/\1/')
+                U_ID=$(printf '%s' "$USERS_JSON" | grep -oE '"id"[ ]*:[ ]*"?[0-9]+' | head -1 | grep -oE '[0-9]+' || true)
+                U_NAME=$(printf '%s' "$USERS_JSON" | grep -oE '"name"[ ]*:[ ]*"[^"]*"' | head -1 | sed -E 's/.*"name"[ ]*:[ ]*"([^"]*)".*/\1/' || true)
                 echo "  headscale user: id=${U_ID:-?} name=${U_NAME:-?}"
                 for SEL in "$U_ID" "$U_NAME"; do
                   if [ -z "$SEL" ]; then continue; fi
-                  OUT=$($SUDO docker exec headscale headscale preauthkeys create --user "$SEL" --reusable --expiration 8760h -o json 2>/dev/null)
-                  KEY=$(printf '%s' "$OUT" | grep -oE '"key"[ ]*:[ ]*"[^"]+"' | head -1 | sed -E 's/.*"key"[ ]*:[ ]*"([^"]+)".*/\1/')
+                  OUT=$($SUDO docker exec headscale headscale preauthkeys create --user "$SEL" --reusable --expiration 8760h -o json 2>/dev/null || true)
+                  KEY=$(printf '%s' "$OUT" | grep -oE '"key"[ ]*:[ ]*"[^"]+"' | head -1 | sed -E 's/.*"key"[ ]*:[ ]*"([^"]+)".*/\1/' || true)
                   if [ -n "$KEY" ]; then
                     TS_AUTHKEY="$KEY"
                     printf '%s' "$TS_AUTHKEY" > "$DEPLOY_PATH/.ts_authkey"
@@ -152,18 +149,14 @@ jobs:
                 echo "  CANH BAO: chua tao duoc preauth key -> collector chua join, /stats thieu latency."
               fi
             fi
-            echo "  dbg7.5 before col_ip check"
-            col_ip=$($SUDO docker exec ts-collector tailscale ip -4 2>/dev/null)
-            echo "  dbg7.6 col_ip done"
+            col_ip=$($SUDO docker exec ts-collector tailscale ip -4 2>/dev/null || true)
             if [ -n "$col_ip" ]; then
               echo "  collector da join tailnet: $col_ip"
             else
               echo "  collector chua join tailnet (se tu join sau khi headscale san sang)."
             fi
             $SUDO docker compose ps 2>/dev/null | tail -12
-            echo "  dbg7.7 compose ps done, re-enabling set -e"
-            set -e   # Bat lai set -e sau phan nay
-            echo "  dbg7.8 set -e done"
+            set -e
             echo "==> Log oauth2-proxy (chẩn đoán; oauth2-proxy không in secret)"
             sleep 3
             $SUDO docker logs --tail 25 oauth2-proxy 2>&1 || true
