@@ -37,11 +37,12 @@ jobs:
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_KEY }}
           port: ${{ secrets.SSH_PORT || '22' }}
-          envs: DEPLOY_PATH,REPO_URL,DEPLOY_BRANCH,GHCR_PAT,GHCR_USER,OAUTH2_PROXY_CLIENT_ID,OAUTH2_PROXY_CLIENT_SECRET,OAUTH2_PROXY_COOKIE_SECRET,HEADPLANE_COOKIE_SECRET,HEADPLANE_HS_API_KEY,TS_AUTHKEY,DERP_DATABASE_URL,DERP_SESSION_SECRET,DERP_ALLOWED_EMAILS,HEADSCALE_DASHBOARD_SECRET
+          envs: DEPLOY_PATH,REPO_URL,DEPLOY_BRANCH,SKIP_SMOKE,GHCR_PAT,GHCR_USER,OAUTH2_PROXY_CLIENT_ID,OAUTH2_PROXY_CLIENT_SECRET,OAUTH2_PROXY_COOKIE_SECRET,HEADPLANE_COOKIE_SECRET,HEADPLANE_HS_API_KEY,TS_AUTHKEY,DERP_DATABASE_URL,DERP_SESSION_SECRET,DERP_ALLOWED_EMAILS,HEADSCALE_DASHBOARD_SECRET
           script_stop: true
           command_timeout: 20m
           script: |
             set -e
+            trap 'printf "TRAP ERR line=%s rc=%s\n" "$LINENO" "$?"' ERR
 
             # Dùng sudo nếu không phải root (cần root hoặc sudo NOPASSWD).
             if [ "$(id -u)" -ne 0 ]; then SUDO="sudo"; else SUDO=""; fi
@@ -112,10 +113,14 @@ jobs:
             $SUDO docker compose up -d --build --force-recreate --remove-orphans
 
             echo "==> [7/7] Kiem tra collector + tao preauth key neu can"
-            set +e   # Tat set -e cho phan nay de tranh thoat som vi short-circuit &&
+            echo "  dbg7.1 TS_AUTHKEY set=$([ -n "$TS_AUTHKEY" ] && echo yes || echo no)"
+            set +e
+            echo "  dbg7.2 set+e done"
             if [ -z "$TS_AUTHKEY" ] && [ -f "$DEPLOY_PATH/.ts_authkey" ]; then
+              echo "  dbg7.3 loading .ts_authkey from file"
               TS_AUTHKEY=$(cat "$DEPLOY_PATH/.ts_authkey")
             fi
+            echo "  dbg7.4 ts_authkey file check done"
             if [ -z "$TS_AUTHKEY" ]; then
               echo "  Chua co TS_AUTHKEY -> cho headscale san sang roi tao key..."
               hs_ok=0
@@ -147,14 +152,18 @@ jobs:
                 echo "  CANH BAO: chua tao duoc preauth key -> collector chua join, /stats thieu latency."
               fi
             fi
+            echo "  dbg7.5 before col_ip check"
             col_ip=$($SUDO docker exec ts-collector tailscale ip -4 2>/dev/null)
+            echo "  dbg7.6 col_ip done"
             if [ -n "$col_ip" ]; then
               echo "  collector da join tailnet: $col_ip"
             else
               echo "  collector chua join tailnet (se tu join sau khi headscale san sang)."
             fi
             $SUDO docker compose ps 2>/dev/null | tail -12
+            echo "  dbg7.7 compose ps done, re-enabling set -e"
             set -e   # Bat lai set -e sau phan nay
+            echo "  dbg7.8 set -e done"
             echo "==> Log oauth2-proxy (chẩn đoán; oauth2-proxy không in secret)"
             sleep 3
             $SUDO docker logs --tail 25 oauth2-proxy 2>&1 || true
