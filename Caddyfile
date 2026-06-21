@@ -73,17 +73,14 @@ vpn2.hangocthanh.io.vn {
 	}
 
 	# Dashboard quan ly DERP (shadcn-admin) duoi /app: Caddy strip /app -> derp-backend.
-	# derp-backend chua deploy -> tam thoi redirect sang /admin de tranh 502.
-	# Khi derp-backend chay, doi lai: handle_path /app/* { reverse_proxy derp-backend:8787 }
 	handle_path /app/* {
-		redir * /admin 302
+		reverse_proxy derp-backend:8787
 	}
 
-	# Vao root vpn2.hangocthanh.io.vn -> redirect sang /admin (headplane).
-	# /app/ da bi 502 vi derp-backend chua deploy.
+	# Vao root vpn2.hangocthanh.io.vn -> redirect sang /app/.
 	@home path /
 	handle @home {
-		redir * /admin 302
+		redir * /app/ 302
 	}
 
 	# Tat ca con lai (bao gom /derp*, /key, /ts2021, /api/v1, /machine, /register...)
