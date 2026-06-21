@@ -33,12 +33,12 @@ derp:
   # -> tu do latency. Neu 1 region chet, tailscale tu chuyen sang region con lai.
   # -> tu do latency. Neu 1 region chet, tailscale tu chuyen sang region con lai.
   # DERP map DONG: lay tu backend 'derp-backend' (DB Postgres) qua /derpmap.json.
-  # Bat/tat/them/xoa/uu-tien node tren dashboard -> backend doi JSON -> headscale tu
-  # fetch lai moi 'update_frequency' va day map moi xuong client (KHONG can restart,
-  # client tu chuyen node). derp.yaml gio chi la nguon SEED lan dau cho backend.
+  # urls: tat tam thoi cho den khi derp-backend duoc deploy va ket noi cung network.
+  # Khi derp-backend chay, uncomment dong duoi de enable dynamic DERP map.
   paths: []
-  urls:
-    - http://derp-backend:8787/derpmap.json
+  urls: []
+  # urls:
+  #   - http://derp-backend:8787/derpmap.json
   auto_update_enabled: true
   update_frequency: 10s
 
