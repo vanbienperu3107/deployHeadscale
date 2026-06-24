@@ -77,8 +77,11 @@ vpn2.hangocthanh.io.vn {
 		reverse_proxy derp-backend:8787
 	}
 
-	# Public metrics endpoint — client agent POST /api/metrics/report (no /app prefix).
-	# Khong qua auth vi client chua dang nhap Google.
+	# Public client API — agent gọi GET /api/client/config và POST /api/metrics/report
+	# mà không có /app prefix (serverURL = vpn2.hangocthanh.io.vn, không có /app).
+	handle /api/client/* {
+		reverse_proxy derp-backend:8787
+	}
 	handle /api/metrics/report {
 		reverse_proxy derp-backend:8787
 	}
