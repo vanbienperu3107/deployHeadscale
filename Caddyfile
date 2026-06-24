@@ -77,6 +77,12 @@ vpn2.hangocthanh.io.vn {
 		reverse_proxy derp-backend:8787
 	}
 
+	# Public metrics endpoint — client agent POST /api/metrics/report (no /app prefix).
+	# Khong qua auth vi client chua dang nhap Google.
+	handle /api/metrics/report {
+		reverse_proxy derp-backend:8787
+	}
+
 	# Vao root vpn2.hangocthanh.io.vn -> redirect sang /app/.
 	@home path /
 	handle @home {
