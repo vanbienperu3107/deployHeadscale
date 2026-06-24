@@ -149,6 +149,8 @@ services:
       - METRICS_PORT=8090
       # Socket LocalAPI cua sidecar (volume chia se) -> SERVER tu ping moi node.
       - TS_SOCKET=/var/run/tailscale/tailscaled.sock
+      # derp-backend (shadcn-admin) thay api-center — cùng endpoint /api/metrics/report
+      - API_CENTER_URL=http://derp-backend:8787
     volumes:
       - ./node-dedup/dedup.py:/app/dedup.py:ro
       - dedup_data:/data
