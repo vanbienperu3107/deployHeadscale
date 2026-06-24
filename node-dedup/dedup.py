@@ -72,6 +72,8 @@ LATENCY_WINDOW = int(os.environ.get("LATENCY_WINDOW", "3600"))  # cua so tong ho
 # Socket LocalAPI cua tailscale sidecar (chia se qua volume) -> server tu ping node.
 TS_SOCKET = os.environ.get("TS_SOCKET", "/var/run/tailscale/tailscaled.sock")
 SRC_NAME = os.environ.get("SRC_NAME", "collector")  # ten "nguon" khi server ping
+# Forward samples sang derp-backend (shadcn-admin, Neon) neu duoc set.
+API_CENTER_URL = os.environ.get("API_CENTER_URL", "").rstrip("/")
 # DERP region nao can probe: "code=url,code2=url2". Mac dinh 2 region hien tai.
 DERP_PROBE_URLS = os.environ.get(
     "DERP_PROBE_URLS",
@@ -1038,6 +1040,26 @@ def start_metrics_server(conn, lock):
     log("collector chay :%d (tailnet-only; POST /metrics/report, GET /metrics/latency)" % METRICS_PORT)
 
 
+def _forward_to_dashboard(src, samples):
+    """POST server-ping samples len derp-backend (Neon) neu API_CENTER_URL duoc set."""
+    if not API_CENTER_URL or not samples:
+        return
+    payload = json.dumps({
+        "hostname": src, "ipv4": "", "mac": "", "samples": samples,
+    }).encode()
+    req = urllib.request.Request(
+        API_CENTER_URL + "/api/metrics/report", data=payload, method="POST")
+    req.add_header("Content-Type", "application/json")
+    try:
+        with urllib.request.urlopen(req, timeout=10) as r:
+            if r.status not in (200, 201):
+                log("dashboard forward HTTP", r.status)
+    except urllib.error.HTTPError as e:
+        log("dashboard forward HTTP", e.code)
+    except Exception as e:
+        log("dashboard forward loi:", repr(e))
+
+
 def main():
     if not HS_API_KEY:
         log("THIEU HS_API_KEY -> thoat")
@@ -1062,6 +1084,7 @@ def main():
             if samples:
                 with DB_LOCK:
                     record_samples(conn, SRC_NAME, samples, int(time.time()))
+                _forward_to_dashboard(SRC_NAME, samples)
                 up = sum(1 for s in samples if s["ok"])
                 log("server ping: %d/%d node OK" % (up, len(samples)))
             # TU DUYET route (server-side): cu node nao quang ba route -> duyet sach,
