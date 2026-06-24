@@ -92,8 +92,17 @@ vpn2.hangocthanh.io.vn {
 		redir * /app/ 302
 	}
 
-	# Tat ca con lai (bao gom /derp*, /key, /ts2021, /api/v1, /machine, /register...)
-	# -> Headscale control plane / DERP relay. KHONG qua auth.
+	# vpn2 pure-DERP relay (derp-relay container, tach khoi headscale control plane).
+	# Phai dat TRUOC catchall headscale de ghi de /derp* va /key.
+	handle /derp* {
+		reverse_proxy derp-relay:3340
+	}
+	handle /key {
+		reverse_proxy derp-relay:3340
+	}
+
+	# Tat ca con lai (/ts2021, /api/v1, /machine, /register, /oidc, ...) -> Headscale.
+	# /derp* va /key da duoc xu ly o tren -> KHONG den day nua.
 	handle {
 		reverse_proxy headscale:8080
 	}

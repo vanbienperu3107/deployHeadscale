@@ -20,11 +20,8 @@ services:
       - ./config:/etc/headscale
       - headscale_data_027:/var/lib/headscale
       - headscale_run_027:/var/run/headscale
-    ports:
-      - "3478:3478/udp"   # STUN / DERP
-      # Các port dưới chỉ expose nội bộ (behind Caddy). Bỏ comment nếu cần debug.
-      # - "127.0.0.1:8080:8080"   # HTTP API
-      # - "127.0.0.1:9090:9090"   # Metrics
+    # 3478/udp: chuyen sang derp-relay (embedded DERP da tat trong config.yaml).
+    # Cac port khac (8080, 9090) chi expose noi bo (behind Caddy) — bo comment de debug.
     sysctls:
       - net.ipv4.ip_forward=1
       - net.ipv6.conf.all.forwarding=1
@@ -177,6 +174,22 @@ services:
   # "Deploy DERP dashboard" / tag deploy-dashboard-*). No chay duoi project rieng roi
   # 'docker network connect' vao mang nay -> Caddy route /app + headscale derp.urls
   # van goi 'derp-backend:8787' duoc. Khong con dinh nghia service o day.
+
+  # vpn2 pure-DERP relay — tach biet khoi headscale (control plane chi, KHONG DERP).
+  # Caddy route /derp* va /key -> container nay (HTTP, Caddy lo TLS).
+  # STUN: derp-relay lang nghe 3478/UDP truc tiep (Caddy khong proxy UDP).
+  # -dev: HTTP mode (khong TLS), thich hop chay sau reverse proxy.
+  derp-relay:
+    build: ./derp-relay
+    container_name: derp-relay
+    restart: unless-stopped
+    command:
+      - "-a=:3340"
+      - "-dev"
+      - "-stun-port=3478"
+      - "-hostname=vpn2.hangocthanh.io.vn"
+    ports:
+      - "3478:3478/udp"   # STUN (UDP — Caddy khong proxy duoc, bind thang vao host)
 
   caddy:
     # Build Caddy kem plugin replace-response (chen nut "Thong ke" vao /admin).

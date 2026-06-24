@@ -17,14 +17,14 @@ prefixes:
 # === DERP (embedded — self-hosted relay) ===
 derp:
   server:
-    enabled: true
+    enabled: false
     region_id: 999
-    region_code: "myderp"
-    region_name: "My DERP Server"
+    region_code: "controller"
+    region_name: "VPN2 Controller"
     verify_clients: true
     stun_listen_addr: "0.0.0.0:3478"
     private_key_path: /var/lib/headscale/derp_server_private.key
-    automatically_add_embedded_derp_region: true
+    automatically_add_embedded_derp_region: false
     ipv4: 165.22.12.169    # IP public VPS (vpn2.hangocthanh.io.vn)
     # ipv6: YOUR_IPV6              # ← nếu có
 
