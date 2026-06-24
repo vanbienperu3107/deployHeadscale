@@ -36,9 +36,10 @@ derp:
   # urls: tat tam thoi cho den khi derp-backend duoc deploy va ket noi cung network.
   # Khi derp-backend chay, uncomment dong duoi de enable dynamic DERP map.
   paths: []
-  urls: []
-  # urls:
-  #   - http://derp-backend:8787/derpmap.json
+  # Lay DERPMap dong tu derp-backend (Neon DB). Bat buoc vi embedded DERP da tat
+  # -> headscale can it nhat 1 region de khoi dong. auto_update cap nhat moi 10s.
+  urls:
+    - http://derp-backend:8787/derpmap.json
   auto_update_enabled: true
   update_frequency: 10s
 
