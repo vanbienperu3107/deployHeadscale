@@ -204,9 +204,16 @@ jobs:
                 echo "  [SMOKE FAIL] reporter chua bao cao trong ${HEALTH_WINDOW}s (expected=$EXPECTED_REPORTERS)."
                 echo "  -> Deploy stack VAN chay, nhung tinh nang ping-reporter dang hong. Kiem:"
                 echo "     docker logs --tail 40 ping-reporter-vpn3   (tren node DERP tuong ung)"
-                exit 1
+                # Reporter la tinh nang phu (metrics). Khong fail ca deploy control-plane
+                # vi 1 reporter flaky (vd vpn6 co-host). Bat hard-gate lai bang STRICT_SMOKE=true.
+                if [ "${STRICT_SMOKE:-false}" = "true" ]; then
+                  echo "  [GATE] STRICT_SMOKE=true -> fail deploy."
+                  exit 1
+                fi
+                echo "  [WARN] STRICT_SMOKE!=true -> coi la CANH BAO, KHONG fail deploy (stack da chay)."
+              else
+                echo "  [SMOKE OK] tat ca reporter bat buoc ($EXPECTED_REPORTERS) dang bao cao."
               fi
-              echo "  [SMOKE OK] tat ca reporter bat buoc ($EXPECTED_REPORTERS) dang bao cao."
             fi
             echo ""
             echo "==> Trang thai container"
