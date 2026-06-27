@@ -188,13 +188,23 @@ jobs:
             # vpn6 da auto-deploy (deploy-relay-vpn6 chay song song sau CI) -> gate
             # cho luon; ~3 phut retry du de vpn6 redeploy + reporter POST lan dau.
             # vpn5 con WIP -> chua dua vao gate.
+            # Smoke reporter la tinh nang PHU -> KHONG duoc fail ca deploy control-plane.
+            # Dash (/bin/sh VPS) exit ca khi set +e trong $(cmd) substitution; cach duy
+            # nhat an toan la chay trong SUBSHELL () roi xu ly exit-code o parent.
+            # rc=7 = reporter chua bao cao (chi fail deploy khi STRICT_SMOKE=true).
             EXPECTED_REPORTERS="${EXPECTED_REPORTERS:-vpn3,vpn4,vpn6}"
             HEALTH_WINDOW=200
-            if [ "${SKIP_SMOKE:-false}" = "true" ]; then
-              echo "  [SMOKE SKIPPED] bo qua theo yeu cau (SKIP_SMOKE=true)."
-            else
+            smoke_rc=0
+            (
+              set +e
+              if [ "${SKIP_SMOKE:-false}" = "true" ]; then
+                echo "  [SMOKE SKIPPED] bo qua theo yeu cau (SKIP_SMOKE=true)."
+                exit 0
+              fi
               smoke_ok=0
-              for _ in $(seq 1 18); do   # ~3 phut (18 x 10s) cho reporter join lai + chu ky 30s
+              i=0
+              while [ "$i" -lt 18 ]; do   # ~3 phut (18 x 10s)
+                i=$((i + 1))
                 out=$($SUDO docker exec caddy sh -c "wget -q -O - 'http://node-dedup:8090/metrics/health?expect=${EXPECTED_REPORTERS}&window=${HEALTH_WINDOW}'" 2>/dev/null || true)
                 echo "  health: $out"
                 if printf '%s' "$out" | grep -q '"ok": *true'; then smoke_ok=1; break; fi
@@ -204,16 +214,16 @@ jobs:
                 echo "  [SMOKE FAIL] reporter chua bao cao trong ${HEALTH_WINDOW}s (expected=$EXPECTED_REPORTERS)."
                 echo "  -> Deploy stack VAN chay, nhung tinh nang ping-reporter dang hong. Kiem:"
                 echo "     docker logs --tail 40 ping-reporter-vpn3   (tren node DERP tuong ung)"
-                # Reporter la tinh nang phu (metrics). Khong fail ca deploy control-plane
-                # vi 1 reporter flaky (vd vpn6 co-host). Bat hard-gate lai bang STRICT_SMOKE=true.
-                if [ "${STRICT_SMOKE:-false}" = "true" ]; then
-                  echo "  [GATE] STRICT_SMOKE=true -> fail deploy."
-                  exit 1
-                fi
-                echo "  [WARN] STRICT_SMOKE!=true -> coi la CANH BAO, KHONG fail deploy (stack da chay)."
-              else
-                echo "  [SMOKE OK] tat ca reporter bat buoc ($EXPECTED_REPORTERS) dang bao cao."
+                exit 7
               fi
+              echo "  [SMOKE OK] tat ca reporter bat buoc ($EXPECTED_REPORTERS) dang bao cao."
+            ) || smoke_rc=$?
+            if [ "$smoke_rc" = "7" ]; then
+              if [ "${STRICT_SMOKE:-false}" = "true" ]; then
+                echo "  [GATE] STRICT_SMOKE=true -> fail deploy."
+                exit 1
+              fi
+              echo "  [WARN] STRICT_SMOKE!=true -> coi la CANH BAO, KHONG fail deploy (stack da chay)."
             fi
             echo ""
             echo "==> Trang thai container"
