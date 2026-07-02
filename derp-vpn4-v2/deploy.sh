@@ -39,6 +39,10 @@ if [ "$NEED_BOOTSTRAP" = "1" ]; then
   echo "==> [3/5] BOOTSTRAP cert HTTP-01 cho vpn5.hangocthanh.io.vn"
   echo "  Dung tam derper cu (derp-vpn4) de giai phong port 80/443 (~1-2 phut)"
   (cd ../derp-vpn4 && $SUDO docker compose stop derper) || true
+  # Bat ke buoc nao ben duoi fail, LUON khoi phuc derper cu khi script thoat
+  # (kho phai chi khi thanh cong) - tranh lap lai su co de derper cu bi bo
+  # quen o trang thai stopped neu vd. docker build fail.
+  trap '(cd ../derp-vpn4 && $SUDO docker compose start derper) >/dev/null 2>&1 || true' EXIT
 
   $SUDO docker build -t derper2-bootstrap -f Dockerfile.derper .
   $SUDO docker rm -f derper2-bootstrap 2>/dev/null || true
@@ -68,6 +72,7 @@ if [ "$NEED_BOOTSTRAP" = "1" ]; then
   (cd ../derp-vpn4 && $SUDO docker compose start derper)
   sleep 5
   (cd ../derp-vpn4 && $SUDO docker compose ps)
+  trap - EXIT
 
   if [ "$OK" != "1" ]; then
     echo "  LOI: khong lay duoc cert cho vpn5.hangocthanh.io.vn - dung lai, khong deploy derper2"
