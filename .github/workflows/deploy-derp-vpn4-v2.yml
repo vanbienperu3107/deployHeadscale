@@ -43,22 +43,18 @@ jobs:
             cd "$DEPLOY_PATH/derp-vpn4-v2"
             $SUDO docker volume create derp-vpn4-v2_derper2_certs >/dev/null 2>&1 || true
 
-            set +e
-            CERT_CHECK=$($SUDO docker run --rm -v derp-vpn4-v2_derper2_certs:/data alpine:3.20 sh -c '
+            set +e -x
+            $SUDO docker run --rm -v derp-vpn4-v2_derper2_certs:/data alpine:3.20 sh -c '
               apk add --no-cache openssl >/tmp/apk.log 2>&1
               f=/data/vpn5.hangocthanh.io.vn.crt
-              if [ -f "$f" ] && openssl x509 -in "$f" -checkend 2592000 -noout; then
-                echo OK
-              else
-                echo MISSING_OR_EXPIRING
-              fi
-            ' 2>&1)
-            DOCKER_RC=$?
-            set -e
-            echo "  Ket qua kiem tra cert: '$CERT_CHECK' (docker exit=$DOCKER_RC)"
+              [ -f "$f" ] && openssl x509 -in "$f" -checkend 2592000 -noout
+            '
+            CERT_OK=$?
+            set +x -e
+            echo "  Cert check exit code: $CERT_OK (0 = con han >30 ngay)"
 
             NEED_BOOTSTRAP=1
-            if [ "$DOCKER_RC" = "0" ] && printf '%s' "$CERT_CHECK" | grep -q "^OK$"; then
+            if [ "$CERT_OK" = "0" ]; then
               NEED_BOOTSTRAP=0
               echo "  Cert con han (>30 ngay) - bo qua bootstrap"
             else
