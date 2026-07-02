@@ -1,4 +1,4 @@
-FROM golang:1.23-alpine AS builder
+FROM golang:1.26-alpine AS builder
 # Build derper tu source chinh thuc cua tailscale.
 # Pin version de CI/deploy co the tao lai image giong nhau.
 # v1.100.0 (moi nhat tu tailscale/tailscale tai thoi diem tao) - moi hon
