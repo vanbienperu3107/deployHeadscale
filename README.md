@@ -33,6 +33,8 @@ Thay thế hoàn toàn `controlplane.tailscale.com` và DERP servers của Tails
 > 📘 **Mới bắt đầu?** Theo [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) — hướng dẫn triển khai **từng bước từ số 0 → chạy được** (VPS, SSH key, Secrets, DNS, CI/CD tự deploy).
 >
 > 🔁 **Chuyển sang server mới?** Theo [docs/MIGRATION.md](docs/MIGRATION.md) — đổi VPS/IP, vẫn deploy tự động (kèm cách giữ thiết bị đã đăng ký).
+>
+> 🛰️ **DERP relay ngoài vpn2:** [docs/DERP-PURE.md](docs/DERP-PURE.md) (derper chính chủ, `derp-vpn3/`, `derp-vpn4/`) · [docs/DERP-EMBED.md](docs/DERP-EMBED.md) (bản hybrid tự viết) · [docs/DERP-VPN4-V2-CUTOVER.md](docs/DERP-VPN4-V2-CUTOVER.md) — instance derper v1.100.0 thứ 2 trên vpn4, domain `vpn5.hangocthanh.io.vn` (cutover từ server vpn5 cũ, region DERP 1002).
 
 ## Yêu cầu
 

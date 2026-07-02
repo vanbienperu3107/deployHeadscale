@@ -1,0 +1,33 @@
+services:
+  # derper v1.100.0 - instance THU 2 tren cung host vpn4, domain rieng
+  # (vpn5.hangocthanh.io.vn - xem docs/DERP-VPN4-V2-CUTOVER.md ve ly do va
+  # cutover DNS tu server vpn5 cu 204.199.161.89).
+  #
+  # Steady-state: certmode=manual, doc cert da duoc bootstrap san trong
+  # volume derper2_certs (xem step bootstrap trong workflow deploy). KHONG
+  # bind port 80/443 - de nguyen ven instance derper cu (derp-vpn4, v1.80.0)
+  # dang giu 2 port do cho domain vpn4.hangocthanh.io.vn.
+  derper2:
+    build:
+      context: .
+      dockerfile: Dockerfile.derper
+    container_name: derper2
+    restart: unless-stopped
+    command:
+      - --hostname=vpn5.hangocthanh.io.vn
+      - --a=:8443
+      - --http-port=8080
+      - --certmode=manual
+      - --certdir=/data/derper-certs
+      - --stun
+      - --stun-port=3478
+      - --verify-clients=false
+    ports:
+      - "8443:8443"
+      - "8080:8080"
+      - "3479:3478/udp"
+    volumes:
+      - derper2_certs:/data/derper-certs
+
+volumes:
+  derper2_certs:

@@ -1,7 +1,8 @@
 # DERP map bo sung cho headscale.
 # Region 999 (vpn2/myderp) duoc headscale tu dong them qua
 # automatically_add_embedded_derp_region: true.
-# Region 1000 (vpn3-vn), 1001 (vpn4-vn), 1002 (vpn5 hybrid), 1003 (vpn6 derper qua sslh)
+# Region 1000 (vpn3-vn), 1001 (vpn4-vn), 1002 (vpn5 = derper v1.100.0 tren
+# host vpn4, port rieng - xem CUTOVER note ben duoi), 1003 (vpn6 derper qua sslh)
 # them o day qua derp.paths.
 #
 # Tailscale client do latency tat ca region va chon con DERP GAN NHAT (thap nhat).
@@ -33,14 +34,19 @@ regions:
   1002:
     regionid: 1002
     regioncode: "vpn5-us"
-    regionname: "VPN5 US"
+    regionname: "VPN5 (derper v1.100.0, chay tren host vpn4)"
+    # CUTOVER 2026-07-02: domain vpn5.hangocthanh.io.vn doi tro tu server cu
+    # (204.199.161.89) sang IP vpn4 (149.104.66.174). derper2 la instance
+    # THU 2 tren vpn4, khong dung port 80/443 (da bi derp-vpn4 chiem giu cho
+    # domain vpn4.hangocthanh.io.vn) -> port/stun rieng. Server vpn5 cu can
+    # duoc tat thu cong. Xem docs/DERP-VPN4-V2-CUTOVER.md.
     nodes:
       - name: "vpn5-us-1"
         regionid: 1002
         hostname: "vpn5.hangocthanh.io.vn"
-        ipv4: "204.199.161.89"
-        stunport: 3478
-        derpport: 443
+        ipv4: "149.104.66.174"
+        stunport: 3479
+        derpport: 8443
   1003:
     regionid: 1003
     regioncode: "vpn6-vn"
