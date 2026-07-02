@@ -17,8 +17,10 @@ $SUDO docker volume create derp-vpn4-v2_derper2_certs >/dev/null 2>&1 || true
 
 $SUDO docker run --rm -v derp-vpn4-v2_derper2_certs:/data alpine:3.20 sh -c '
   apk add --no-cache openssl >/tmp/apk.log 2>&1
-  f=/data/vpn5.hangocthanh.io.vn.crt
-  if [ -f "$f" ] && openssl x509 -in "$f" -checkend 2592000 -noout; then
+  echo "  Noi dung volume cert:" 1>&2
+  ls -la /data 1>&2 2>/dev/null || true
+  f=$(find /data -maxdepth 1 -type f -name "vpn5.hangocthanh.io.vn*" ! -name "*+token" ! -name "*.cert_status" | head -1)
+  if [ -n "$f" ] && openssl x509 -in "$f" -checkend 2592000 -noout 2>/dev/null; then
     echo OK > /data/.cert_status
   else
     echo EXPIRED > /data/.cert_status
@@ -64,7 +66,7 @@ if [ "$NEED_BOOTSTRAP" = "1" ]; then
       -o /dev/null -w "%{http_code}" "https://vpn5.hangocthanh.io.vn/derp/probe" 2>&1 || echo "curl_err")
     echo "  [vong $i] trigger SNI vpn5 -> HTTP $TRIGGER_CODE"
     if $SUDO docker run --rm -v derp-vpn4-v2_derper2_certs:/data alpine:3.20 \
-      sh -c "[ -f /data/vpn5.hangocthanh.io.vn.crt ]" 2>/dev/null; then
+      sh -c 'find /data -maxdepth 1 -type f -name "vpn5.hangocthanh.io.vn*" ! -name "*+token" ! -name "*.cert_status" | grep -q .' 2>/dev/null; then
       OK=1
       break
     fi
