@@ -95,6 +95,18 @@ else
 fi
 
 echo "==> [4/5] Khoi dong derper2 (steady-state, port 8443/8080/3479, doc cert tu volume)"
+# --certmode=manual doc cap file rieng <hostname>.crt + <hostname>.key,
+# khac voi dinh dang autocert.DirCache (1 file PEM gop chung key+cert,
+# ten = hostname, khong duoi) ma buoc bootstrap [3/5] tao ra. Tach ra truoc
+# khi khoi dong steady-state, neu khong derper se bao "no such file".
+$SUDO docker run --rm -v derp-vpn4-v2_derper2_certs:/data alpine:3.20 sh -c '
+  apk add --no-cache openssl >/dev/null 2>&1
+  src=/data/vpn5.hangocthanh.io.vn
+  if [ -f "$src" ]; then
+    openssl x509 -in "$src" -out "$src.crt" 2>/dev/null
+    openssl pkey -in "$src" -out "$src.key" 2>/dev/null || openssl ec -in "$src" -out "$src.key" 2>/dev/null || true
+  fi
+' || true
 $SUDO docker compose up -d --build --force-recreate --remove-orphans
 
 echo "==> [5/5] Kiem tra derper2 + derper cu (khong bi anh huong)"
