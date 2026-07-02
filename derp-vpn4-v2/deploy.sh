@@ -60,8 +60,9 @@ if [ "$NEED_BOOTSTRAP" = "1" ]; then
   OK=0
   i=1
   while [ "$i" -le 18 ]; do
-    curl -sk -m 5 --resolve vpn5.hangocthanh.io.vn:443:127.0.0.1 \
-      "https://vpn5.hangocthanh.io.vn/derp/probe" -o /dev/null 2>/dev/null || true
+    TRIGGER_CODE=$(curl -sk -m 8 --resolve vpn5.hangocthanh.io.vn:443:127.0.0.1 \
+      -o /dev/null -w "%{http_code}" "https://vpn5.hangocthanh.io.vn/derp/probe" 2>&1 || echo "curl_err")
+    echo "  [vong $i] trigger SNI vpn5 -> HTTP $TRIGGER_CODE"
     if $SUDO docker run --rm -v derp-vpn4-v2_derper2_certs:/data alpine:3.20 \
       sh -c "[ -f /data/vpn5.hangocthanh.io.vn.crt ]" 2>/dev/null; then
       OK=1
@@ -70,7 +71,10 @@ if [ "$NEED_BOOTSTRAP" = "1" ]; then
     sleep 5
     i=$((i + 1))
   done
-  $SUDO docker logs --tail 40 derper2-bootstrap 2>&1 || true
+  echo "  --- derper2-bootstrap log: dong lien quan vpn5/cert (loc bot spam SNI vpn4) ---"
+  $SUDO docker logs derper2-bootstrap 2>&1 | grep -iv "vpn4.hangocthanh" | tail -60 || true
+  echo "  --- derper2-bootstrap log: 15 dong cuoi (khong loc) ---"
+  $SUDO docker logs --tail 15 derper2-bootstrap 2>&1 || true
   $SUDO docker rm -f derper2-bootstrap 2>/dev/null || true
 
   echo "  Khoi phuc derper cu (derp-vpn4)"
