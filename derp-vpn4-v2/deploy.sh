@@ -54,9 +54,14 @@ if [ "$NEED_BOOTSTRAP" = "1" ]; then
     --certmode=letsencrypt --certdir=/data/derper-certs --stun=false
 
   echo "  Cho cert duoc cap (toi da 90s)..."
+  # derper --certmode=letsencrypt cap cert ON-DEMAND: chi thuc su goi Let's
+  # Encrypt khi co ket noi TLS THAT toi voi dung SNI. Phai tu "go cua" bang
+  # curl --resolve moi vong lap de kich hoat autocert, khong chi ngoi cho.
   OK=0
   i=1
   while [ "$i" -le 18 ]; do
+    curl -sk -m 5 --resolve vpn5.hangocthanh.io.vn:443:127.0.0.1 \
+      "https://vpn5.hangocthanh.io.vn/derp/probe" -o /dev/null 2>/dev/null || true
     if $SUDO docker run --rm -v derp-vpn4-v2_derper2_certs:/data alpine:3.20 \
       sh -c "[ -f /data/vpn5.hangocthanh.io.vn.crt ]" 2>/dev/null; then
       OK=1
