@@ -143,7 +143,9 @@ jobs:
           regions = d.get('regions', {})
           assert 1002 in regions, 'region 1002 (vpn5) chua co trong derp.yaml'
           r = regions[1002]
-          assert r['nodes'][0]['derpport'] == 443, 'derpport phai la 443'
+          # Cutover 2026-07-02: vpn5 chay tren host vpn4, port rieng 8443
+          # (80/443 da bi derp-vpn4 chiem). Xem docs/DERP-VPN4-V2-CUTOVER.md.
+          assert r['nodes'][0]['derpport'] == 8443, 'derpport phai la 8443'
           print('derp.yaml region 1002 OK:', r['regionname'])
           "
 

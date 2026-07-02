@@ -1,0 +1,113 @@
+name: Deploy DERP (vpn4-v2, derper v1.100.0)
+
+# Instance derper THU 2 tren host vpn4, domain vpn5.hangocthanh.io.vn
+# (cutover tu server vpn5 cu - xem docs/DERP-VPN4-V2-CUTOVER.md).
+# Chay sau khi CI pass tren main, hoac chay tay.
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-derp-vpn4-v2
+  cancel-in-progress: false
+
+jobs:
+  deploy-derp-v2:
+    name: Deploy DERP v1.100.0 relay (derper2) len vpn4
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    steps:
+      - name: SSH vao vpn4 va deploy derper2 (v1.100.0)
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SSH_HOST_VPN4 }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT || '22' }}
+          envs: DEPLOY_PATH,REPO_URL
+          script_stop: true
+          command_timeout: 20m
+          script: |
+            set -e
+            if [ "$(id -u)" -ne 0 ]; then SUDO="sudo"; else SUDO=""; fi
+
+            echo "==> [1/5] Cap nhat repo (dung chung checkout voi derp-vpn4)"
+            cd "$DEPLOY_PATH"
+            git fetch --all --prune
+            git reset --hard origin/main
+
+            echo "==> [2/5] Kiem tra cert vpn5.hangocthanh.io.vn con han >30 ngay khong"
+            cd "$DEPLOY_PATH/derp-vpn4-v2"
+            $SUDO docker volume create derp-vpn4-v2_derper2_certs >/dev/null 2>&1 || true
+            NEED_BOOTSTRAP=1
+            CERT_CHECK=$($SUDO docker run --rm -v derp-vpn4-v2_derper2_certs:/data \
+              alpine:3.20 sh -c \
+              "apk add --no-cache openssl >/dev/null 2>&1; f=/data/vpn5.hangocthanh.io.vn.crt; [ -f \"\$f\" ] && openssl x509 -in \"\$f\" -checkend 2592000 -noout && echo OK || echo MISSING_OR_EXPIRING" \
+              2>/dev/null || echo MISSING_OR_EXPIRING)
+            if [ "$CERT_CHECK" = "OK" ]; then
+              NEED_BOOTSTRAP=0
+              echo "  Cert con han (>30 ngay) - bo qua bootstrap"
+            else
+              echo "  Cert thieu hoac sap het han - can bootstrap lai"
+            fi
+
+            if [ "$NEED_BOOTSTRAP" = "1" ]; then
+              echo "==> [3/5] BOOTSTRAP cert HTTP-01 cho vpn5.hangocthanh.io.vn"
+              echo "  Dung tam derper cu (derp-vpn4) de giai phong port 80/443 (~1-2 phut)"
+              cd "$DEPLOY_PATH/derp-vpn4"
+              $SUDO docker compose stop derper || true
+
+              cd "$DEPLOY_PATH/derp-vpn4-v2"
+              $SUDO docker build -t derper2-bootstrap -f Dockerfile.derper .
+              $SUDO docker rm -f derper2-bootstrap 2>/dev/null || true
+              $SUDO docker run -d --name derper2-bootstrap \
+                -v derp-vpn4-v2_derper2_certs:/data/derper-certs \
+                -p 80:80 -p 443:443 \
+                derper2-bootstrap \
+                --hostname=vpn5.hangocthanh.io.vn --a=:443 --http-port=80 \
+                --certmode=letsencrypt --certdir=/data/derper-certs --stun=false
+
+              echo "  Cho cert duoc cap (toi da 90s)..."
+              OK=0
+              for _ in $(seq 1 18); do
+                if $SUDO docker run --rm -v derp-vpn4-v2_derper2_certs:/data alpine:3.20 \
+                  sh -c "[ -f /data/vpn5.hangocthanh.io.vn.crt ]" 2>/dev/null; then
+                  OK=1; break
+                fi
+                sleep 5
+              done
+              $SUDO docker logs --tail 40 derper2-bootstrap 2>&1 || true
+              $SUDO docker rm -f derper2-bootstrap 2>/dev/null || true
+
+              echo "  Khoi phuc derper cu (derp-vpn4)"
+              cd "$DEPLOY_PATH/derp-vpn4"
+              $SUDO docker compose start derper
+              sleep 5
+              $SUDO docker compose ps
+
+              if [ "$OK" != "1" ]; then
+                echo "  LOI: khong lay duoc cert cho vpn5.hangocthanh.io.vn - dung lai, khong deploy derper2"
+                exit 1
+              fi
+              echo "  Cert da san sang"
+            else
+              echo "==> [3/5] Bo qua bootstrap (cert con han)"
+            fi
+
+            echo "==> [4/5] Khoi dong derper2 (steady-state, port 8443/8080/3479, doc cert tu volume)"
+            cd "$DEPLOY_PATH/derp-vpn4-v2"
+            $SUDO docker compose up -d --build --force-recreate --remove-orphans
+
+            echo "==> [5/5] Kiem tra derper2 + derper cu (khong bi anh huong)"
+            sleep 5
+            CODE2=$(curl -sk -o /dev/null -w "%{http_code}" "https://vpn5.hangocthanh.io.vn:8443/derp/probe" 2>/dev/null || echo 000)
+            echo "  derper2 (vpn5.hangocthanh.io.vn:8443) /derp/probe: HTTP $CODE2"
+            CODE1=$(curl -sk -o /dev/null -w "%{http_code}" "https://vpn4.hangocthanh.io.vn/derp/probe" 2>/dev/null || echo 000)
+            echo "  derper cu (vpn4.hangocthanh.io.vn) /derp/probe: HTTP $CODE1 (phai van la 200)"
+            $SUDO docker logs --tail 20 derper2 2>&1 || true
+        env:
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          REPO_URL: https://github.com/vanbienperu3107/deployHeadscale.git

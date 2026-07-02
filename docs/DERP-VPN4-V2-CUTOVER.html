@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>DERP vpn4-v2 — derper v1.100.0 + cutover domain vpn5</title>
+<style>
+  :root{
+    --bg:#0a0f1e; --panel:#111a30; --panel2:#0e1628; --line:#1f2c47;
+    --txt:#dbe3f4; --muted:#8a98b8; --head:#aab6d6;
+    --blue:#5b8cff; --blue-bg:#1b2a52; --amber:#e7b35a; --amber-bg:#3a2f12;
+    --green:#36c28b; --green-bg:#10342a; --red:#ff6b7d; --red-bg:#3a1620;
+    --accent:#7aa2ff;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:linear-gradient(180deg,#070b16,#0a0f1e 240px);
+       color:var(--txt);font:15px/1.65 system-ui,"Segoe UI",Roboto,Arial,sans-serif;
+       padding:32px 18px 80px}
+  .wrap{max-width:1040px;margin:0 auto}
+  h1{font-size:26px;margin:0 0 6px}
+  h2{font-size:19px;margin:38px 0 12px;padding-bottom:8px;border-bottom:1px solid var(--line);color:#eaf0ff}
+  p,li{color:var(--txt)} .sub{color:var(--muted);margin:0 0 22px}
+  code{background:#0c1426;border:1px solid var(--line);border-radius:5px;
+       padding:1px 6px;font:13px/1.5 "Cascadia Code",Consolas,monospace;color:#cfe0ff}
+  pre{background:var(--panel2);border:1px solid var(--line);border-radius:10px;
+      padding:14px 16px;overflow:auto;font:12.5px/1.55 "Cascadia Code",Consolas,monospace;color:#cfe0ff}
+  table{width:100%;border-collapse:collapse;margin:10px 0;background:var(--panel);
+        border:1px solid var(--line);border-radius:10px;overflow:hidden}
+  th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top;font-size:13.5px}
+  th{background:#0e1830;color:var(--head);font-weight:600}
+  .note{background:var(--panel2);border-left:3px solid var(--blue);border-radius:0 10px 10px 0;
+        padding:12px 16px;margin:14px 0;color:#cdd8f2;font-size:13.8px}
+  .warn{border-left-color:var(--amber)}
+  ul.todo li{margin:6px 0}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>DERP vpn4-v2 — derper v1.100.0 + cutover domain vpn5</h1>
+<p class="sub">Nguồn chuẩn: <code>DERP-VPN4-V2-CUTOVER.md</code> (cùng thư mục). Bản HTML này tương đương nội dung, để đọc offline.</p>
+
+<h2>0. Tóm tắt</h2>
+<ul>
+  <li>Instance derper thứ 2 chạy trên host <b>vpn4</b> (149.104.66.174), pin <code>TAILSCALE_VERSION=v1.100.0</code> (mới hơn v1.80.0 đang chạy ở derp-vpn3/derp-vpn4/derp-relay).</li>
+  <li>Dùng domain <b>vpn5.hangocthanh.io.vn</b> — cutover chủ động từ server vpn5 cũ (204.199.161.89).</li>
+  <li>Instance cũ trên vpn4 (v1.80.0, domain vpn4.hangocthanh.io.vn) không đổi.</li>
+</ul>
+
+<div class="note warn">
+  Domain <code>vpn5.hangocthanh.io.vn</code> đổi trỏ hẳn sang vpn4 theo quyết định của người vận hành — server vpn5 cũ (204.199.161.89) sẽ mất domain hợp lệ và cần được tắt thủ công sau khi xác nhận cutover ổn định.
+</div>
+
+<h2>1. Vì sao port riêng (8443/8080/3479) thay vì 80/443?</h2>
+<p>Một IPv4 duy nhất trên vpn4. Instance cũ đã bind 80/443/3478-udp và tự quản LE cert cho <code>vpn4.hangocthanh.io.vn</code>. <code>derper</code> chỉ nhận 1 hostname mỗi process nên không share port cho domain khác.</p>
+
+<h2>2. Bootstrap cert — gián đoạn tạm thời định kỳ</h2>
+<p>Workflow <code>deploy-derp-vpn4-v2.yml</code>: nếu cert vpn5 còn hạn &gt;30 ngày thì bỏ qua; nếu không, dừng tạm <code>derp-vpn4</code> (~1-2 phút) để xin cert HTTP-01 trên port 80/443, rồi khôi phục ngay và khởi động derper2 ở chế độ <code>--certmode=manual</code> đọc cert đã lưu.</p>
+<table>
+  <tr><th>Bước</th><th>Hành động</th></tr>
+  <tr><td>1</td><td>Check cert (openssl x509 -checkend 2592000)</td></tr>
+  <tr><td>2</td><td>docker compose stop derper (derp-vpn4)</td></tr>
+  <tr><td>3</td><td>Container tạm, --certmode=letsencrypt, port 80/443</td></tr>
+  <tr><td>4</td><td>docker compose start derper (khôi phục)</td></tr>
+  <tr><td>5</td><td>derper2 steady-state, port 8443/8080/3479</td></tr>
+</table>
+<p>Vì LE cert hết hạn sau 90 ngày, bước 1-4 lặp lại mỗi lần cert gần hết hạn (~mỗi 60 ngày) → gián đoạn tạm relay vpn4 định kỳ. Follow-up: chuyển DNS-01 (Cloudflare token) để bỏ hẳn gián đoạn này.</p>
+
+<h2>3. Headscale DERPMap</h2>
+<pre>1002:
+  regionname: "VPN5 (derper v1.100.0, chay tren host vpn4)"
+  nodes:
+    - hostname: "vpn5.hangocthanh.io.vn"
+      ipv4: "149.104.66.174"
+      stunport: 3479
+      derpport: 8443</pre>
+<p>Region 1001 (vpn4 cũ) giữ nguyên <code>derpport: 443</code>.</p>
+
+<h2>4. Việc cần tự làm ngoài repo</h2>
+<ul class="todo">
+  <li>Đổi DNS A <code>vpn5.hangocthanh.io.vn</code>: 204.199.161.89 → 149.104.66.174.</li>
+  <li>Tắt server vpn5 cũ (relay-vpn5/) sau khi xác nhận cutover ổn định.</li>
+  <li>Chấp nhận gián đoạn relay vpn4 ~1-2 phút mỗi ~60 ngày khi renew cert vpn5.</li>
+</ul>
+</div>
+</body>
+</html>
