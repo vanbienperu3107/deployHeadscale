@@ -11,7 +11,8 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: deploy-derp-vpn4-v2
+  # Chung group voi deploy-derp-vpn4.yml - xem giai thich trong file do.
+  group: deploy-vpn4-host
   cancel-in-progress: false
 
 jobs:
