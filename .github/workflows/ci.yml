@@ -62,6 +62,9 @@ jobs:
       - name: Validate derp-vpn4/docker-compose.yml
         run: docker compose -f derp-vpn4/docker-compose.yml config --quiet && echo "derp-vpn4/docker-compose.yml OK"
 
+      - name: Validate derp-vpn4-v2/docker-compose.yml
+        run: docker compose -f derp-vpn4-v2/docker-compose.yml config --quiet && echo "derp-vpn4-v2/docker-compose.yml OK"
+
       - name: Test DERP config structure + failover (pytest)
         run: |
           python3 -m venv /tmp/venv-derp
