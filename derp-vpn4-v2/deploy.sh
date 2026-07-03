@@ -12,6 +12,15 @@ set -e
 if [ "$(id -u)" -ne 0 ]; then SUDO="sudo"; else SUDO=""; fi
 cd "$(dirname "$0")"
 
+# Mo firewall cho port rieng cua derper2 (8443 TCP, 3479 UDP). Neu khong
+# lam buoc nay, health-check tu server khac (vd. dashboard tren vpn2) se
+# bao "chet" du derper2 chay binh thuong - vi curl tu CHINH host vpn4 co
+# the di qua hairpin NAT/loopback va khong phan anh dung firewall that.
+if command -v ufw >/dev/null 2>&1; then
+  $SUDO ufw allow 8443/tcp >/dev/null 2>&1 || true
+  $SUDO ufw allow 3479/udp >/dev/null 2>&1 || true
+fi
+
 echo "==> [2/5] Kiem tra cert vpn5.hangocthanh.io.vn con han >30 ngay khong"
 $SUDO docker volume create derp-vpn4-v2_derper2_certs >/dev/null 2>&1 || true
 
