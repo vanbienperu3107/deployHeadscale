@@ -37,19 +37,16 @@ def test_moi_region_co_truong_bat_buoc():
 
 
 def test_moi_node_co_hostname_va_port():
-    # Region 1002 (vpn5, cutover 2026-07-02) chay tren host vpn4 dung port
-    # rieng 8443/3479 vi port 80/443/3478 da bi derp-vpn4 (v1.80.0) chiem giu
-    # cho domain vpn4.hangocthanh.io.vn - xem docs/DERP-VPN4-V2-CUTOVER.md.
-    EXCEPTIONS = {1002: {"derpport": 8443, "stunport": 3479}}
+    # Sau khi retire region 1002 (vpn5-replay, 2026-07-03), moi region con lai
+    # deu tren port chuan 443/3478 - khong con ngoai le.
     for rid, region in load_derp()["regions"].items():
-        exp = EXCEPTIONS.get(rid, {"derpport": 443, "stunport": 3478})
         for node in region["nodes"]:
             assert "hostname" in node, f"region {rid}: node thieu 'hostname'"
-            assert node.get("derpport") == exp["derpport"], (
-                f"region {rid}: derpport phai la {exp['derpport']}"
+            assert node.get("derpport") == 443, (
+                f"region {rid}: derpport phai la 443"
             )
-            assert node.get("stunport") == exp["stunport"], (
-                f"region {rid}: stunport phai la {exp['stunport']}"
+            assert node.get("stunport") == 3478, (
+                f"region {rid}: stunport phai la 3478"
             )
 
 
@@ -278,45 +275,32 @@ def test_derp_vpn5_reporter_dung_netns_sidecar():
 
 
 def test_derp_co_3_region_total():
-    """>=4 DERP region ngoai (1000 vpn3 + 1001 vpn4 + 1002 vpn5 + 1003 vpn6) + embedded 999."""
+    """>=3 DERP region ngoai (1000 vpn3 + 1001 vpn4 + 1003 vpn6) + embedded 999.
+
+    Region 1002 (vpn5-replay) da retire 2026-07-03 - xem derp.yaml header.
+    """
     d = load_derp()
-    assert len(d["regions"]) >= 4, (
-        "config/derp.yaml phai co it nhat 4 region ngoai (+ embedded 999 = 5 tong)"
+    assert len(d["regions"]) >= 3, (
+        "config/derp.yaml phai co it nhat 3 region ngoai (+ embedded 999 = 4 tong)"
     )
 
 
-# ---------- region 1002 (vpn5 hybrid relay) ----------
+def test_vpn5_replay_da_retire():
+    """Region 1002 (vpn5-replay) phai KHONG con trong derp.yaml (retire 2026-07-03).
 
-def test_vpn5_co_trong_derp_map():
-    """Dam bao vpn5.hangocthanh.io.vn (hybrid relay) duoc dang ky."""
+    derper2 tren port 8443 khong toi duoc tu client sau proxy itop (chi cho 443)
+    -> gay 'tls: internal error'. Da gop ve vpn4 (region 1001, 443).
+    """
+    d = load_derp()
+    assert 1002 not in d["regions"], "region 1002 (vpn5-replay) phai da bi go bo"
     hostnames = [
         node["hostname"]
-        for region in load_derp()["regions"].values()
+        for region in d["regions"].values()
         for node in region["nodes"]
     ]
-    assert "vpn5.hangocthanh.io.vn" in hostnames, (
-        "vpn5.hangocthanh.io.vn phai co trong config/derp.yaml (region 1002)"
+    assert "vpn5.hangocthanh.io.vn" not in hostnames, (
+        "vpn5.hangocthanh.io.vn phai KHONG con trong config/derp.yaml"
     )
-
-
-def test_vpn5_ip_va_port_dung():
-    # Cutover 2026-07-02: vpn5.hangocthanh.io.vn khong con tro ve server vpn5
-    # cu (204.199.161.89, da tat) ma tro ve host vpn4 (149.104.66.174),
-    # instance derper2 (v1.100.0) tren port rieng 8443/3479.
-    # Xem docs/DERP-VPN4-V2-CUTOVER.md.
-    for region in load_derp()["regions"].values():
-        for node in region["nodes"]:
-            if node["hostname"] == "vpn5.hangocthanh.io.vn":
-                assert node.get("ipv4") == "149.104.66.174", (
-                    "ipv4 cua vpn5 phai la 149.104.66.174 (cutover len host vpn4)"
-                )
-                assert node.get("derpport") == 8443, "vpn5 derpport phai la 8443"
-
-
-def test_vpn5_region_id_la_1002():
-    d = load_derp()
-    assert 1002 in d["regions"], "region 1002 phai ton tai (vpn5)"
-    assert d["regions"][1002]["regionid"] == 1002
 
 
 # ---------- relay-vpn5 compose ----------
