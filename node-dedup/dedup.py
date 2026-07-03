@@ -80,8 +80,11 @@ DERP_PROBE_URLS = os.environ.get(
     "myderp=https://vpn2.hangocthanh.io.vn/derp/probe,"
     "vpn3-vn=https://vpn3.hangocthanh.io.vn/derp/probe,"
     "vpn4-vn=https://vpn4.hangocthanh.io.vn/derp/probe,"
-    # vpn5/vpn6 la relay lai -> endpoint /relay/probe (khong phai /derp/probe)
-    "vpn5-us=https://vpn5.hangocthanh.io.vn/relay/probe,"
+    # vpn5 (cutover 2026-07-02): derper chinh chu tren host vpn4, port 8443
+    # rieng - endpoint /derp/probe (KHONG phai /relay/probe nhu server vpn5
+    # cu). Xem docs/DERP-VPN4-V2-CUTOVER.md.
+    "vpn5-us=https://vpn5.hangocthanh.io.vn:8443/derp/probe,"
+    # vpn6 van la relay lai -> endpoint /relay/probe (khong phai /derp/probe)
     "vpn6-vn=https://vpn6.hangocthanh.io.vn/relay/probe",
 )
 
