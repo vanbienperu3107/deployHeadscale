@@ -109,11 +109,15 @@ echo "==> [4/5] Khoi dong derper2 (steady-state, port 8443/8080/3479, doc cert t
 # ten = hostname, khong duoi) ma buoc bootstrap [3/5] tao ra. Tach ra truoc
 # khi khoi dong steady-state, neu khong derper se bao "no such file".
 $SUDO docker run --rm -v derp-vpn4-v2_derper2_certs:/data alpine:3.20 sh -c '
-  apk add --no-cache openssl >/dev/null 2>&1
   src=/data/vpn5.hangocthanh.io.vn
   if [ -f "$src" ]; then
-    openssl x509 -in "$src" -out "$src.crt" 2>/dev/null
-    openssl pkey -in "$src" -out "$src.key" 2>/dev/null || openssl ec -in "$src" -out "$src.key" 2>/dev/null || true
+    # QUAN TRONG: "openssl x509 -in .. -out .." chi lay 1 khoi CERTIFICATE
+    # DAU TIEN (leaf), lam mat chain trung gian (LE tra ve leaf+intermediate
+    # trong file cache goc). Client xac thuc TLS day du (vd. fetch() cua
+    # dashboard) se fail chain incomplete du curl -k van "thanh cong" vi bo
+    # qua xac thuc. Dung sed lay TAT CA khoi CERTIFICATE de giu nguyen chain.
+    sed -n "/BEGIN CERTIFICATE/,/END CERTIFICATE/p" "$src" > "$src.crt"
+    sed -n "/BEGIN.*PRIVATE KEY/,/END.*PRIVATE KEY/p" "$src" > "$src.key"
   fi
 ' || true
 $SUDO docker compose up -d --build --force-recreate --remove-orphans
