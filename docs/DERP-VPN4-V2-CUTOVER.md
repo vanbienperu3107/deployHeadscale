@@ -87,10 +87,16 @@ Region 1001 (vpn4 cũ, v1.80.0) giữ nguyên `derpport: 443`.
       hạn (~mỗi 60 ngày), deploy sẽ dừng tạm relay `vpn4.hangocthanh.io.vn`
       (region 1001) khoảng 1-2 phút để bootstrap lại cert.
 
-## 6. Follow-up (chưa làm)
+## 6. Tailscale sidecar + ping-reporter (thêm 2026-07-03)
+
+`derper2` giờ có sidecar `tailscale` (join tailnet với hostname `vpn5`,
+container `ts-vpn5`) + `ping-reporter-vpn5` — để xuất hiện trong danh sách
+"Node DERP / hạ tầng" của headscale-admin/dashboard giống vpn3/vpn4/vpn6,
+và có dữ liệu latency (`src=vpn5`) trên `/derp-status`. TS_AUTHKEY được
+tạo trên GitHub Actions runner (giống pattern `deploy-derp-vpn4.yml`), ghi
+vào `derp-vpn4-v2/.env` trước khi `docker compose up`.
+
+## 7. Follow-up (chưa làm)
 
 - Chuyển bootstrap cert sang DNS-01 (Cloudflare API token) để bỏ hẳn bước
   dừng tạm instance cũ mỗi chu kỳ renew.
-- `ping-reporter`/tailscale sidecar cho `derper2` (hiện chưa có — instance
-  thứ 2 chỉ chạy derper thuần, không tự báo cáo latency lên dashboard
-  `/derp-status`).

@@ -103,6 +103,20 @@ else
   echo "==> [3/5] Bo qua bootstrap (cert con han)"
 fi
 
+# Ghi .env cho tailscale sidecar (TS_AUTHKEY tu runner qua bien moi truong).
+# Neu runner khong tao duoc key lan nay, dung lai key da luu tu lan truoc
+# (preauthkey reusable=true nen van con hieu luc) - giong pattern derp-vpn4.
+if [ -z "${TS_AUTHKEY:-}" ] && [ -f ".ts_authkey" ]; then
+  TS_AUTHKEY=$(cat .ts_authkey | tr -d '\n\r')
+  echo "  Dung .ts_authkey da luu: ${TS_AUTHKEY:0:8}..."
+fi
+if [ -n "${TS_AUTHKEY:-}" ]; then
+  printf '%s' "$TS_AUTHKEY" > .ts_authkey
+  chmod 600 .ts_authkey
+fi
+umask 077
+printf 'TS_AUTHKEY=%s\n' "${TS_AUTHKEY:-}" > .env
+
 echo "==> [4/5] Khoi dong derper2 (steady-state, port 8443/8080/3479, doc cert tu volume)"
 # --certmode=manual doc cap file rieng <hostname>.crt + <hostname>.key,
 # khac voi dinh dang autocert.DirCache (1 file PEM gop chung key+cert,
