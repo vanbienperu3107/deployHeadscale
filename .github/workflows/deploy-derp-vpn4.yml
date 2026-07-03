@@ -128,7 +128,11 @@ jobs:
             $SUDO docker compose run --rm --no-deps --entrypoint sh tailscale \
               -c 'rm -f /var/run/tailscale/tailscaled.sock' >/dev/null 2>&1 || true
             $SUDO docker compose pull 2>/dev/null || true
-            $SUDO docker compose up -d --build --force-recreate --remove-orphans
+            # KHONG dung --force-recreate (chay tren MOI CI-success cua main
+            # ke ca commit khong lien quan) - se ngat moi ket noi DERP dang
+            # active o MOI LAN deploy. Compose tu bo qua recreate neu
+            # config/image khong doi.
+            $SUDO docker compose up -d --build --remove-orphans
 
             echo "  Kiem tra DERP relay /derp/probe (toi da 90s)..."
             sleep 10

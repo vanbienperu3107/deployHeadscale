@@ -134,7 +134,14 @@ $SUDO docker run --rm -v derp-vpn4-v2_derper2_certs:/data alpine:3.20 sh -c '
     sed -n "/BEGIN.*PRIVATE KEY/,/END.*PRIVATE KEY/p" "$src" > "$src.key"
   fi
 ' || true
-$SUDO docker compose up -d --build --force-recreate --remove-orphans
+# KHONG dung --force-recreate: workflow nay chay tren MOI CI-success cua
+# main (ke ca commit khong lien quan DERP), nen --force-recreate se giet
+# container dang chay + moi ket noi DERP dang active toi region 1004 O
+# MOI LAN DEPLOY, gay "remote error: tls: internal error" phia client giua
+# chung. "docker compose up" khong co co nay tu nhan biet compose
+# file/image khong doi va bo qua recreate; chi build/recreate that su khi
+# co thay doi (Dockerfile, .env, image mismatch...).
+$SUDO docker compose up -d --build --remove-orphans
 
 echo "==> [5/5] Kiem tra derper2 + derper cu (khong bi anh huong)"
 sleep 5
