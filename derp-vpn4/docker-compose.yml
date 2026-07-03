@@ -3,6 +3,11 @@ services:
     build:
       context: ../derp-vpn3   # dung Dockerfile.derper cua vpn3 (giong nhau)
       dockerfile: Dockerfile.derper
+      # THU NGHIEM 2026-07-03: nang rieng vpn4 len derper v1.100.0 (override ARG
+      # mac dinh v1.80.0 trong Dockerfile dung chung). vpn3/vpn6/vpn2 van v1.80.0.
+      # v1.100.0 da chay on tren chinh host nay khi con la derper2 (da retire).
+      args:
+        TAILSCALE_VERSION: v1.100.0
     container_name: derper
     restart: unless-stopped
     command:
