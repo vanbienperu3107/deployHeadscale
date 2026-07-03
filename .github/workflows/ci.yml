@@ -62,9 +62,6 @@ jobs:
       - name: Validate derp-vpn4/docker-compose.yml
         run: docker compose -f derp-vpn4/docker-compose.yml config --quiet && echo "derp-vpn4/docker-compose.yml OK"
 
-      - name: Validate derp-vpn4-v2/docker-compose.yml
-        run: docker compose -f derp-vpn4-v2/docker-compose.yml config --quiet && echo "derp-vpn4-v2/docker-compose.yml OK"
-
       - name: Test DERP config structure + failover (pytest)
         run: |
           python3 -m venv /tmp/venv-derp
@@ -137,20 +134,6 @@ jobs:
 
       - name: Validate relay-vpn5/docker-compose.yml
         run: docker compose -f relay-vpn5/docker-compose.yml config --quiet && echo "relay-vpn5/docker-compose.yml OK"
-
-      - name: Validate config/derp.yaml bao gom region 1002 (vpn5)
-        run: |
-          python3 -c "
-          import yaml, sys
-          d = yaml.safe_load(open('config/derp.yaml'))
-          regions = d.get('regions', {})
-          assert 1002 in regions, 'region 1002 (vpn5) chua co trong derp.yaml'
-          r = regions[1002]
-          # Cutover 2026-07-02: vpn5 chay tren host vpn4, port rieng 8443
-          # (80/443 da bi derp-vpn4 chiem). Xem docs/DERP-VPN4-V2-CUTOVER.md.
-          assert r['nodes'][0]['derpport'] == 8443, 'derpport phai la 8443'
-          print('derp.yaml region 1002 OK:', r['regionname'])
-          "
 
       - name: Scan secret trong relay-vpn5
         run: |

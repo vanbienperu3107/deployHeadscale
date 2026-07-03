@@ -1,0 +1,43 @@
+name: Teardown DERP (vpn4-v2, derper2 / vpn5-replay)
+
+# Go bo instance derper2 (region 1002/1004 vpn5-replay) khoi host vpn4.
+# RETIRE 2026-07-03: derper2 nghe port 8443, khong toi duoc tu client sau
+# proxy itop (chi cho CONNECT 443) -> "tls: internal error". Da gop ve vpn4
+# (region 1001, port 443) va xoa region khoi DB dashboard.
+#
+# Chi chay TAY (workflow_dispatch). Xoa container theo TEN (khong phu thuoc
+# compose file da bi go khoi repo). KHONG dung derper cu (derp-vpn4, region
+# 1001) - khac container/project.
+#
+# Sau khi chay: vao dashboard tab Machines xoa node "vpn5" (sidecar da offline).
+on:
+  workflow_dispatch:
+
+concurrency:
+  # Chung group voi deploy-derp-vpn4.yml de tranh chay song song tren cung host.
+  group: deploy-vpn4-host
+  cancel-in-progress: false
+
+jobs:
+  teardown:
+    name: Teardown derper2 tren vpn4
+    runs-on: ubuntu-latest
+    steps:
+      - name: SSH vao vpn4 va go derper2 + dong port
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SSH_HOST_VPN4 }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT || '22' }}
+          script_stop: true
+          command_timeout: 10m
+          script: |
+            docker rm -f derper2 ts-vpn5 ping-reporter-vpn5 || true
+            docker volume rm derp-vpn4-v2_derper2_certs derp-vpn4-v2_tailscale_vpn5 derp-vpn4-v2_ts_sock_vpn5 || true
+            sudo ufw delete allow 8443/tcp || true
+            sudo ufw delete allow 3479/udp || true
+            echo "== Container derper2/ts-vpn5 con lai (phai rong) =="
+            docker ps -a --filter name=derper2 --filter name=ts-vpn5 --filter name=ping-reporter-vpn5
+            echo "== Derper CU (region 1001) phai VAN chay =="
+            docker ps --filter name=derper --format "{{.Names}} {{.Status}}"

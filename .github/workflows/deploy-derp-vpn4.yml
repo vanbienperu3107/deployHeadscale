@@ -9,10 +9,9 @@ on:
   workflow_dispatch:
 
 concurrency:
-  # Chung group voi deploy-derp-vpn4-v2.yml: ca 2 dung chung host vpn4 va
-  # tranh chap port 80/443 khi chay song song (v2 bootstrap tam dung derper
-  # cu). GitHub xep hang tuan tu thay vi de 2 workflow cung force-recreate/
-  # start container cung luc -> tranh loi "port is already allocated".
+  # Chung group 'deploy-vpn4-host' voi teardown-derp-vpn4-v2.yml (cung host
+  # vpn4) de GitHub xep hang tuan tu, tranh 2 workflow thao tac container/port
+  # cung luc. (deploy-derp-vpn4-v2.yml da retire 2026-07-03 - vpn5-replay go bo.)
   group: deploy-vpn4-host
   cancel-in-progress: false
 

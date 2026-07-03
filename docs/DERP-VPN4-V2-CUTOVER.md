@@ -1,5 +1,15 @@
 # DERP vpn4-v2 — derper v1.100.0 + cutover domain vpn5
 
+> ⚠️ **RETIRED 2026-07-03.** Instance `derper2` (region 1002/1004 `vpn5-replay`,
+> port 8443) đã bị **gỡ bỏ**. Lý do: client sau HTTP proxy của itop chỉ được
+> CONNECT tới **port 443**; derper2 nghe 8443 nên proxy từ chối → client rơi
+> vào derper cũ trên 443 (SNI `vpn4` vs `vpn5` lệch) → `remote error: tls:
+> internal error`, region không bao giờ kết nối được. Đã **gộp về vpn4**
+> (region 1001, port 443) — mọi region giờ đều trên 443. Region 1004 đã xóa
+> khỏi DB dashboard; stack `derp-vpn4-v2/` + workflow deploy đã xóa khỏi repo;
+> chạy `teardown-derp-vpn4-v2.yml` (workflow_dispatch) để gỡ container trên
+> host. Tài liệu dưới đây giữ lại làm lịch sử.
+>
 > Nguồn chuẩn: file `.md` này. Bản `DERP-VPN4-V2-CUTOVER.html` (cùng thư mục)
 > là bản đọc offline, nội dung tương đương.
 
