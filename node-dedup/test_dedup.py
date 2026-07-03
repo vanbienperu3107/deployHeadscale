@@ -585,9 +585,12 @@ def test_derp_probe_urls_co_vpn5_vpn6():
     assert "vpn6" in DERP_PROBE_URLS, "DERP_PROBE_URLS phai co vpn6"
     codes = [r["code"] for r in _parse_derp_regions(DERP_PROBE_URLS)]
     assert "vpn6-vn" in codes and "vpn5-us" in codes
-    # vpn5/vpn6 la relay -> probe /relay/probe (khong phai /derp/probe)
     urls = {r["code"]: r["url"] for r in _parse_derp_regions(DERP_PROBE_URLS)}
+    # vpn6 van la relay tu viet -> /relay/probe.
     assert urls["vpn6-vn"].endswith("/relay/probe")
+    # vpn5 (cutover 2026-07-02): derper chinh chu tren vpn4, port 8443 rieng
+    # -> /derp/probe (khong phai /relay/probe nhu server vpn5 cu).
+    assert urls["vpn5-us"].endswith(":8443/derp/probe")
 
 
 def test_render_derp_html_vpn5_vpn6_nguon_label():
