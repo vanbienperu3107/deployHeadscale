@@ -363,13 +363,10 @@ Tailscale client **tự đo latency cả 3 region** và chọn con **gần nhấ
    |--------|-----------|------------|
    | `SSH_HOST_VPN3` | IP cũ | IP VPS mới |
 
-3. **Cập nhật `config/derp.yaml`** — đổi `ipv4` của node vpn3:
-   ```yaml
-   nodes:
-     - name: "vpn3-vn-1"
-       hostname: "vpn3.hangocthanh.io.vn"
-       ipv4: "<IP_MỚI>"
-   ```
+3. **Cập nhật IP node trên Dashboard/DB** — `config/derp.yaml` đã bị loại bỏ.
+   DERPMap giờ là **nguồn động duy nhất** lấy từ `derp-backend` (bảng `derp_servers`
+   trên Neon). Sửa `ipv4` của node vpn3 qua Dashboard DERP (hoặc `PATCH /api/derp/1000`).
+   Không còn file YAML tĩnh để commit.
 
 4. **Trỏ DNS** `vpn3.hangocthanh.io.vn` → IP VPS mới.
 
@@ -377,31 +374,31 @@ Tailscale client **tự đo latency cả 3 region** và chọn con **gần nhấ
 
 6. **Kiểm tra:** `curl -sk https://vpn3.hangocthanh.io.vn/derp/probe` → `200 OK`.
 
-7. **Restart headscale** trên vpn2 để nạp lại `derp.yaml`:
-   ```bash
-   docker compose restart headscale
-   ```
-   Client sẽ nhận DERP map mới trong vòng 30–60s.
+7. **Không cần restart headscale.** headscale tự fetch lại `/derpmap.json` từ
+   derp-backend theo `auto_update` (mỗi 10s); client nhận DERP map mới sau vài chục giây.
 
 ### D.4 — Chuyển vpn4 sang VPS mới
 
-Tương tự D.3 nhưng dùng secret `SSH_HOST_VPN4` và `config/derp.yaml` region 1001:
+Tương tự D.3 nhưng dùng secret `SSH_HOST_VPN4` và sửa region `1001` trên Dashboard/DB:
 
 1. Đổi `SSH_HOST_VPN4` → IP VPS mới.
-2. Đổi `ipv4: "<IP_MỚI>"` trong region `1001` của `config/derp.yaml`.
+2. Đổi `ipv4` của region `1001` qua Dashboard DERP (`PATCH /api/derp/1001`).
 3. Trỏ DNS `vpn4.hangocthanh.io.vn` → IP mới.
 4. Commit + push → CI → Deploy DERP (vpn4) tự deploy.
 5. Kiểm tra: `curl -sk https://vpn4.hangocthanh.io.vn/derp/probe` → `200 OK`.
-6. Restart headscale trên vpn2: `docker compose restart headscale`.
+6. Không cần restart headscale (auto_update tự nạp lại).
 
 ### D.5 — Thêm DERP region thứ 4+
 
-1. Thêm region mới (ID tăng dần) vào `config/derp.yaml`.
+1. Thêm region mới trên Dashboard DERP (hoặc `POST /api/derp`) — DB tự cấp `region_id`.
+   Không còn sửa file `config/derp.yaml`.
 2. Tạo thư mục `derp-vpnN/docker-compose.yml` theo mẫu `derp-vpn4/docker-compose.yml` (đổi hostname).
 3. Tạo `deploy-derp-vpnN.yml` theo mẫu `deploy-derp-vpn4.yml` (đổi `SSH_HOST_VPNN`, health probe URL).
 4. Thêm secret `SSH_HOST_VPNN` vào GitHub.
 5. Bootstrap SSH key trên VPS mới (xem DEPLOYMENT.md).
-6. Commit + push → CI → auto-deploy.
+6. Commit + push → CI → auto-deploy. Node mới enabled trên DB sẽ tự vào DERPMap
+   và tự được job `deploy-relay` (matrix từ `/derpmap.json`) deploy — xem
+   `TailscaleRemote/.github/workflows/module-derp-relay.yml`.
 
 ---
 
