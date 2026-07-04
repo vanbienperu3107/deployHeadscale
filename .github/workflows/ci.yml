@@ -47,14 +47,15 @@ jobs:
           echo "OK: không tìm thấy private key trong repo."
 
   derp-config:
-    name: DERP config validate (derp.yaml + failover setup)
+    name: DERP config validate (nguồn động derp-backend + failover setup)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Validate config/derp.yaml (YAML syntax)
-        run: python3 -c "import yaml; yaml.safe_load(open('config/derp.yaml')); print('derp.yaml OK')"
+      # config/derp.yaml đã bị loại bỏ: DERPMap giờ lấy động từ derp-backend
+      # (DB Postgres) qua config.yaml derp.urls -> /derpmap.json. Xem test
+      # test_headscale_config_co_derp_source_dong trong test_derp_config.py.
 
       - name: Validate derp-vpn3/docker-compose.yml
         run: docker compose -f derp-vpn3/docker-compose.yml config --quiet && echo "derp-vpn3/docker-compose.yml OK"
