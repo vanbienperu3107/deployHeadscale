@@ -1,103 +1,24 @@
-"""Validate cau truc config/derp.yaml va failover setup - chay trong CI truoc deploy."""
+"""Validate failover setup va cau truc compose - chay trong CI truoc deploy.
+
+DERPMap KHONG con lay tu config/derp.yaml tinh (da xoa): nguon duy nhat la
+derp-backend (DB Postgres) qua config.yaml derp.urls -> /derpmap.json. Cac test
+o day chi con kiem tra config.yaml tro dung toi nguon dong + cau truc docker
+compose cua tung relay/derper. Danh sach node (hostname/ipv4/region/port) do
+dashboard/DB quan ly, khong assert tinh trong repo nua.
+"""
 import pathlib
 import yaml
-import pytest
 
 ROOT = pathlib.Path(__file__).parent.parent
-DERP_MAP = ROOT / "config" / "derp.yaml"
 HS_CONFIG = ROOT / "config" / "config.yaml"
-
-
-def load_derp():
-    return yaml.safe_load(DERP_MAP.read_text())
 
 
 def load_hs():
     return yaml.safe_load(HS_CONFIG.read_text())
 
 
-# ---------- derp.yaml structure ----------
+# ---------- headscale config: nguon DERP dong + failover setup ----------
 
-def test_derp_yaml_ton_tai():
-    assert DERP_MAP.exists(), "config/derp.yaml phai ton tai"
-
-
-def test_derp_yaml_co_regions():
-    d = load_derp()
-    assert "regions" in d, "derp.yaml phai co truong 'regions'"
-    assert len(d["regions"]) >= 1, "phai co it nhat 1 region trong derp.yaml"
-
-
-def test_moi_region_co_truong_bat_buoc():
-    for rid, region in load_derp()["regions"].items():
-        assert "regionid" in region, f"region {rid}: thieu 'regionid'"
-        assert "regioncode" in region, f"region {rid}: thieu 'regioncode'"
-        assert "regionname" in region, f"region {rid}: thieu 'regionname'"
-        assert "nodes" in region and len(region["nodes"]) >= 1, f"region {rid}: phai co nodes"
-
-
-def test_moi_node_co_hostname_va_port():
-    # Sau khi retire region 1002 (vpn5-replay, 2026-07-03), moi region con lai
-    # deu tren port chuan 443/3478 - khong con ngoai le.
-    for rid, region in load_derp()["regions"].items():
-        for node in region["nodes"]:
-            assert "hostname" in node, f"region {rid}: node thieu 'hostname'"
-            assert node.get("derpport") == 443, (
-                f"region {rid}: derpport phai la 443"
-            )
-            assert node.get("stunport") == 3478, (
-                f"region {rid}: stunport phai la 3478"
-            )
-
-
-def test_vpn3_co_trong_derp_map():
-    """Dam bao vpn3.hangocthanh.io.vn duoc dang ky lam DERP relay (preferred region)."""
-    hostnames = [
-        node["hostname"]
-        for region in load_derp()["regions"].values()
-        for node in region["nodes"]
-    ]
-    assert "vpn3.hangocthanh.io.vn" in hostnames, (
-        "vpn3.hangocthanh.io.vn phai co trong config/derp.yaml"
-    )
-
-
-def test_vpn3_ip_dung():
-    for region in load_derp()["regions"].values():
-        for node in region["nodes"]:
-            if node["hostname"] == "vpn3.hangocthanh.io.vn":
-                assert node.get("ipv4") == "64.176.23.196", (
-                    "ipv4 cua vpn3 phai la 64.176.23.196"
-                )
-
-
-def test_vpn4_co_trong_derp_map():
-    """Dam bao vpn4.hangocthanh.io.vn duoc dang ky lam DERP relay."""
-    hostnames = [
-        node["hostname"]
-        for region in load_derp()["regions"].values()
-        for node in region["nodes"]
-    ]
-    assert "vpn4.hangocthanh.io.vn" in hostnames, (
-        "vpn4.hangocthanh.io.vn phai co trong config/derp.yaml"
-    )
-
-
-def test_vpn4_ip_dung():
-    for region in load_derp()["regions"].values():
-        for node in region["nodes"]:
-            if node["hostname"] == "vpn4.hangocthanh.io.vn":
-                assert node.get("ipv4") == "149.104.66.174", (
-                    "ipv4 cua vpn4 phai la 149.104.66.174"
-                )
-
-
-# ---------- headscale config: failover setup ----------
-
-# derp-backend chua deploy -> headscale crash neu derp.urls co URL khong reach duoc (FATAL).
-# Tam thoi urls=[] trong config.yaml cho den khi derp-backend deploy xong.
-# Khi restore urls, xoa 2 decorator @pytest.mark.xfail duoi day.
-@pytest.mark.xfail(reason="derp-backend chua deploy; derp.urls=[] tam thoi", strict=False)
 def test_headscale_config_co_derp_source_dong():
     """DERP map DONG: config.yaml lay region tu derp-backend (DB Postgres) qua derp.urls
     + auto_update (thay cho derp.paths tinh). Bat/tat/them node tren dashboard -> headscale
@@ -113,27 +34,29 @@ def test_headscale_config_co_derp_source_dong():
     )
 
 
-@pytest.mark.xfail(reason="derp-backend chua deploy; derp.urls=[] tam thoi", strict=False)
-def test_headscale_co_2_region_de_failover():
+def test_headscale_co_nguon_dong_de_failover():
     """
     Khi 1 region chet, client phai co region du phong.
-    - Region 999 (embedded vpn2): tu dong them boi automatically_add_embedded_derp_region
-    - Cac region DONG (1000+): tu derp-backend (DB Postgres) qua derp.urls
-    -> Tong >= 2 region -> failover tu dong (tailscale tu chuyen ~5-15s).
+
+    Kien truc hien tai: embedded DERP region 999 (controller vpn2) da TAT
+    co chu dich (derp.server.enabled=false). Failover den tu NHIEU region DONG
+    lay tu derp-backend (DB derp_servers) qua derp.urls -> /derpmap.json, cap
+    nhat lien tuc bang auto_update. So luong region (>=2) do DB quan ly, khong
+    assert tu file config tinh nua. O tang config, chi can dam bao nguon dong
+    external duoc bat + auto_update de headscale luon co DERP map moi nhat.
     """
     cfg = load_hs()
     derp = cfg.get("derp", {})
-    derp_srv = derp.get("server", {})
-    auto_embedded = derp_srv.get("automatically_add_embedded_derp_region", False)
     urls = derp.get("urls", [])
 
-    has_embedded = auto_embedded and derp_srv.get("enabled", False)
     has_external = any("derpmap.json" in u for u in urls)
-
-    assert has_embedded and has_external, (
-        "Can 2 nguon DERP de failover: "
-        f"embedded={'ON' if has_embedded else 'OFF'} (region 999, vpn2), "
-        f"external={'ON' if has_external else 'OFF'} (region dong qua derp-backend/derp.urls)"
+    assert has_external, (
+        "Nguon DERP dong (external) phai duoc bat de co failover da-region: "
+        f"derp.urls phai tro toi /derpmap.json cua derp-backend. Hien tai: {urls}"
+    )
+    assert derp.get("auto_update_enabled") is True, (
+        "derp.auto_update_enabled phai = true de headscale tu fetch lai DERP map "
+        "(region moi bat/tat tren DB duoc phan anh, dam bao con region du phong)"
     )
 
 
@@ -274,33 +197,9 @@ def test_derp_vpn5_reporter_dung_netns_sidecar():
     )
 
 
-def test_derp_co_3_region_total():
-    """>=3 DERP region ngoai (1000 vpn3 + 1001 vpn4 + 1003 vpn6) + embedded 999.
-
-    Region 1002 (vpn5-replay) da retire 2026-07-03 - xem derp.yaml header.
-    """
-    d = load_derp()
-    assert len(d["regions"]) >= 3, (
-        "config/derp.yaml phai co it nhat 3 region ngoai (+ embedded 999 = 4 tong)"
-    )
-
-
-def test_vpn5_replay_da_retire():
-    """Region 1002 (vpn5-replay) phai KHONG con trong derp.yaml (retire 2026-07-03).
-
-    derper2 tren port 8443 khong toi duoc tu client sau proxy itop (chi cho 443)
-    -> gay 'tls: internal error'. Da gop ve vpn4 (region 1001, 443).
-    """
-    d = load_derp()
-    assert 1002 not in d["regions"], "region 1002 (vpn5-replay) phai da bi go bo"
-    hostnames = [
-        node["hostname"]
-        for region in d["regions"].values()
-        for node in region["nodes"]
-    ]
-    assert "vpn5.hangocthanh.io.vn" not in hostnames, (
-        "vpn5.hangocthanh.io.vn phai KHONG con trong config/derp.yaml"
-    )
+# Ghi chu: so luong region + trang thai retire cua vpn5-replay gio do DB
+# derp_servers quan ly (khong con derp.yaml tinh de assert). Kiem tra tinh
+# dung dan cua danh sach region thuc hien o tang dashboard/derp-backend.
 
 
 # ---------- relay-vpn5 compose ----------
@@ -348,37 +247,9 @@ def test_relay_vpn5_go_mod_ton_tai():
     )
 
 
-# ---------- region 1003 (vpn6 hybrid relay, co-host Caddy) ----------
-
-def test_vpn6_co_trong_derp_map():
-    """Dam bao vpn6.hangocthanh.io.vn (hybrid relay co-host) duoc dang ky."""
-    hostnames = [
-        node["hostname"]
-        for region in load_derp()["regions"].values()
-        for node in region["nodes"]
-    ]
-    assert "vpn6.hangocthanh.io.vn" in hostnames, (
-        "vpn6.hangocthanh.io.vn phai co trong config/derp.yaml (region 1003)"
-    )
-
-
-def test_vpn6_ip_va_port_dung():
-    for region in load_derp()["regions"].values():
-        for node in region["nodes"]:
-            if node["hostname"] == "vpn6.hangocthanh.io.vn":
-                assert node.get("ipv4") == "45.119.87.220", (
-                    "ipv4 cua vpn6 phai la 45.119.87.220"
-                )
-                assert node.get("derpport") == 443, "vpn6 derpport phai la 443"
-
-
-def test_vpn6_region_id_la_1003():
-    d = load_derp()
-    assert 1003 in d["regions"], "region 1003 phai ton tai (vpn6)"
-    assert d["regions"][1003]["regionid"] == 1003
-
-
 # ---------- relay-vpn6 compose (co-host tren memory-stack) ----------
+# Region 1003 (vpn6) hostname/ipv4/regionid gio do DB derp_servers quan ly,
+# khong con assert tu derp.yaml tinh. Cac test duoi kiem tra cau truc compose.
 
 def test_relay_vpn6_compose_ton_tai():
     compose = ROOT / "relay-vpn6" / "docker-compose.yml"
