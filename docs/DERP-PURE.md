@@ -159,7 +159,11 @@ sequenceDiagram
 derper chỉ hữu ích khi client **biết nó tồn tại**. Client lấy danh sách relay từ
 **DERPMap** do headscale (vpn2) phát:
 
-- headscale phục vụ DERPMap (vd qua `derp.urls` / `derpmap.json`); mỗi DERP region
+- headscale lấy DERPMap **động** từ `derp-backend` (Neon Postgres, bảng
+  `derp_servers`) qua `derp.urls: [http://derp-backend:8787/derpmap.json]`
+  trong `config/config.yaml` (`derp.paths: []` — không load file tĩnh nào
+  trong `config/`). `auto_update_enabled: true` khiến headscale tự
+  `GET` lại endpoint này mỗi `update_frequency` (~10s); mỗi DERP region
   khai báo `hostname`, port, có STUN hay không.
 - Client `tailscaled` tải DERPMap → netcheck (F2) đo RTT từng region → chọn
   **preferred DERP** → khi cần fallback thì kết nối relay đó (F1).
@@ -211,8 +215,11 @@ giám sát của node đó. (Trái lại, DERP embed *cần* sidecar để biế
    `3478/udp` ở firewall/cloud.
 2. `docker compose up -d --build` trong `derp-vpnN/`. derper **tự xin cert mới**
    qua ACME (cần cổng 80 reachable). Không bắt buộc copy volume cert — sẽ cấp lại.
-3. Cập nhật **DERPMap** trên headscale nếu IP/region đổi (để client học relay mới).
-   DNS giữ nguyên hostname thì client tự kết nối lại sau khi DNS trỏ IP mới.
+3. Cập nhật **DERPMap** qua Dashboard DERP UI hoặc API (`PATCH /api/derp/:regionId`)
+   nếu IP/region đổi (để client học relay mới) — không sửa file YAML nào, và
+   **không cần restart headscale**: `auto_update_enabled` tự refetch từ
+   `derp-backend` mỗi ~10s. DNS giữ nguyên hostname thì client tự kết nối lại
+   sau khi DNS trỏ IP mới.
 4. (Tùy chọn) copy volume `tailscale_vpnN` để sidecar giữ identity node giám sát.
 5. Xác minh: `curl -I https://vpnN.hangocthanh.io.vn` (cert hợp lệ); client
    `tailscale netcheck` thấy region; dashboard có latency.

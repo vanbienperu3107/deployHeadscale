@@ -36,6 +36,36 @@ Thay thế hoàn toàn `controlplane.tailscale.com` và DERP servers của Tails
 >
 > 🛰️ **DERP relay ngoài vpn2:** [docs/DERP-PURE.md](docs/DERP-PURE.md) (derper chính chủ, `derp-vpn3/`, `derp-vpn4/`) · [docs/DERP-EMBED.md](docs/DERP-EMBED.md) (bản hybrid tự viết) · [docs/DERP-VPN4-V2-CUTOVER.md](docs/DERP-VPN4-V2-CUTOVER.md) — instance derper v1.100.0 thứ 2 trên vpn4, domain `vpn5.hangocthanh.io.vn` (cutover từ server vpn5 cũ, region DERP 1002).
 
+## Kiến trúc DERP hiện tại (DB-driven, từ 2026-07-04)
+
+`config/derp.yaml` (file tĩnh) đã bị **xoá** — là bản trùng lặp cũ, không
+còn ai đọc. DERPMap giờ lấy **100% động** từ DB:
+
+```
+DB Neon Postgres (bảng derp_servers)
+        │  CRUD qua Dashboard DERP UI / API
+        ▼
+  derp-backend (Fastify) ──serve──► GET /derpmap.json
+        ▲                                   │
+        │                                   ▼
+        └────────── headscale (config/config.yaml) ─────────►  client
+             derp.urls: [http://derp-backend:8787/derpmap.json]
+             derp.auto_update_enabled: true (refetch ~10s)
+             derp.paths: []   (không load file nào trong config/)
+```
+
+- **Đổi IP / thêm / xoá / retire một DERP region:** dùng Dashboard DERP UI
+  hoặc API (`PATCH /api/derp/:regionId`, `POST /api/derp`,
+  `POST /api/derp/:regionId/toggle`, `DELETE /api/derp/:regionId`) —
+  **không sửa file YAML nào và không cần restart headscale**; headscale tự
+  refetch `/derpmap.json` mỗi ~10s nhờ `auto_update_enabled`.
+- Region **999** (embedded DERP trên vpn2, `derp.server`) đang **tắt**
+  (`enabled: false`) một cách chủ động — failover dựa vào nhiều region động
+  trong DB, không phải region embedded.
+- Compose vẫn mount cả thư mục `./config` vào container headscale, nhưng vì
+  `paths: []` nên dù `config/` có file `.yaml` khác cũng không được load làm
+  DERPMap tĩnh.
+
 ## Yêu cầu
 
 | Thành phần | Tối thiểu |
