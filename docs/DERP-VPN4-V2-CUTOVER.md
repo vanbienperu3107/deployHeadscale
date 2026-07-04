@@ -69,9 +69,16 @@ khi cert còn dưới 30 ngày hạn → gián đoạn tạm thời instance cũ
 (khoảng mỗi 60 ngày). Nếu muốn loại bỏ hẳn gián đoạn này, cần chuyển sang
 DNS-01 challenge (Cloudflare API token) — chưa triển khai, xem §6.
 
-## 4. Headscale DERPMap (`config/derp.yaml`)
+## 4. Headscale DERPMap (`config/derp.yaml`) — LỊCH SỬ, file đã xoá
 
-Region **1002** (trước đây trỏ server vpn5 cũ) nay trỏ về vpn4:
+> ⚠️ **Đã lỗi thời:** `config/derp.yaml` bị xoá khỏi repo (2026-07-04).
+> DERPMap từ đó lấy 100% động từ DB (`derp_servers`, Neon Postgres) qua
+> `derp-backend`/`/derpmap.json`, headscale tự refetch mỗi ~10s
+> (`derp.auto_update_enabled: true`, `derp.paths: []`). Đổi region/IP nay
+> làm qua Dashboard DERP UI hoặc API, không sửa YAML. Nội dung dưới đây giữ
+> nguyên làm nhật ký lịch sử của lần cutover 2026-07-02→03.
+
+Region **1002** (trước đây trỏ server vpn5 cũ) khi đó trỏ về vpn4:
 
 ```yaml
 1002:

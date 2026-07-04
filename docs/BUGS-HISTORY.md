@@ -4,6 +4,12 @@
 > host vpn4, phục vụ domain `vpn5.hangocthanh.io.vn` (cutover từ server vpn5
 > cũ). Xem kiến trúc đầy đủ ở `docs/DERP-VPN4-V2-CUTOVER.md`. Mục đích file
 > này: tránh lặp lại đúng những lỗi đã tốn thời gian debug.
+>
+> ⚠️ **Cập nhật kiến trúc (2026-07-04):** `config/derp.yaml` — nhắc tới ở
+> mục 1 và 10 dưới đây — đã bị **xoá khỏi repo**. DERPMap nay lấy 100% động
+> từ DB (`derp_servers`, Neon Postgres) qua `derp-backend`/`/derpmap.json`,
+> headscale tự refetch (`auto_update_enabled`, `paths: []`). Các mục dưới
+> đây giữ nguyên làm nhật ký lịch sử, không phản ánh cấu hình hiện tại.
 
 ## 1. Test cũ hardcode kỳ vọng cấu hình vpn5 cũ
 

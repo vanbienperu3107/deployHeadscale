@@ -227,7 +227,10 @@ sequenceDiagram
    nhật qua DERPMap).
 3. Deploy: `docker compose up -d --build` trong `relay-vpnX/`. Sidecar join lại với
    `TS_AUTHKEY`; reverse proxy (Traefik/Caddy) xin cert mới.
-4. Cập nhật **DERPMap** (`derp.urls` / dashboard derp-backend) nếu IP/region đổi.
+4. Cập nhật **DERPMap** qua Dashboard DERP UI hoặc API (`PATCH /api/derp/:regionId`)
+   nếu IP/region đổi — không sửa file, headscale tự refetch từ `derp-backend`
+   (`derp.urls` trong `config/config.yaml`, `auto_update_enabled: true`, ~10s)
+   nên **không cần restart headscale**.
 5. Xác minh: `curl -k https://vpnX.../relay/probe` = `OK`; log relay thấy
    `endpoint cache refreshed: N peers`.
 
