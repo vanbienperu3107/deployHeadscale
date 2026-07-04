@@ -34,26 +34,29 @@ def test_headscale_config_co_derp_source_dong():
     )
 
 
-def test_headscale_co_2_region_de_failover():
+def test_headscale_co_nguon_dong_de_failover():
     """
     Khi 1 region chet, client phai co region du phong.
-    - Region 999 (embedded vpn2): tu dong them boi automatically_add_embedded_derp_region
-    - Cac region DONG (1000+): tu derp-backend (DB Postgres) qua derp.urls
-    -> Tong >= 2 region -> failover tu dong (tailscale tu chuyen ~5-15s).
+
+    Kien truc hien tai: embedded DERP region 999 (controller vpn2) da TAT
+    co chu dich (derp.server.enabled=false). Failover den tu NHIEU region DONG
+    lay tu derp-backend (DB derp_servers) qua derp.urls -> /derpmap.json, cap
+    nhat lien tuc bang auto_update. So luong region (>=2) do DB quan ly, khong
+    assert tu file config tinh nua. O tang config, chi can dam bao nguon dong
+    external duoc bat + auto_update de headscale luon co DERP map moi nhat.
     """
     cfg = load_hs()
     derp = cfg.get("derp", {})
-    derp_srv = derp.get("server", {})
-    auto_embedded = derp_srv.get("automatically_add_embedded_derp_region", False)
     urls = derp.get("urls", [])
 
-    has_embedded = auto_embedded and derp_srv.get("enabled", False)
     has_external = any("derpmap.json" in u for u in urls)
-
-    assert has_embedded and has_external, (
-        "Can 2 nguon DERP de failover: "
-        f"embedded={'ON' if has_embedded else 'OFF'} (region 999, vpn2), "
-        f"external={'ON' if has_external else 'OFF'} (region dong qua derp-backend/derp.urls)"
+    assert has_external, (
+        "Nguon DERP dong (external) phai duoc bat de co failover da-region: "
+        f"derp.urls phai tro toi /derpmap.json cua derp-backend. Hien tai: {urls}"
+    )
+    assert derp.get("auto_update_enabled") is True, (
+        "derp.auto_update_enabled phai = true de headscale tu fetch lai DERP map "
+        "(region moi bat/tat tren DB duoc phan anh, dam bao con region du phong)"
     )
 
 
