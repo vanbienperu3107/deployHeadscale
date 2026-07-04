@@ -6,7 +6,10 @@ services:
       # THU NGHIEM 2026-07-03: nang rieng vpn4 len derper v1.100.0 (override ARG
       # mac dinh v1.80.0 trong Dockerfile dung chung). vpn3/vpn6/vpn2 van v1.80.0.
       # v1.100.0 da chay on tren chinh host nay khi con la derper2 (da retire).
+      # v1.100.0 yeu cau go >= 1.26.4 -> phai override luon GO_VERSION=1.26
+      # (mac dinh 1.23 chi build duoc v1.80.0).
       args:
+        GO_VERSION: "1.26"
         TAILSCALE_VERSION: v1.100.0
     container_name: derper
     restart: unless-stopped

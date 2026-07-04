@@ -1,4 +1,8 @@
-FROM golang:1.23-alpine AS builder
+# GO_VERSION tham so hoa de tung relay chon Go base rieng (derper moi can Go
+# moi hon: v1.100.0 yeu cau go >= 1.26.4). Mac dinh 1.23 cho v1.80.0; vpn4
+# override GO_VERSION=1.26 + TAILSCALE_VERSION=v1.100.0 qua build.args.
+ARG GO_VERSION=1.23
+FROM golang:${GO_VERSION}-alpine AS builder
 # Build derper tu source chinh thuc cua tailscale.
 # Pin version de CI/deploy co the tao lai image giong nhau.
 ARG TAILSCALE_VERSION=v1.80.0
