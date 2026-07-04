@@ -116,7 +116,6 @@ logtail:
 
 # === Misc ===
 disable_check_updates: true
-randomize_client_port: false
 
 # === Unix socket ===
 unix_socket: /var/run/headscale/headscale.sock
