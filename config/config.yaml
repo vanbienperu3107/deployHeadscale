@@ -77,13 +77,22 @@ dns:
     global:
       - 1.1.1.1
       - 8.8.8.8
+    # Split DNS quản lý qua CMS (Tailnet Access > Split DNS), KHÔNG hardcode ở
+    # đây — headscale tự gọi dashboard (derp.dashboard.url, cùng secret Feature
+    # B) mỗi lần build MapResponse, merge đè lên split tĩnh nếu có. Để trống là
+    # đúng; sửa domain/nameserver trên CMS, không cần sửa + deploy lại file này.
     split: {}
   search_domains: []
   extra_records: []
 
 # === ACL Policy ===
+# database: cho phep dashboard (CMS) day nodeAttrs/grants (Taildrive per-PC share)
+# qua PUT /api/v1/policy ma khong can sua + deploy lai file nay. `path` giu lai
+# lam tham chieu (khong con doc khi mode=database), noi dung acl.json TRUOC KHI
+# doi mode da duoc seed vao DB qua `headscale policy set --bypass...` (xem
+# docs/DEPLOYMENT.md) de khong bi mat accept-all ACL + autoApprovers routes.
 policy:
-  mode: file
+  mode: database
   path: /etc/headscale/acl.json
 
 # === OIDC (đăng ký thiết bị tự động bằng Google) ===
