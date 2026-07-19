@@ -11,12 +11,12 @@ Thay thế hoàn toàn `controlplane.tailscale.com` và DERP servers của Tails
 ┌──────────────────────────────────────────────────────────┐
 │                       VPS / Server                         │
 │  ┌──────────┐ ┌──────────┐ ┌───────────────┐ ┌─────────┐  │
-│  │ Headscale│ │DERP embed│ │headscale-admin│ │oauth2-  │  │
+│  │ Headscale│ │derp-relay│ │   Headplane   │ │oauth2-  │  │
 │  │ :8080    │ │ :3478/udp│ │  (Web UI)     │ │proxy SSO│  │
 │  └────┬─────┘ └────┬─────┘ └───────┬───────┘ └────┬────┘  │
 │   ┌───┴────────────┴───────────────┴──────────────┴───┐   │
 │   │              Caddy (auto TLS :443)                 │   │
-│   │   /  → headscale   /admin → SSO → admin UI         │   │
+│   │   /  → headscale   /admin → Headplane (OIDC)       │   │
 │   └───────────────────────────────────────────────────┘   │
 └──────────────────────────────────────────────────────────┘
         ▲                  ▲
@@ -81,8 +81,8 @@ DB Neon Postgres (bảng derp_servers)
 
 ```
 deployHeadscale/
-├── docker-compose.yml      # Headscale + headscale-admin + oauth2-proxy + Caddy
-├── Caddyfile               # reverse proxy + auto TLS + SSO gate cho /admin
+├── docker-compose.yml      # Headscale + Headplane + oauth2-proxy + derp-relay + Caddy
+├── Caddyfile               # reverse proxy + auto TLS + SSO gate cho /stats, /derp-status
 ├── .env.example            # biến OIDC mẫu (secret thật ghi vào .env trên VPS)
 ├── config/
 │   ├── config.yaml         # config chính của Headscale
@@ -186,29 +186,38 @@ Cần khai báo Secrets: `SSH_HOST`, `SSH_USER`, `SSH_KEY`, `DEPLOY_PATH` (và `
 Stack kèm sẵn giao diện quản lý web giống admin console của Tailscale, đặt tại `https://hs.yourdomain.com/admin`, được **bảo vệ bằng đăng nhập Google (OIDC)**.
 
 ```
-trình duyệt → /admin → Caddy forward_auth → oauth2-proxy → Google login
-                                   │ (email nằm trong whitelist?)
-                                   ▼ đạt
-                            headscale-admin (Web UI)
+trình duyệt → /admin → Headplane → Google login (OIDC, server-side)
+                          │ tự dùng API key cấu hình sẵn
+                          ▼
+                   headscale API :8080
+
+trình duyệt → /stats, /derp-status → Caddy forward_auth → oauth2-proxy
+                                          │ (email trong whitelist?)
+                                          ▼ đạt
+                                    node-dedup :8090
 ```
 
-| Thành phần | Image | Vai trò |
-|------------|-------|---------|
-| `headscale-admin` | `goodieshq/headscale-admin:v0.27` | Web UI quản lý user/node/route |
-| `oauth2-proxy` | `quay.io/oauth2-proxy/oauth2-proxy:v7.6.0` | Gác cổng SSO Google trước `/admin` |
+| Thành phần     | Image                                        | Vai trò                                                 |
+|----------------|----------------------------------------------|---------------------------------------------------------|
+| `headplane`    | `ghcr.io/tale/headplane:0.6.3`               | Web UI quản lý user/node/route tại `/admin`, tự lo OIDC |
+| `oauth2-proxy` | `quay.io/oauth2-proxy/oauth2-proxy:v7.6.0`   | Gác cổng SSO Google trước `/stats` và `/derp-status`    |
+
+> `headscale-admin` (goodieshq) **đã gỡ khỏi stack** — Headplane thay thế hoàn toàn
+> và không bắt người dùng dán API key thủ công.
 
 **Cấu hình cần có:**
 1. **OAuth client (Google Cloud Console)** → Authorized redirect URI = `https://hs.yourdomain.com/oauth2/callback`.
 2. **3 Secrets** (workflow Deploy tự ghi vào `.env` trên VPS): `OAUTH2_PROXY_CLIENT_ID`, `OAUTH2_PROXY_CLIENT_SECRET`, `OAUTH2_PROXY_COOKIE_SECRET` (`openssl rand -base64 32`).
 3. **Whitelist email** trong [`oauth2-proxy/emails.txt`](oauth2-proxy/emails.txt) — mỗi dòng 1 email được phép vào.
 
-**Đăng nhập vào UI lần đầu:** tạo API key trên VPS rồi nhập vào ô Settings của UI:
+**API key cho Headplane:** tạo trên VPS rồi nạp qua secret `HEADPLANE_HS_API_KEY`
+(workflow Deploy ghi vào `.env`) — người dùng cuối KHÔNG phải nhập key:
 ```bash
 docker exec headscale headscale apikeys create --expiration 90d
-# → dán key + URL https://hs.yourdomain.com vào màn hình Settings của headscale-admin
 ```
 
-> ⚠️ **Phải khớp version** `headscale` ↔ `headscale-admin`. Headscale `0.28` đổi định dạng API key (`hskey-api-...`) khiến admin cũ báo *Not Authorized*; stack này ghim cặp ổn định **headscale `0.27.1` + admin `v0.27`**. Đổi version thì đổi cả hai.
+> ⚠️ Key hết hạn thì `/admin` sẽ báo lỗi gọi API dù đăng nhập Google thành công —
+> tạo key mới và cập nhật secret, đừng chỉ đăng nhập lại.
 
 ---
 
