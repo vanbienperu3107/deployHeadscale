@@ -83,7 +83,29 @@ dns:
     # đúng; sửa domain/nameserver trên CMS, không cần sửa + deploy lại file này.
     split: {}
   search_domains: []
-  extra_records: []
+  # ★ PHÁ THẾ KẸT DNS — KHÔNG ĐƯỢC XOÁ (sự cố votam-pc 2026-07-19).
+  #
+  # override_local_dns: true ở trên thay DNS của máy bằng 100.100.100.100, rồi
+  # chuyển tiếp lên 1.1.1.1/8.8.8.8 QUA ĐƯỜNG HẦM. Nhưng chính server_url
+  # (vpn2.hangocthanh.io.vn) cũng là một tên miền cần phân giải. Nên khi đường
+  # hầm rớt:
+  #
+  #   hầm rớt -> DNS chết -> không phân giải được vpn2 -> không đăng nhập lại
+  #           -> hầm vẫn rớt   (vòng lặp, máy không bao giờ tự hồi phục)
+  #
+  # Đã xảy ra thật: client vẫn ping DERP 42ms bình thường (DERP đi bằng IP
+  # thuần từ DERPMap nên không cần DNS), riêng vpn2 thì "no DNS fallback
+  # candidates remain". Đường thoát dự phòng của Tailscale cũng bịt: nó thử
+  # derp*.tailscale.com — DERP công cộng KHÔNG nằm trong DERPMap riêng của
+  # mình, IPv6 thì unreachable, IPv4 thì bị chặn.
+  #
+  # Bản ghi dưới đây để MagicDNS tự trả lời tên control server từ netmap đã
+  # cache trong tailscaled, không cần ra ngoài. Sửa IP của vpn2 thì PHẢI sửa
+  # cả ở đây, nếu không toàn bộ fleet mất đường hồi phục.
+  extra_records:
+    - name: "vpn2.hangocthanh.io.vn"
+      type: "A"
+      value: "165.22.12.169"
 
 # === ACL Policy ===
 # database: cho phep dashboard (CMS) day nodeAttrs/grants (Taildrive per-PC share)
