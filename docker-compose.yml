@@ -26,16 +26,14 @@ services:
       - net.ipv4.ip_forward=1
       - net.ipv6.conf.all.forwarding=1
 
-  # Web UI quản lý Headscale (truy cập tại https://<domain>/admin)
-  # Khớp version với headscale 0.27 (admin 0.27 hiểu định dạng API key của headscale 0.27).
-  headscale-admin:
-    image: goodieshq/headscale-admin:v0.27
-    container_name: headscale-admin
-    restart: unless-stopped
-    depends_on:
-      - headscale
+  # headscale-admin ĐÃ GỠ: Caddyfile route toàn bộ /admin* sang Headplane
+  # (đăng nhập Google server-side, không phải dán API key thủ công), nên
+  # goodieshq/headscale-admin không còn được reverse_proxy tới từ bất kỳ đâu —
+  # nó chỉ chiếm RAM trên VPS 3.8 GiB KHÔNG có swap. Muốn dùng lại thì thêm
+  # service + route /admin* trong Caddyfile, và nhớ ghim đúng cặp version
+  # headscale 0.27.1 <-> admin v0.27 (0.28 đổi định dạng API key -> Not Authorized).
 
-  # SSO gác cổng /admin bằng Google OIDC.
+  # SSO gác cổng /stats và /derp-status bằng Google OIDC.
   # Secret (client id/secret/cookie) đọc từ .env (workflow tự ghi từ GitHub Secrets).
   oauth2-proxy:
     image: quay.io/oauth2-proxy/oauth2-proxy:v7.6.0
@@ -61,7 +59,7 @@ services:
     volumes:
       - ./oauth2-proxy/emails.txt:/etc/oauth2-proxy/emails.txt:ro
     depends_on:
-      - headscale-admin
+      - headscale
 
   # Headplane — UI quản lý headscale chạy server-side: đăng nhập Google (OIDC)
   # rồi tự dùng API key cấu hình sẵn → user KHÔNG phải nhập key. Phục vụ tại /admin.
@@ -198,7 +196,6 @@ services:
     restart: unless-stopped
     depends_on:
       - headscale
-      - headscale-admin
       - oauth2-proxy
       - headplane
       - node-dedup
