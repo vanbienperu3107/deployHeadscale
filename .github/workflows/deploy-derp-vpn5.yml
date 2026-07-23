@@ -33,7 +33,7 @@ jobs:
             PKEY_RESP=$(curl -sf -m 15 -X POST \
               -H "Authorization: Bearer $HS_API_KEY" \
               -H "Content-Type: application/json" \
-              -d "{\"user\":$USER_ID,\"reusable\":true,\"expiration\":\"$EXPIRY\"}" \
+              -d "{\"user\":\"$USER_ID\",\"reusable\":true,\"expiration\":\"$EXPIRY\"}" \
               "https://vpn2.hangocthanh.io.vn/api/v1/preauthkey" 2>/dev/null || echo "")
             KEY=$(echo "$PKEY_RESP" | python3 -c \
               "import json,sys; d=json.load(sys.stdin); print(d.get('preAuthKey',{}).get('key','') or d.get('key',''))" \
