@@ -1,0 +1,34 @@
+# tinyproxy config template cho vpn-gw. entrypoint.sh thay ${PROXY_PORT}
+# roi ghi ra /etc/vpn-gw/tinyproxy.conf.
+#
+# tinyproxy resolve hostname bang glibc getaddrinfo -> doc /etc/resolv.conf
+# (tro 127.0.0.1 = dnsmasq local). glibc KHONG gui EDNS0 nen tranh duoc
+# loi FORMERR cua DNS Bitel cu (xem docs/plan-vpn-gateway-bitel.md).
+
+User nobody
+Group nobody
+Port ${PROXY_PORT}
+
+# Nghe tren moi interface trong netns (dung chung voi sidecar tailscale ->
+# thuc te la IP 100.x). Kiem soat truy cap bang Allow ben duoi.
+Listen 0.0.0.0
+
+Timeout 600
+
+# Chi cho phep peer trong tailnet (CGNAT 100.64.0.0/10) + localhost dung proxy.
+# Ngan lam open-proxy neu port lo ra ngoai.
+Allow 127.0.0.1
+Allow ::1
+Allow 100.64.0.0/10
+
+# CONNECT (HTTPS tunnel) — cho phep moi port TLS pho bien.
+ConnectPort 443
+ConnectPort 8443
+
+# Khong ro ri thong tin server.
+DisableViaHeader Yes
+
+# Log ra stdout de docker logs bat duoc.
+LogLevel Info
+
+StatFile "/var/log/vpn-gw/tinyproxy.stats"
