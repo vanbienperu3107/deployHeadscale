@@ -1,0 +1,54 @@
+# Stack VPN gateway tren vpn4. Hai container chia se network namespace:
+#  - ts-vpngw : sidecar tailscale chinh thuc, giu IP 100.x tren tailnet.
+#  - vpn-gw   : image GHCR (openvpn + tinyproxy + dnsmasq), chay network_mode:
+#               service:ts-vpngw -> proxy :8888 nam tren chinh IP 100.x do.
+# Client tro PAC toi <100.x>:8888. KHONG publish port ra host/internet.
+# Xem docs/plan-vpn-gateway-bitel.md.
+
+services:
+  ts-vpngw:
+    image: tailscale/tailscale:latest
+    container_name: ts-vpngw
+    hostname: vpngw
+    restart: unless-stopped
+    environment:
+      - TS_AUTHKEY=${TS_AUTHKEY:-}
+      - TS_EXTRA_ARGS=--login-server=https://vpn2.hangocthanh.io.vn --hostname=vpngw --accept-dns=false
+      - TS_STATE_DIR=/var/lib/tailscale
+      - TS_USERSPACE=false
+      - TS_SOCKET=/var/run/tailscale/tailscaled.sock
+    volumes:
+      - tailscale_vpngw:/var/lib/tailscale
+      - ts_vpngw_sock:/var/run/tailscale
+    devices:
+      - /dev/net/tun
+    cap_add:
+      - NET_ADMIN
+
+  vpn-gw:
+    image: ghcr.io/vanbienperu3107/vpn-gw:latest
+    container_name: vpn-gw
+    restart: unless-stopped
+    # Vao netns cua sidecar tailscale -> tinyproxy :8888 tren IP 100.x.
+    network_mode: "service:ts-vpngw"
+    environment:
+      - OVPN_CONFIG=/config/client.ovpn
+      - OVPN_AUTH=/config/auth.txt
+      - PROXY_PORT=8888
+      # DNS noi bo Bitel + domain split (mac dinh da dung, override neu doi).
+      - BITEL_DOMAIN=bitel.com.pe
+      - BITEL_DNS1=10.121.127.193
+      - BITEL_DNS2=10.121.127.194
+      - TUN_WAIT=90
+    volumes:
+      - ./config:/config:ro
+    devices:
+      - /dev/net/tun
+    cap_add:
+      - NET_ADMIN
+    depends_on:
+      - ts-vpngw
+
+volumes:
+  tailscale_vpngw:
+  ts_vpngw_sock:

@@ -1,0 +1,138 @@
+name: Deploy vpn-gw (vpn4)
+
+# Trien khai stack VPN gateway (sidecar tailscale + vpn-gw) len vpn4: pull image
+# tu GHCR, ghi config tu secrets, compose up, verify egress di qua VPN Bitel.
+# Xem docs/plan-vpn-gateway-bitel.md (Phase 2).
+on:
+  workflow_dispatch:
+
+concurrency:
+  # Cung host vpn4 voi deploy-derp-vpn4 -> xep hang tuan tu, tranh dpkg/docker lock.
+  group: deploy-vpn4-host
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy vpn-gw stack len vpn4
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - name: Tao preauthkey cho node vpngw (chay tren runner)
+        id: ts_key
+        env:
+          HS_API_KEY: ${{ secrets.HEADPLANE_HS_API_KEY }}
+        run: |
+          RESPONSE=$(curl -sf -m 15 \
+            -H "Authorization: Bearer $HS_API_KEY" \
+            "https://vpn2.hangocthanh.io.vn/api/v1/user" 2>/dev/null \
+            || echo '{"users":[]}')
+          USER_ID=$(echo "$RESPONSE" | python3 -c \
+            "import json,sys; d=json.load(sys.stdin); u=d.get('users',d.get('user',[])); print(int(u[0].get('id',0)) if isinstance(u,list) and u else '')" \
+            2>/dev/null || echo "")
+          echo "headscale user id=$USER_ID"
+          EXPIRY=$(date -d '+365 days' -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo "")
+          KEY=""
+          if [ -n "$USER_ID" ] && [ "$USER_ID" != "0" ]; then
+            PKEY_RESP=$(curl -sf -m 15 -X POST \
+              -H "Authorization: Bearer $HS_API_KEY" \
+              -H "Content-Type: application/json" \
+              -d "{\"user\":\"$USER_ID\",\"reusable\":true,\"expiration\":\"$EXPIRY\"}" \
+              "https://vpn2.hangocthanh.io.vn/api/v1/preauthkey" 2>/dev/null || echo "")
+            KEY=$(echo "$PKEY_RESP" | python3 -c \
+              "import json,sys; d=json.load(sys.stdin); print(d.get('preAuthKey',{}).get('key','') or d.get('key',''))" \
+              2>/dev/null || echo "")
+          fi
+          if [ -z "$KEY" ]; then
+            echo "::error::Khong tao duoc preauthkey (user id=$USER_ID) — kiem tra HS_API_KEY/API"
+            exit 1
+          fi
+          echo "::add-mask::$KEY"
+          echo "Tao preauthkey thanh cong (user id=$USER_ID)"
+          echo "key=$KEY" >> "$GITHUB_OUTPUT"
+
+      - name: SSH vao vpn4 — pull GHCR + ghi config + compose up + verify
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SSH_HOST_VPN4 }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT || '22' }}
+          envs: DEPLOY_PATH,REPO_URL,DEPLOY_REF,TS_AUTHKEY,GHCR_ACTOR,GHCR_TOKEN,OVPN_B64,OVPN_USER,OVPN_PASS
+          script_stop: true
+          command_timeout: 20m
+          script: |
+            set -e
+            if [ "$(id -u)" -ne 0 ]; then SUDO="sudo"; else SUDO=""; fi
+
+            echo "==> [1/6] Clone/cap nhat repo"
+            if [ ! -d "$DEPLOY_PATH/.git" ]; then
+              $SUDO mkdir -p "$DEPLOY_PATH"
+              $SUDO git clone "$REPO_URL" "$DEPLOY_PATH"
+              $SUDO chown -R "$(id -un):$(id -gn)" "$DEPLOY_PATH"
+            fi
+            cd "$DEPLOY_PATH"
+            git config --global --add safe.directory "$DEPLOY_PATH" || true
+            git fetch --all --prune
+            git reset --hard "origin/${DEPLOY_REF:-main}"
+
+            echo "==> [2/6] Ghi config (client.ovpn + auth.txt) tu secrets"
+            cd "$DEPLOY_PATH/vpn-gw"
+            umask 077
+            mkdir -p config
+            printf '%s' "$OVPN_B64" | base64 -d > config/client.ovpn
+            printf '%s\n%s\n' "$OVPN_USER" "$OVPN_PASS" > config/auth.txt
+            chmod 600 config/client.ovpn config/auth.txt
+            echo "  config da ghi ($(wc -c < config/client.ovpn) bytes ovpn)"
+
+            echo "==> [3/6] Ghi .env (TS_AUTHKEY)"
+            printf 'TS_AUTHKEY=%s\n' "${TS_AUTHKEY:-}" > .env
+            chmod 600 .env
+
+            echo "==> [4/6] Login GHCR + pull image"
+            echo "$GHCR_TOKEN" | $SUDO docker login ghcr.io -u "$GHCR_ACTOR" --password-stdin
+            $SUDO docker compose pull
+
+            echo "==> [5/6] Compose up"
+            $SUDO docker compose up -d --remove-orphans
+            $SUDO docker logout ghcr.io || true
+            sleep 8
+            $SUDO docker compose ps
+
+            echo "==> [6/6] Verify: tun0 len + egress di qua VPN"
+            echo "  Cho tun0 (toi da 120s)..."
+            up=0
+            for _ in $(seq 1 40); do
+              if $SUDO docker exec vpn-gw ip link show tun0 up >/dev/null 2>&1; then up=1; break; fi
+              sleep 3
+            done
+            if [ "$up" != "1" ]; then
+              echo "::error::tun0 khong len sau 120s"
+              $SUDO docker logs --tail 40 vpn-gw 2>&1 || true
+              exit 1
+            fi
+            echo "  tun0 LEN. Kiem tra egress IP (phai != IP vpn4)..."
+            EGRESS=$($SUDO docker exec vpn-gw curl -s --max-time 20 -x http://127.0.0.1:8888 https://api.ipify.org 2>/dev/null || echo "")
+            echo "  egress qua proxy = '$EGRESS'"
+            HOSTIP=$(curl -s --max-time 10 https://api.ipify.org 2>/dev/null || echo "runner")
+            if [ -z "$EGRESS" ]; then
+              echo "::error::Khong lay duoc egress IP qua proxy"
+              exit 1
+            fi
+            echo "  Kiem tra vao jump.bitel.com.pe qua proxy..."
+            CODE=$($SUDO docker exec vpn-gw curl -s -o /dev/null -w '%{http_code}' \
+              --max-time 25 -x http://127.0.0.1:8888 https://jump.bitel.com.pe/ 2>/dev/null || echo 000)
+            echo "  jump.bitel.com.pe qua proxy: HTTP $CODE"
+            echo "  IP tailnet vpngw:"
+            $SUDO docker exec ts-vpngw tailscale ip -4 2>&1 | head -2 || true
+        env:
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          REPO_URL: https://github.com/vanbienperu3107/deployHeadscale.git
+          DEPLOY_REF: ${{ github.ref_name }}
+          TS_AUTHKEY: ${{ steps.ts_key.outputs.key }}
+          GHCR_ACTOR: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OVPN_B64: ${{ secrets.BITEL_OVPN_CONFIG_B64 }}
+          OVPN_USER: ${{ secrets.BITEL_OVPN_USER }}
+          OVPN_PASS: ${{ secrets.BITEL_OVPN_PASS }}
