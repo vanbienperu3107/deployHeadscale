@@ -1,0 +1,87 @@
+name: Build vpn-gw image
+
+# Build image cong VPN gateway (openvpn + tinyproxy + dnsmasq), smoke test,
+# push len GHCR tap trung de moi noi pull. Xem docs/plan-vpn-gateway-bitel.md.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'vpn-gw/**'
+      - '.github/workflows/build-vpn-gw.yml'
+  pull_request:
+    paths:
+      - 'vpn-gw/**'
+      - '.github/workflows/build-vpn-gw.yml'
+  workflow_dispatch:
+
+env:
+  IMAGE: ghcr.io/vanbienperu3107/vpn-gw
+
+jobs:
+  build-test-push:
+    name: Build + smoke test + push GHCR
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build image (load vao docker local)
+        run: |
+          docker build -t "$IMAGE:ci" vpn-gw
+
+      - name: Smoke test 1 — binaries co mat + entrypoint hop le
+        run: |
+          set -e
+          docker run --rm --entrypoint sh "$IMAGE:ci" -c '
+            set -e
+            openvpn --version | head -1
+            tinyproxy -v
+            dnsmasq --version | head -1
+            curl --version | head -1
+            bash -n /usr/local/bin/entrypoint.sh && echo "entrypoint.sh cu phap OK"
+          '
+
+      - name: Smoke test 2 — proxy CONNECT + HTTP forward (OVPN_SKIP=1)
+        run: |
+          set -e
+          docker run -d --name gw -e OVPN_SKIP=1 "$IMAGE:ci"
+          # cho dnsmasq + tinyproxy len
+          for i in $(seq 1 20); do
+            if docker exec gw pidof tinyproxy >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          echo "=== docker logs ==="
+          docker logs gw
+          echo "=== healthcheck ==="
+          docker exec gw /usr/local/bin/entrypoint.sh healthcheck && echo "health OK"
+          echo "=== CONNECT (HTTPS tunnel) test ==="
+          # curl TU TRONG container -> nguon 127.0.0.1 (tinyproxy Allow 127.0.0.1)
+          docker exec gw curl -sf --max-time 20 -x http://127.0.0.1:8888 https://api.ipify.org && echo
+          echo "=== HTTP forward test ==="
+          docker exec gw curl -sf --max-time 20 -o /dev/null -w 'http_code=%{http_code}\n' \
+            -x http://127.0.0.1:8888 http://example.com
+
+      - name: Dọn container test
+        if: always()
+        run: docker rm -f gw 2>/dev/null || true
+
+      - name: Login GHCR
+        # Chi push khi merge vao main hoac chay tay — KHONG push tu PR.
+        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push GHCR (:latest + :<sha>)
+        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+        run: |
+          SHA="${GITHUB_SHA::12}"
+          docker tag "$IMAGE:ci" "$IMAGE:latest"
+          docker tag "$IMAGE:ci" "$IMAGE:$SHA"
+          docker push "$IMAGE:latest"
+          docker push "$IMAGE:$SHA"
+          echo "Pushed $IMAGE:latest va $IMAGE:$SHA"

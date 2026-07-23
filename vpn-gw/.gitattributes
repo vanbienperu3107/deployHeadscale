@@ -1,0 +1,4 @@
+# Bao dam script + template luon LF du checkout tren Windows.
+*.sh text eol=lf
+*.tmpl text eol=lf
+entrypoint.sh text eol=lf
