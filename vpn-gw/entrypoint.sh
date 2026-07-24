@@ -102,7 +102,41 @@ else
   fi
 fi
 
-# ---- 4. supervise: theo doi tinyproxy; stream log openvpn ----
+# ---- 4. reporter: bao trang thai len dashboard (Phase 5 telemetry) ----
+# Moi REPORT_INTERVAL giay: state (tun0 up?), tun_ip, egress_ip (curl qua proxy
+# -> phai la IP Bitel). POST /api/vpn/agent/status voi Bearer token per-gateway.
+# Chi chay khi du DASHBOARD_URL + VPN_GW_NAME + VPN_GW_AGENT_TOKEN.
+report_loop() {
+  if [ -z "${DASHBOARD_URL:-}" ] || [ -z "${VPN_GW_NAME:-}" ] || [ -z "${VPN_GW_AGENT_TOKEN:-}" ]; then
+    log "reporter: thieu DASHBOARD_URL/VPN_GW_NAME/VPN_GW_AGENT_TOKEN -> tat telemetry"
+    return
+  fi
+  local iv="${REPORT_INTERVAL:-30}"
+  log "reporter: bao trang thai moi ${iv}s toi ${DASHBOARD_URL} (gateway=${VPN_GW_NAME})"
+  while true; do
+    local state tunip tsip egress cfg pport
+    if ip link show tun0 up >/dev/null 2>&1; then state="up"; else state="error"; fi
+    tunip=$(ip -4 -o addr show tun0 2>/dev/null | awk '{print $4}' | cut -d/ -f1)
+    # IP tailnet (100.x) tu interface tailscale0 (chung netns voi sidecar) -> dashboard
+    # tu cap nhat vpn_gateways.tailnet_ip, KHONG hardcode IP o deploy.
+    tsip=$(ip -4 -o addr show tailscale0 2>/dev/null | awk '{print $4}' | cut -d/ -f1)
+    # Lay proxy_port tu DB (khong hardcode) — fallback PROXY_PORT cuc bo neu API loi.
+    cfg=$(curl -s --max-time 10 -H "Authorization: Bearer ${VPN_GW_AGENT_TOKEN}" \
+      "${DASHBOARD_URL}/api/vpn/agent/config?gateway=${VPN_GW_NAME}" 2>/dev/null || echo "")
+    pport=$(printf '%s' "$cfg" | grep -o '"proxyPort":[0-9]*' | grep -o '[0-9]*' | head -1)
+    [ -n "$pport" ] || pport="${PROXY_PORT:-8888}"
+    egress=$(curl -s --max-time 12 -x "http://127.0.0.1:${pport}" https://api.ipify.org 2>/dev/null || echo "")
+    curl -s --max-time 12 -X POST \
+      -H "Authorization: Bearer ${VPN_GW_AGENT_TOKEN}" \
+      -H "Content-Type: application/json" \
+      -d "{\"state\":\"${state}\",\"tunIp\":\"${tunip}\",\"tailnetIp\":\"${tsip}\",\"egressIp\":\"${egress}\",\"agentVersion\":\"vpn-gw-1\"}" \
+      "${DASHBOARD_URL}/api/vpn/agent/status?gateway=${VPN_GW_NAME}" >/dev/null 2>&1 || true
+    sleep "$iv"
+  done
+}
+report_loop &
+
+# ---- 5. supervise: theo doi tinyproxy; stream log openvpn ----
 log "vpn-gw san sang. Proxy tren :$PROXY_PORT"
 if [ "$OVPN_SKIP" != "1" ]; then
   tail -F /var/log/vpn-gw/openvpn.log &

@@ -59,7 +59,7 @@ jobs:
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_KEY }}
           port: ${{ secrets.SSH_PORT || '22' }}
-          envs: DEPLOY_PATH,REPO_URL,DEPLOY_REF,TS_AUTHKEY,GHCR_ACTOR,GHCR_TOKEN,OVPN_B64,OVPN_USER,OVPN_PASS
+          envs: DEPLOY_PATH,REPO_URL,DEPLOY_REF,TS_AUTHKEY,GHCR_ACTOR,GHCR_TOKEN,OVPN_B64,OVPN_USER,OVPN_PASS,DASHBOARD_URL,VPN_GW_NAME,VPN_GW_AGENT_TOKEN
           script_stop: true
           command_timeout: 20m
           script: |
@@ -86,8 +86,13 @@ jobs:
             chmod 600 config/client.ovpn config/auth.txt
             echo "  config da ghi ($(wc -c < config/client.ovpn) bytes ovpn)"
 
-            echo "==> [3/6] Ghi .env (TS_AUTHKEY)"
-            printf 'TS_AUTHKEY=%s\n' "${TS_AUTHKEY:-}" > .env
+            echo "==> [3/6] Ghi .env (TS_AUTHKEY + telemetry)"
+            {
+              printf 'TS_AUTHKEY=%s\n' "${TS_AUTHKEY:-}"
+              printf 'DASHBOARD_URL=%s\n' "${DASHBOARD_URL:-}"
+              printf 'VPN_GW_NAME=%s\n' "${VPN_GW_NAME:-}"
+              printf 'VPN_GW_AGENT_TOKEN=%s\n' "${VPN_GW_AGENT_TOKEN:-}"
+            } > .env
             chmod 600 .env
 
             echo "==> [4/6] Login GHCR + pull image"
@@ -136,3 +141,6 @@ jobs:
           OVPN_B64: ${{ secrets.BITEL_OVPN_CONFIG_B64 }}
           OVPN_USER: ${{ secrets.BITEL_OVPN_USER }}
           OVPN_PASS: ${{ secrets.BITEL_OVPN_PASS }}
+          DASHBOARD_URL: https://vpn2.hangocthanh.io.vn
+          VPN_GW_NAME: bitel
+          VPN_GW_AGENT_TOKEN: ${{ secrets.VPN_GW_AGENT_TOKEN }}

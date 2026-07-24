@@ -40,6 +40,11 @@ services:
       - BITEL_DNS1=10.121.127.193
       - BITEL_DNS2=10.121.127.194
       - TUN_WAIT=90
+      # Telemetry (Phase 5): bao trang thai len dashboard. Trong = tat.
+      - DASHBOARD_URL=${DASHBOARD_URL:-}
+      - VPN_GW_NAME=${VPN_GW_NAME:-}
+      - VPN_GW_AGENT_TOKEN=${VPN_GW_AGENT_TOKEN:-}
+      - REPORT_INTERVAL=${REPORT_INTERVAL:-30}
     volumes:
       - ./config:/config:ro
     devices:
