@@ -13,7 +13,10 @@ services:
     restart: unless-stopped
     environment:
       - TS_AUTHKEY=${TS_AUTHKEY:-}
-      - TS_EXTRA_ARGS=--login-server=https://vpn2.hangocthanh.io.vn --hostname=vpngw --accept-dns=false
+      # advertise-routes: cac IP noi bo cho phep may CO TUN vao thang khong can proxy
+      # (vd jump=10.121.13.186). Client `tailscale up --accept-routes` -> route qua
+      # vpngw -> tun0 OpenVPN. Them domain = them IP vao day. Mac dinh chi jump.
+      - TS_EXTRA_ARGS=--login-server=https://vpn2.hangocthanh.io.vn --hostname=vpngw --accept-dns=false --advertise-routes=${VPN_GW_ROUTES:-10.121.13.186/32}
       - TS_STATE_DIR=/var/lib/tailscale
       - TS_USERSPACE=false
       - TS_SOCKET=/var/run/tailscale/tailscaled.sock
