@@ -141,6 +141,7 @@ jobs:
           OVPN_B64: ${{ secrets.BITEL_OVPN_CONFIG_B64 }}
           OVPN_USER: ${{ secrets.BITEL_OVPN_USER }}
           OVPN_PASS: ${{ secrets.BITEL_OVPN_PASS }}
-          DASHBOARD_URL: https://vpn2.hangocthanh.io.vn
+          # Backend phuc vu duoi /app (Caddy handle_path /app/* -> derp-backend, strip /app).
+          DASHBOARD_URL: https://vpn2.hangocthanh.io.vn/app
           VPN_GW_NAME: bitel
           VPN_GW_AGENT_TOKEN: ${{ secrets.VPN_GW_AGENT_TOKEN }}
