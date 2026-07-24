@@ -92,6 +92,12 @@ else
     tail -n 20 /var/log/vpn-gw/openvpn.log 2>/dev/null || true
   fi
 
+  # NAT ra tun0: cho phep may CO TUN (accept-routes) di route thang qua vpngw ->
+  # tun0 -> Bitel (khong can proxy). SNAT src ve IP tun0 de jump reply ve dung.
+  iptables -t nat -C POSTROUTING -o tun0 -j MASQUERADE 2>/dev/null \
+    || iptables -t nat -A POSTROUTING -o tun0 -j MASQUERADE
+  log "NAT MASQUERADE ra tun0 (subnet route cho may co TUN)"
+
   # ---- kill-switch (optional) ----
   if [ "$KILLSWITCH" = "1" ]; then
     log "bat kill-switch: chan dai Bitel neu khong ra qua tun0"
