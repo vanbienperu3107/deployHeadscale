@@ -118,9 +118,12 @@ report_loop() {
     return
   fi
   local iv="${REPORT_INTERVAL:-30}"
+  # KHONG de mot lenh loi (vd grep khong khop khi config rong) giet vong lap
+  # reporter — entrypoint chay set -e, tat rieng trong subshell reporter.
+  set +e
   log "reporter: bao trang thai moi ${iv}s toi ${DASHBOARD_URL} (gateway=${VPN_GW_NAME})"
   while true; do
-    local state tunip tsip egress cfg pport
+    state=""; tunip=""; tsip=""; egress=""; cfg=""; pport=""
     if ip link show tun0 up >/dev/null 2>&1; then state="up"; else state="error"; fi
     tunip=$(ip -4 -o addr show tun0 2>/dev/null | awk '{print $4}' | cut -d/ -f1)
     # IP tailnet (100.x) tu interface tailscale0 (chung netns voi sidecar) -> dashboard
