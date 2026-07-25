@@ -1,12 +1,17 @@
 name: Deploy
 
-# Chạy tự động SAU KHI workflow "CI" hoàn tất thành công trên nhánh main.
-# Có thể bấm chạy tay qua tab Actions (workflow_dispatch).
+# ⚠️ CUTOVER vpn2→vpn6 (docs/plan-cutover-unified-vpn6.md, BLOCKER-2):
+# Auto-deploy (workflow_run) ĐÃ VÔ HIỆU. Lý do: sau khi headscale + dashboard
+# chuyển sang vpn6, mỗi lần merge main mà auto-deploy chạy `git reset --hard` +
+# `compose up` sẽ LÀM HEADSCALE vpn2 TỰ SỐNG LẠI (noise key trùng → split-brain)
+# và xoá grace-proxy Caddyfile. Chỉ còn deploy TAY (workflow_dispatch) có chủ đích.
+# Bỏ comment khối workflow_run dưới NẾU rollback về vpn2.
+# on:
+#   workflow_run:
+#     workflows: ["CI"]
+#     types: [completed]
+#     branches: [main]
 on:
-  workflow_run:
-    workflows: ["CI"]
-    types: [completed]
-    branches: [main]
   workflow_dispatch:
     inputs:
       branch:
