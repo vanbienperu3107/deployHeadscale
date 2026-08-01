@@ -1,0 +1,45 @@
+# CLIProxyAPI tren vpn4 — bien subscription Claude Code / OpenAI Codex thanh
+# API tuong thich OpenAI/Claude/Gemini (cong 8317).
+#
+# Luu y ve cong tren vpn4: derper da chiem 80/443/3478 -> stack nay CHI dung
+# 8317 (API cong khai) + cac cong callback OAuth bind loopback.
+services:
+  cliproxy:
+    # Pin tag de deploy tai lap duoc; doi tag bang bien CLIPROXY_IMAGE trong .env
+    # hoac secret CLIPROXY_IMAGE cua workflow (khong dung :latest troi noi).
+    image: ${CLIPROXY_IMAGE:-eceasy/cli-proxy-api:v7.2.112}
+    pull_policy: always
+    container_name: cliproxy
+    restart: unless-stopped
+    environment:
+      - TZ=${TZ:-America/Lima}
+    ports:
+      # API chinh — MO CONG KHAI, bao ve bang api-keys trong config.yaml.
+      - "8317:8317"
+      # Cac cong callback OAuth: CHI bind loopback cua host. Luc dang nhap thi
+      # mo SSH tunnel tu may co trinh duyet:
+      #   ssh -N -L 54545:127.0.0.1:54545 -L 1455:127.0.0.1:1455 <user>@<vpn4>
+      - "127.0.0.1:54545:54545"  # Claude Code
+      - "127.0.0.1:1455:1455"    # OpenAI Codex
+      - "127.0.0.1:8085:8085"    # Gemini CLI (du phong, chua dung)
+    volumes:
+      # config.yaml do workflow sinh tu secrets (khong commit vao repo).
+      - ./config.yaml:/CLIProxyAPI/config.yaml
+      # auths/ chua token OAuth Claude + Codex -> PHAI ton tai qua moi lan deploy.
+      # Bind mount (khong phai named volume) de backup/di chuyen server de dang.
+      - ./auths:/root/.cli-proxy-api
+      - ./logs:/CLIProxyAPI/logs
+    # vpn4 chi co 2GB RAM va dang chay derper + vpn-gw -> chan tran bo nho.
+    mem_limit: 512m
+    healthcheck:
+      # Image dua tren debian:bookworm, KHONG co curl/wget -> dung /dev/tcp cua bash.
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8317"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

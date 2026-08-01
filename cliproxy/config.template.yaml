@@ -1,0 +1,55 @@
+# Template config CLIProxyAPI. Workflow deploy-cliproxy.yml copy file nay thanh
+# cliproxy/config.yaml tren vpn4 va thay 2 placeholder bang secrets:
+#   __API_KEY__          <- secrets.CLIPROXY_API_KEY
+#   __MANAGEMENT_KEY__   <- secrets.CLIPROXY_MGMT_KEY
+# KHONG dien key that vao file nay (CI co buoc quet secret).
+
+# Bind moi interface: cong 8317 duoc publish cong khai tren vpn4, xac thuc bang
+# api-keys ben duoi. Doi thanh "127.0.0.1" neu sau nay chi muon truy cap noi bo.
+host: ""
+port: 8317
+
+# HTTPS. Hien tat: 443 cua vpn4 da thuoc ve derper (autocert), nen 8317 chay HTTP
+# tran. Muon bat TLS thi tro cert/key vao day roi deploy lai.
+tls:
+  enable: false
+  cert: ""
+  key: ""
+
+# Management API (/v0/management): chi cho phep tu localhost cua vpn4 (qua SSH),
+# khong mo ra Internet. secret-key rong => tat han API nay.
+remote-management:
+  allow-remote: false
+  secret-key: "__MANAGEMENT_KEY__"
+  # Khong tai control panel tu GitHub ve server (tiet kiem RAM/dia, giam be mat tan cong).
+  disable-control-panel: true
+
+# Thu muc token OAuth — trung voi bind mount ./auths trong docker-compose.yml.
+auth-dir: "/root/.cli-proxy-api"
+
+# Khoa API cho client (bat buoc vi 8317 mo cong khai).
+api-keys:
+  - "__API_KEY__"
+
+debug: false
+
+# Ghi log ra file trong ./logs, gioi han tong dung luong de khong day o dia vpn4.
+logging-to-file: true
+logs-max-total-size-mb: 200
+error-logs-max-files: 10
+
+# Thong ke dung luong cho Management API.
+usage-statistics-enabled: true
+
+# Retry khi upstream tra 403/408/500/502/503/504.
+request-retry: 3
+
+# Het quota mot credential thi tu chuyen sang credential/model khac.
+quota-exceeded:
+  switch-project: true
+  switch-preview-model: true
+
+# Nhieu credential cung khop -> chon xoay vong.
+routing:
+  strategy: "round-robin"
+  session-affinity: false

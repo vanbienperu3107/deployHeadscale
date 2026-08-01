@@ -1,0 +1,151 @@
+name: Deploy CLIProxyAPI (vpn4)
+
+# Trien khai CLIProxyAPI len vpn4: sinh config.yaml tu template + secrets, keo
+# image da pin tag, compose up, verify 8317 co xac thuc (401 khong key / 200 co
+# key) tu ca trong host lan tu Internet.
+#
+# Token OAuth Claude/Codex nam trong cliproxy/auths tren vpn4 (bind mount, khong
+# bao gio bi workflow xoa) -> deploy lai KHONG lam mat dang nhap.
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Tag image cli-proxy-api (vd v7.2.112). Bo trong = dung mac dinh trong docker-compose.yml"
+        required: false
+        default: ""
+
+concurrency:
+  # Cung host vpn4 voi deploy-derp-vpn4 / deploy-vpn-gw -> xep hang tuan tu,
+  # tranh dpkg/docker lock.
+  group: deploy-vpn4-host
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy CLIProxyAPI len vpn4
+    runs-on: ubuntu-latest
+    steps:
+      - name: Kiem tra secrets bat buoc
+        env:
+          API_KEY: ${{ secrets.CLIPROXY_API_KEY }}
+          MGMT_KEY: ${{ secrets.CLIPROXY_MGMT_KEY }}
+        run: |
+          if [ -z "$API_KEY" ]; then
+            echo "::error::Thieu secret CLIPROXY_API_KEY"; exit 1
+          fi
+          if [ -z "$MGMT_KEY" ]; then
+            echo "::error::Thieu secret CLIPROXY_MGMT_KEY"; exit 1
+          fi
+          echo "OK: da co du secret."
+
+      - name: SSH vao vpn4 — sinh config + compose up + verify
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SSH_HOST_VPN4 }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT || '22' }}
+          envs: DEPLOY_PATH,REPO_URL,DEPLOY_REF,CLIPROXY_API_KEY,CLIPROXY_MGMT_KEY,CLIPROXY_IMAGE
+          script_stop: true
+          command_timeout: 15m
+          script: |
+            set -e
+            if [ "$(id -u)" -ne 0 ]; then SUDO="sudo"; else SUDO=""; fi
+
+            echo "==> [1/6] Clone/cap nhat repo"
+            if [ ! -d "$DEPLOY_PATH/.git" ]; then
+              $SUDO mkdir -p "$DEPLOY_PATH"
+              $SUDO git clone "$REPO_URL" "$DEPLOY_PATH"
+              $SUDO chown -R "$(id -un):$(id -gn)" "$DEPLOY_PATH"
+            fi
+            cd "$DEPLOY_PATH"
+            git config --global --add safe.directory "$DEPLOY_PATH" || true
+            git fetch --all --prune
+            git reset --hard "origin/${DEPLOY_REF:-main}"
+
+            echo "==> [2/6] Chuan bi thu muc du lieu (auths giu nguyen neu da co)"
+            cd "$DEPLOY_PATH/cliproxy"
+            mkdir -p auths logs
+            chmod 700 auths
+            echo "  So file token hien co trong auths: $(ls -1 auths 2>/dev/null | wc -l)"
+
+            echo "==> [3/6] Sinh config.yaml tu template + secrets"
+            umask 077
+            python3 - <<'PY'
+            import os, pathlib
+            tpl = pathlib.Path("config.template.yaml").read_text()
+            out = (tpl
+                   .replace("__API_KEY__", os.environ["CLIPROXY_API_KEY"])
+                   .replace("__MANAGEMENT_KEY__", os.environ["CLIPROXY_MGMT_KEY"]))
+            p = pathlib.Path("config.yaml")
+            p.write_text(out)
+            p.chmod(0o600)
+            print("  config.yaml da ghi:", p.stat().st_size, "bytes")
+            PY
+            if grep -q '__API_KEY__\|__MANAGEMENT_KEY__' config.yaml; then
+              echo "::error::config.yaml van con placeholder — secret rong?"
+              exit 1
+            fi
+
+            echo "==> [4/6] Ghi .env (tag image) + pull"
+            if [ -n "${CLIPROXY_IMAGE:-}" ]; then
+              printf 'CLIPROXY_IMAGE=%s\n' "$CLIPROXY_IMAGE" > .env
+            else
+              rm -f .env
+            fi
+            $SUDO docker compose pull
+
+            echo "==> [5/6] Compose up"
+            $SUDO docker compose up -d --remove-orphans
+            $SUDO docker compose ps
+
+            echo "==> [6/6] Verify cong 8317 tren host"
+            up=0
+            for _ in $(seq 1 30); do
+              if curl -sf -o /dev/null --max-time 3 http://127.0.0.1:8317/v1/models \
+                 -H "Authorization: Bearer $CLIPROXY_API_KEY"; then up=1; break; fi
+              sleep 2
+            done
+            if [ "$up" != "1" ]; then
+              echo "::error::8317 khong tra loi sau 60s"
+              $SUDO docker logs --tail 60 cliproxy 2>&1 || true
+              exit 1
+            fi
+            NOKEY=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 \
+              http://127.0.0.1:8317/v1/models || echo 000)
+            echo "  /v1/models KHONG kem key -> HTTP $NOKEY (mong doi 401)"
+            if [ "$NOKEY" = "200" ]; then
+              echo "::error::API mo toang: goi khong kem key van duoc 200. Kiem tra api-keys trong config.yaml"
+              exit 1
+            fi
+            echo "  So credential dang co: $(ls -1 auths/*.json 2>/dev/null | wc -l)"
+            echo "  (0 = chua login Claude/Codex, xem cliproxy/README.md muc 'Dang nhap')"
+        env:
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          REPO_URL: https://github.com/vanbienperu3107/deployHeadscale.git
+          DEPLOY_REF: ${{ github.ref_name }}
+          CLIPROXY_API_KEY: ${{ secrets.CLIPROXY_API_KEY }}
+          CLIPROXY_MGMT_KEY: ${{ secrets.CLIPROXY_MGMT_KEY }}
+          CLIPROXY_IMAGE: ${{ github.event.inputs.image_tag && format('eceasy/cli-proxy-api:{0}', github.event.inputs.image_tag) || '' }}
+
+      - name: Verify tu Internet (runner goi vao 8317 cua vpn4)
+        env:
+          HOST: ${{ secrets.SSH_HOST_VPN4 }}
+          API_KEY: ${{ secrets.CLIPROXY_API_KEY }}
+        run: |
+          CODE=$(curl -s -o /tmp/models.json -w '%{http_code}' --max-time 20 \
+            -H "Authorization: Bearer $API_KEY" "http://$HOST:8317/v1/models" || echo 000)
+          echo "GET /v1/models tu Internet -> HTTP $CODE"
+          if [ "$CODE" != "200" ]; then
+            echo "::error::Khong goi duoc API tu ben ngoai (HTTP $CODE)"
+            head -c 500 /tmp/models.json || true
+            exit 1
+          fi
+          NMODEL=$(python3 -c "import json;d=json.load(open('/tmp/models.json'));print(len(d.get('data',[])))" 2>/dev/null || echo "?")
+          echo "So model kha dung: $NMODEL (0 la binh thuong khi chua login Claude/Codex)"
+          NOKEY=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "http://$HOST:8317/v1/models" || echo 000)
+          echo "GET /v1/models KHONG kem key tu Internet -> HTTP $NOKEY (mong doi 401)"
+          if [ "$NOKEY" = "200" ]; then
+            echo "::error::Endpoint cong khai khong yeu cau API key!"
+            exit 1
+          fi
