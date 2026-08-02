@@ -91,11 +91,18 @@ if [ "$b" != "CLIPROXY" ]; then
   exit 1
 fi
 
-echo "==> [5/5] Khong co SNI phai ve derper (bat bien an toan cho DERP)"
-c=$(curl -sk --max-time 10 "https://127.0.0.1:$PORT/" || true)
-echo "  goi bang IP (khong SNI) -> '$c'"
-if [ "$c" != "DERPER" ]; then
-  echo "::error::nhanh default khong tro ve derper (nhan '$c') — loi ten mien se lam chet DERP"
+echo "==> [5/5] Khong co SNI phai duoc DINH TUYEN ve derper (bat bien an toan cho DERP)"
+# Goi bang IP -> khong co SNI. Bat tay TLS se that bai (ca derper that lan backend
+# gia deu can SNI de chon cert) nen KHONG kiem tra noi dung tra ve — thu can kiem
+# la NGINX QUYET DINH DI DAU. Log dinh tuyen cua nginx tra loi chinh xac dieu do.
+curl -sk --max-time 5 "https://127.0.0.1:$PORT/" >/dev/null 2>&1 || true
+sleep 1
+routed=$(docker logs edge-test-nginx 2>&1 | grep -c "sni=- -> derper:443" || true)
+echo "  so ket noi khong SNI duoc dinh tuyen ve derper: $routed"
+if [ "${routed:-0}" -lt 1 ]; then
+  echo "::error::ket noi khong co SNI KHONG duoc dinh tuyen ve derper — loi ten mien se lam chet DERP"
+  echo "--- log nginx ---"
+  docker logs edge-test-nginx 2>&1 | tail -15
   exit 1
 fi
 
