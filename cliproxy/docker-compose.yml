@@ -15,7 +15,13 @@ services:
       - TZ=${TZ:-America/Lima}
     ports:
       # API chinh — MO CONG KHAI, bao ve bang api-keys trong config.yaml.
-      - "8317:8317"
+      # Cong ngoai la 28417 chu KHONG phai 8317 mac dinh cua CLIProxyAPI: bot quet
+      # theo danh sach cong mac dinh nen doi sang cong la giam han luu luong do.
+      # 28417 nam duoi dai ephemeral cua vpn4 (32768-60999) -> khong dung ket noi
+      # di ra. Ben trong container van la 8317 (config.yaml giu nguyen).
+      # Doi cong o day thi phai doi luon trong deploy-cliproxy.yml va
+      # test/cliproxy_integration.sh — test/test_cliproxy_config.py bat le lech.
+      - "28417:8317"
       # Cac cong callback OAuth: CHI bind loopback cua host. Luc dang nhap thi
       # mo SSH tunnel tu may co trinh duyet:
       #   ssh -N -L 54545:127.0.0.1:54545 -L 1455:127.0.0.1:1455 <user>@<vpn4>

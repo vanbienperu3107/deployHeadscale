@@ -6,23 +6,33 @@ agent, wikiAgent, script…) gọi được mà không cần API key trả tiề
 
 - Upstream: [router-for-me/CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI)
 - Host: **vpn4** (`149.104.66.174` / `vpn4.hangocthanh.io.vn`)
-- Endpoint: `http://<vpn4>:8317` — **công khai**, xác thực bằng API key
+- Endpoint: `http://<vpn4>:28417` — **công khai**, xác thực bằng API key
 - Deploy: workflow [`deploy-cliproxy.yml`](../.github/workflows/deploy-cliproxy.yml) (`workflow_dispatch`)
 
-## 1. Vì sao cổng 8317 mà không phải 443
+## 1. Vì sao cổng 28417 mà không phải 443 hay 8317
 
 Trên vpn4, `derper` đã chiếm 80/443/3478 (Let's Encrypt autocert của
-`vpn4.hangocthanh.io.vn`). Stack này vì thế chỉ dùng:
+`vpn4.hangocthanh.io.vn`) nên không dùng được 443.
 
-| Cổng | Bind | Dùng để |
+Cổng ngoài cũng **không** dùng 8317 mặc định của CLIProxyAPI: bot quét Internet đi
+theo danh sách cổng mặc định, đổi sang cổng lạ là cắt gần hết lưu lượng dò tìm.
+Chọn `28417` vì nó nằm **dưới** dải ephemeral của vpn4 (`32768–60999`) nên không
+đụng cổng nguồn của kết nối đi ra. Bên trong container vẫn là 8317 (`config.yaml`
+giữ nguyên) — chỉ ánh xạ `28417 -> 8317` thay đổi.
+
+| Cổng host | Bind | Dùng để |
 |---|---|---|
-| `8317` | `0.0.0.0` | API chính, ai cũng gọi được → **bắt buộc** có `api-keys` |
-| `54545` | `127.0.0.1` | Callback OAuth Claude Code (chỉ dùng lúc đăng nhập, qua SSH tunnel) |
+| `28417` | `0.0.0.0` | API chính (→ 8317 trong container), ai cũng gọi được → **bắt buộc** có `api-keys` |
+| `54545` | `127.0.0.1` | Callback OAuth Claude Code (chỉ dùng lúc đăng nhập) |
 | `1455` | `127.0.0.1` | Callback OAuth OpenAI Codex |
 | `8085` | `127.0.0.1` | Callback OAuth Gemini CLI (dự phòng) |
 
-> ⚠️ 8317 là **HTTP trần** — API key đi trong header không mã hoá. Chấp nhận được
-> cho traffic nội bộ/cá nhân; muốn siết thì xem mục [6. Siết bảo mật](#6-siết-bảo-mật).
+> ⚠️ Đây là **HTTP trần** — API key đi trong header không mã hoá, và đổi cổng chỉ
+> làm giảm bị quét chứ không phải bảo mật. Muốn siết thật thì xem mục
+> [6. Siết bảo mật](#6-siết-bảo-mật).
+
+> Đổi cổng thì phải đổi ở cả 3 chỗ: `docker-compose.yml`, `deploy-cliproxy.yml` và
+> `test/cliproxy_integration.sh` — [test](../test/test_cliproxy_config.py) bắt lệch.
 
 ## 2. Cấu trúc thư mục (trên vpn4: `/opt/deployHeadscale/cliproxy`)
 
@@ -46,7 +56,7 @@ Secrets cần có trong repo:
 
 | Secret | Ý nghĩa |
 |---|---|
-| `CLIPROXY_API_KEY` | Key client phải gửi kèm khi gọi 8317 |
+| `CLIPROXY_API_KEY` | Key client phải gửi kèm khi gọi 28417 |
 | `CLIPROXY_MGMT_KEY` | Key của Management API (`/v0/management`, chỉ localhost) |
 | `SSH_HOST_VPN4`, `SSH_USER`, `SSH_KEY`, `SSH_PORT`, `DEPLOY_PATH` | đã có sẵn, dùng chung với các stack vpn4 khác |
 
@@ -94,7 +104,7 @@ docker exec -it cliproxy ./CLIProxyAPI -codex-device-login
 
 ```bash
 ls -1 /opt/deployHeadscale/cliproxy/auths          # phải thấy claude-*.json, codex-*.json
-curl -s -H "Authorization: Bearer $CLIPROXY_API_KEY" http://127.0.0.1:8317/v1/models
+curl -s -H "Authorization: Bearer $CLIPROXY_API_KEY" http://127.0.0.1:28417/v1/models
 ```
 
 Sau khi có token, `/v1/models` phải liệt kê model Claude + GPT.
@@ -103,12 +113,12 @@ Sau khi có token, `/v1/models` phải liệt kê model Claude + GPT.
 
 ```bash
 # OpenAI-compatible
-curl http://149.104.66.174:8317/v1/chat/completions \
+curl http://149.104.66.174:28417/v1/chat/completions \
   -H "Authorization: Bearer $CLIPROXY_API_KEY" -H "Content-Type: application/json" \
   -d '{"model":"claude-opus-5","messages":[{"role":"user","content":"ping"}]}'
 
 # Anthropic-compatible
-curl http://149.104.66.174:8317/v1/messages \
+curl http://149.104.66.174:28417/v1/messages \
   -H "x-api-key: $CLIPROXY_API_KEY" -H "anthropic-version: 2023-06-01" \
   -H "Content-Type: application/json" \
   -d '{"model":"claude-opus-5","max_tokens":64,"messages":[{"role":"user","content":"ping"}]}'
@@ -118,11 +128,11 @@ Trỏ công cụ sẵn có vào proxy:
 
 ```bash
 # Claude Code
-export ANTHROPIC_BASE_URL=http://149.104.66.174:8317
+export ANTHROPIC_BASE_URL=http://149.104.66.174:28417
 export ANTHROPIC_AUTH_TOKEN=$CLIPROXY_API_KEY
 
 # SDK OpenAI / thư viện bất kỳ
-export OPENAI_BASE_URL=http://149.104.66.174:8317/v1
+export OPENAI_BASE_URL=http://149.104.66.174:28417/v1
 export OPENAI_API_KEY=$CLIPROXY_API_KEY
 ```
 
@@ -136,13 +146,15 @@ Theo thứ tự đáng làm:
 2. **Giới hạn IP nguồn** (không cần TLS, hiệu quả nhất nếu chỉ vài máy gọi):
    ```bash
    iptables -I DOCKER-USER -p tcp --dport 8317 ! -s <IP-được-phép> -j DROP
+   # 8317 ở đây là cổng ĐÍCH bên trong container (DOCKER-USER soi sau khi DNAT),
+   # không phải 28417 — kiểm bằng: iptables -L DOCKER-USER -n -v
    ```
    Nhớ ghi vào runbook vì rule iptables không nằm trong repo.
 3. **Bật TLS**: đặt cert/key vào `cliproxy/` rồi sửa `tls.enable: true` trong
    `config.template.yaml`. Không dùng chung cert của derper được vì derper giữ
    autocert cache riêng và tự gia hạn.
 4. **Management API**: đang `allow-remote: false` → chỉ gọi được từ chính vpn4
-   (`curl -H "Authorization: Bearer $CLIPROXY_MGMT_KEY" http://127.0.0.1:8317/v0/management/...`).
+   (`curl -H "Authorization: Bearer $CLIPROXY_MGMT_KEY" http://127.0.0.1:28417/v0/management/...`).
    Đừng bật `allow-remote` khi chưa có TLS.
 
 ## 7. Vận hành
@@ -171,8 +183,9 @@ Stack không phụ thuộc gì vào vpn4 ngoài việc 80/443 đã bận. Các b
    ```
    Copy về máy cá nhân (`scp`). Không có bước này thì phải login lại từ đầu —
    không mất mát gì ngoài thời gian, nhưng phải có trình duyệt + tunnel.
-2. **Chuẩn bị server mới**: Docker + Docker Compose, cổng 8317 chưa ai dùng
-   (`ss -tlnp | grep 8317`), không firewall chặn.
+2. **Chuẩn bị server mới**: Docker + Docker Compose, cổng 28417 chưa ai dùng
+   (`ss -tlnp | grep 28417`), và cổng đó nằm ngoài dải ephemeral của máy mới
+   (`sysctl net.ipv4.ip_local_port_range`), không firewall chặn.
 3. **Đổi secret trỏ host**: workflow đang dùng `secrets.SSH_HOST_VPN4`. Nếu sang
    host khác thì sửa `deploy-cliproxy.yml` dùng secret host mới (vd `SSH_HOST_VPN7`)
    và đảm bảo `SSH_USER`/`SSH_KEY`/`DEPLOY_PATH` đúng cho host đó. Đồng thời đổi
@@ -187,7 +200,7 @@ Stack không phụ thuộc gì vào vpn4 ngoài việc 80/443 đã bận. Các b
    docker compose -f /opt/deployHeadscale/cliproxy/docker-compose.yml restart
    ```
    Token OAuth không gắn với IP server nên bê nguyên sang máy khác vẫn chạy.
-6. **Cập nhật client**: mọi nơi đang trỏ `http://149.104.66.174:8317` phải đổi sang
+6. **Cập nhật client**: mọi nơi đang trỏ `http://149.104.66.174:28417` phải đổi sang
    IP/host mới (`ANTHROPIC_BASE_URL`, `OPENAI_BASE_URL`, biến trong app).
 7. **Tắt server cũ** sau khi `GET /v1/models` trên server mới trả 200 kèm đủ model,
    và nhớ xoá `auths/` trên server cũ (`shred -u auths/*.json`) vì nó còn refresh token.
@@ -200,7 +213,8 @@ Stack không phụ thuộc gì vào vpn4 ngoài việc 80/443 đã bận. Các b
 | `/v1/models` trả 200 nhưng `data` rỗng | Chưa login account nào, hoặc token hết hạn/bị revoke → xem mục 4, kiểm tra `ls auths/`. |
 | Login xong trình duyệt báo "không kết nối được localhost" | Tunnel SSH chưa mở hoặc sai cổng (Claude 54545, Codex 1455). |
 | Gọi API bị 429/quota | Subscription hết hạn mức. Thêm account thứ 2 bằng cách login lần nữa — `routing.strategy: round-robin` sẽ tự chia tải. |
-| Container `unhealthy` | `docker compose logs --tail 100`; healthcheck chỉ mở TCP tới 8317 nên unhealthy = tiến trình chết hoặc chưa bind được cổng. |
+| Container `unhealthy` | `docker compose logs --tail 100`; healthcheck chỉ mở TCP tới 8317 **bên trong container** nên unhealthy = tiến trình chết hoặc chưa bind được cổng. |
+| Gọi vào `:28417` bị treo/không kết nối | Container chưa recreate sau khi đổi cổng (`docker compose up -d`), hoặc đang gọi nhầm cổng cũ 8317 — cổng đó cố ý không còn publish ra ngoài. |
 | vpn4 hết RAM | Stack bị chặn ở `mem_limit: 512m`; nếu đụng trần thì giảm tải hoặc nâng RAM — derper + vpn-gw cũng đang chạy trên 2GB. |
 
 ## 10. Lưu ý

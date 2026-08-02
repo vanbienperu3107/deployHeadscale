@@ -19,8 +19,13 @@ COMPOSE = ROOT / "cliproxy" / "docker-compose.yml"
 TEMPLATE = ROOT / "cliproxy" / "config.template.yaml"
 GITIGNORE = ROOT / "cliproxy" / ".gitignore"
 WORKFLOW = ROOT / ".github" / "workflows" / "deploy-cliproxy.yml"
+INTEGRATION = ROOT / "test" / "cliproxy_integration.sh"
 
 AUTH_DIR_IN_CONTAINER = "/root/.cli-proxy-api"
+# Cong ben trong container (mac dinh cua CLIProxyAPI, = port trong config.yaml).
+CONTAINER_PORT = "8317"
+# Cong publish ra ngoai: co tinh KHAC mac dinh de bot quet cong mac dinh khong thay.
+PUBLIC_PORT = "28417"
 
 
 def load_compose():
@@ -77,9 +82,25 @@ def test_config_yaml_duoc_mount_vao_container():
     )
 
 
-def test_cong_8317_mo_cong_khai_con_callback_chi_loopback():
+def test_publish_cong_la_cong_it_dung_khong_phai_mac_dinh():
+    """Doi cong ngoai la de bot quet danh sach cong mac dinh khong tim thay dich vu.
+    Neu vo tinh publish lai 8317 thi tac dung do mat sach.
+    """
     ports = service()["ports"]
-    assert "8317:8317" in ports, f"phai publish 8317 ra ngoai: {ports}"
+    assert f"{PUBLIC_PORT}:{CONTAINER_PORT}" in ports, (
+        f"phai publish {PUBLIC_PORT} -> {CONTAINER_PORT}: {ports}"
+    )
+    assert f"{CONTAINER_PORT}:{CONTAINER_PORT}" not in ports, (
+        f"khong duoc publish cong mac dinh {CONTAINER_PORT} ra ngoai: {ports}"
+    )
+    assert int(PUBLIC_PORT) < 32768, (
+        f"{PUBLIC_PORT} nam trong dai ephemeral (32768-60999) cua vpn4 -> co the "
+        "dung voi cong nguon cua ket noi di ra"
+    )
+
+
+def test_cong_api_mo_cong_khai_con_callback_chi_loopback():
+    ports = service()["ports"]
     callback_ports = {"54545", "1455", "8085"}
     for p in ports:
         parts = p.split(":")
@@ -123,7 +144,30 @@ def test_healthcheck_khong_phu_thuoc_curl():
 
 def test_template_la_yaml_hop_le_va_dung_cong():
     cfg = load_template()
-    assert cfg["port"] == 8317, "cong phai khop voi compose (8317)"
+    assert str(cfg["port"]) == CONTAINER_PORT, (
+        f"port trong config phai la cong BEN TRONG container ({CONTAINER_PORT}), "
+        "khong phai cong publish ra ngoai"
+    )
+
+
+def test_cong_publish_khong_lech_giua_compose_workflow_va_integration():
+    """Doi cong o compose ma quen doi cho verify -> deploy 'xanh gia' hoac that bai
+    kho hieu. Rang buoc 3 file phai noi cung mot con so.
+    """
+    wf = WORKFLOW.read_text(encoding="utf-8")
+    sh = INTEGRATION.read_text(encoding="utf-8")
+    for name, body in (("deploy-cliproxy.yml", wf), ("cliproxy_integration.sh", sh)):
+        assert f":{PUBLIC_PORT}/" in body, (
+            f"{name} phai goi vao cong publish {PUBLIC_PORT}"
+        )
+        # Cong mac dinh chi duoc xuat hien o phep thu "phai khong ket noi duoc"
+        # (dong do luon co '000'), khong duoc dung lam endpoint that.
+        for line in body.splitlines():
+            if f":{CONTAINER_PORT}/" in line:
+                assert "000" in line, (
+                    f"{name} con goi vao cong {CONTAINER_PORT} nhu endpoint that: "
+                    f"{line.strip()!r}"
+                )
 
 
 def test_auth_dir_khop_voi_bind_mount():
