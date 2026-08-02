@@ -1,0 +1,76 @@
+name: Diag CLIProxyAPI (vpn4)
+
+# Cong cu chan doan: ban thu mot request toi 28417 voi model/tham so tuy chon roi
+# IN NGUYEN status + header + body loi. Dung khi client (OpenCode, Claude Code...)
+# bao loi ma khong cho biet nguyen nhan.
+#
+# Buoc nay KHONG bao fail khi upstream tra loi — muc dich la doc duoc thong bao loi.
+on:
+  workflow_dispatch:
+    inputs:
+      model:
+        description: "Model id (vd claude-opus-5, gpt-5.3-codex-spark)"
+        required: true
+        default: "claude-opus-5"
+      prompt:
+        description: "Noi dung tin nhan"
+        required: false
+        default: "test"
+      max_tokens:
+        description: "max_tokens (OpenCode gui 32000)"
+        required: false
+        default: "64"
+      stream:
+        description: "Gui stream=true hay khong"
+        required: false
+        default: "false"
+        type: choice
+        options: ["false", "true"]
+
+jobs:
+  diag:
+    name: Ban thu /v1/chat/completions
+    runs-on: ubuntu-latest
+    steps:
+      - name: Liet ke model dang co
+        env:
+          HOST: ${{ secrets.SSH_HOST_VPN4 }}
+          API_KEY: ${{ secrets.CLIPROXY_API_KEY }}
+        run: |
+          curl -s --max-time 20 -H "Authorization: Bearer $API_KEY" \
+            "http://$HOST:28417/v1/models" -o /tmp/models.json || true
+          python3 -c "import json;d=json.load(open('/tmp/models.json'));print('\n'.join(m['id'] for m in d.get('data',[])))" \
+            2>/dev/null || head -c 400 /tmp/models.json
+
+      - name: Goi thu va in nguyen phan hoi
+        env:
+          HOST: ${{ secrets.SSH_HOST_VPN4 }}
+          API_KEY: ${{ secrets.CLIPROXY_API_KEY }}
+          MODEL: ${{ github.event.inputs.model }}
+          PROMPT: ${{ github.event.inputs.prompt }}
+          MAX_TOKENS: ${{ github.event.inputs.max_tokens }}
+          STREAM: ${{ github.event.inputs.stream }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          payload = {
+              "model": os.environ["MODEL"],
+              "max_tokens": int(os.environ["MAX_TOKENS"]),
+              "messages": [{"role": "user", "content": os.environ["PROMPT"]}],
+          }
+          if os.environ["STREAM"] == "true":
+              payload["stream"] = True
+          open("/tmp/req.json", "w", encoding="utf-8").write(json.dumps(payload))
+          print("Request:", json.dumps(payload)[:400])
+          PY
+          echo "--- goi ---"
+          CODE=$(curl -s -D /tmp/head.txt -o /tmp/resp.txt -w '%{http_code}' --max-time 180 \
+            -H "Authorization: Bearer $API_KEY" -H "Content-Type: application/json" \
+            --data-binary @/tmp/req.json "http://$HOST:28417/v1/chat/completions" || true)
+          echo "HTTP ${CODE:-000}  (thoi gian phan hoi o tren)"
+          echo "--- response headers ---"
+          cat /tmp/head.txt || true
+          echo "--- response body (2000 ky tu dau) ---"
+          head -c 2000 /tmp/resp.txt || true
+          echo
+          echo "--- kich thuoc body: $(wc -c < /tmp/resp.txt) bytes ---"
