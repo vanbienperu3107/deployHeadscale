@@ -194,6 +194,23 @@ def test_workflow_deploy_khong_xoa_auths():
     assert "git clean" not in body, "git clean se xoa auths/ (untracked) tren vpn4"
 
 
+def test_workflow_khong_dung_heredoc_trong_script_ssh():
+    """Bay da dinh that (run 30751552305): appleboy/ssh-action chen dong
+    'DRONE_SSH_PREV_COMMAND_EXIT_CODE=$? ; ...' sau MOI dong cua script, nen than
+    heredoc bi chen rac -> python bao SyntaxError. Moi lenh phai gon trong 1 dong.
+    """
+    wf = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    for step in wf["jobs"]["deploy"]["steps"]:
+        uses = step.get("uses", "")
+        if not uses.startswith("appleboy/ssh-action"):
+            continue
+        script = step["with"]["script"]
+        assert "<<" not in script, (
+            "script cua ssh-action khong duoc dung heredoc (<<EOF/<<'PY') — "
+            "ssh-action chen dong kiem tra exit code vao giua heredoc"
+        )
+
+
 def test_workflow_dung_chung_concurrency_group_voi_stack_vpn4_khac():
     """derper/vpn-gw cung o vpn4 — deploy song song de dinh lock docker/dpkg."""
     body = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
