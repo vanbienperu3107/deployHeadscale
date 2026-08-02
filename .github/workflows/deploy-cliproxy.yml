@@ -146,7 +146,8 @@ jobs:
           fi
           # Cong mac dinh 8317 phai KHONG con mo ra Internet nua (day la muc dich
           # cua viec doi cong). Container cu con song se lam buoc nay that bai.
-          OLD=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "http://$HOST:8317/v1/models" || echo 000)
+          # "|| echo 000" se cho ra "000000" vi curl that bai da tu in 000 roi.
+          OLD=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "http://$HOST:8317/v1/models" || true); OLD=${OLD:-000}
           echo "GET vao cong mac dinh 8317 tu Internet -> $OLD (mong doi 000 = khong ket noi duoc)"
           if [ "$OLD" != "000" ]; then
             echo "::error::Cong mac dinh 8317 van mo ra Internet (HTTP $OLD)"

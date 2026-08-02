@@ -61,7 +61,9 @@ if [ "$nokey" = "200" ]; then
 fi
 
 echo "==> [4b/6] Cong mac dinh 8317 phai KHONG duoc publish ra host"
-old=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 http://127.0.0.1:8317/v1/models || echo 000)
+# KHONG dung "|| echo 000": khi khong ket noi duoc, curl vua in 000 vua tra exit
+# code != 0 -> echo bồi them mot lan nua thanh "000000". Dung "|| true" roi mac dinh hoa.
+old=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 http://127.0.0.1:8317/v1/models || true); old=${old:-000}
 echo "  127.0.0.1:8317 -> $old (mong doi 000)"
 if [ "$old" != "000" ]; then
   echo "::error::compose van publish cong mac dinh 8317 — mat tac dung cua viec doi cong"
