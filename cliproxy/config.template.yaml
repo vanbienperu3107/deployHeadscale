@@ -33,9 +33,13 @@ api-keys:
 
 debug: false
 
-# Ghi log ra file trong ./logs, gioi han tong dung luong de khong day o dia vpn4.
-logging-to-file: true
-logs-max-total-size-mb: 200
+# SU CO 2026-08-02: voi logging-to-file=true, moi request cua OpenCode sinh mot
+# file "request-log-parts-request-body-*" phinh toi 32MB, dam bo nho container
+# len 512MB -> kernel OOM-kill CLIProxyAPI giua chung -> client treo o "Thinking".
+# commercial-mode tat request logging + middleware nang de giam bo nho moi request;
+# logging-to-file=false dua log ra stdout (docker json-file da gioi han 10MB x 3).
+commercial-mode: true
+logging-to-file: false
 error-logs-max-files: 10
 
 # Thong ke dung luong cho Management API.

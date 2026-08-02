@@ -124,9 +124,18 @@ def test_callback_claude_va_codex_deu_co_mat():
     assert "1455" in ports, "thieu cong callback 1455 (OpenAI Codex)"
 
 
-def test_gioi_han_bo_nho_vi_vpn4_chi_2gb():
-    assert "mem_limit" in service(), (
-        "vpn4 chi co 2GB RAM va dang chay derper + vpn-gw -> phai dat mem_limit"
+def test_gioi_han_bo_nho_du_de_khong_bi_oom():
+    """SU CO 2026-08-02: mem_limit 512m -> kernel OOM-kill CLIProxyAPI giua mot
+    request cua OpenCode, client treo mai o "Thinking". Van phai co tran (vpn4 chi
+    2GB, con chay derper + vpn-gw) nhung khong duoc thap hon 1GB.
+    """
+    svc = service()
+    assert "mem_limit" in svc, "phai dat mem_limit — vpn4 chi co 2GB RAM"
+    raw = str(svc["mem_limit"]).strip().lower()
+    mb = int(raw[:-1]) * 1024 if raw.endswith("g") else int(raw.rstrip("m"))
+    assert mb >= 1024, f"mem_limit {raw} qua thap, tung bi OOM o 512m"
+    assert mb <= 1536, (
+        f"mem_limit {raw} qua cao — vpn4 chi 2GB va con derper + vpn-gw + tailscale"
     )
 
 
@@ -205,11 +214,37 @@ def test_management_api_khong_mo_ra_internet():
     )
 
 
-def test_log_bi_gioi_han_dung_luong():
-    """vpn4 chi con ~37GB dia va con chay derper — log phai co tran."""
+def test_khong_ghi_request_log_ra_file_vi_da_gay_oom():
+    """SU CO 2026-08-02: logging-to-file=true khien moi request cua OpenCode sinh
+    mot file request-log-parts-request-body-* phinh toi 32MB; bo nho container cham
+    tran 512MB va bi OOM-kill giua chung. Log gio di ra stdout, do docker gioi han.
+    """
     cfg = load_template()
-    assert cfg["logging-to-file"] is True
-    assert cfg["logs-max-total-size-mb"] > 0, "phai gioi han tong dung luong log"
+    assert cfg["logging-to-file"] is False, (
+        "khong ghi log ra file nua — request logging tung lam phinh bo nho toi OOM"
+    )
+    assert cfg["commercial-mode"] is True, (
+        "commercial-mode tat request logging + middleware nang, giam bo nho moi request"
+    )
+
+
+def test_docker_gioi_han_dung_luong_log_stdout():
+    """Log di ra stdout thi tran phai do docker giu, khong thi day o dia vpn4."""
+    logging_cfg = service()["logging"]
+    assert logging_cfg["driver"] == "json-file"
+    opts = logging_cfg["options"]
+    assert opts.get("max-size"), "phai dat max-size cho log driver"
+    assert int(str(opts.get("max-file", 0))) >= 1, "phai gioi han so file log"
+
+
+def test_deploy_don_rac_request_log_cu():
+    """204MB rac request-log tu su co cu phai duoc don, va chi trong logs/."""
+    body = WORKFLOW.read_text(encoding="utf-8")
+    assert "request-log-parts-" in body, "deploy phai don thu muc request-log cu"
+    for line in body.splitlines():
+        if "rm -rf" in line:
+            assert "logs" in line, f"lenh xoa phai gioi han trong logs/: {line.strip()!r}"
+            assert "auths" not in line, f"KHONG duoc xoa auths/: {line.strip()!r}"
 
 
 # ---------- gitignore / workflow ----------
