@@ -157,3 +157,38 @@ jobs:
             echo "::error::Cong mac dinh 8317 van mo ra Internet (HTTP $OLD)"
             exit 1
           fi
+
+      # /v1/models tra 200 KHONG chung minh goi model duoc. Buoc nay goi that mot
+      # completion bang tieng Viet co dau de bat ca hai loi da gap:
+      #   - proxy chet giua chung (OOM 2026-08-02) -> khong ra noi dung
+      #   - hong ma hoa UTF-8 (OpenCode Desktop tung gui body 57MB toan mojibake)
+      - name: Smoke test completion + kiem tra UTF-8 (tieng Viet co dau)
+        env:
+          HOST: ${{ secrets.SSH_HOST_VPN4 }}
+          API_KEY: ${{ secrets.CLIPROXY_API_KEY }}
+        run: |
+          printf '%s' '{"model":"claude-opus-5","max_tokens":128,"messages":[{"role":"user","content":"Trả lời đúng một câu tiếng Việt có dấu: bạn là model nào?"}]}' > /tmp/req.json
+          echo "Kich thuoc request: $(wc -c < /tmp/req.json) bytes"
+          CODE=$(curl -s -o /tmp/chat.json -w '%{http_code}' --max-time 120 \
+            -H "Authorization: Bearer $API_KEY" -H "Content-Type: application/json" \
+            --data-binary @/tmp/req.json "http://$HOST:28417/v1/chat/completions" || true); CODE=${CODE:-000}
+          echo "POST /v1/chat/completions -> HTTP $CODE"
+          if [ "$CODE" != "200" ]; then
+            echo "::error::Goi completion that bai (HTTP $CODE)"
+            head -c 800 /tmp/chat.json || true
+            exit 1
+          fi
+          python3 - <<'PY'
+          import json, sys
+          d = json.load(open("/tmp/chat.json", encoding="utf-8"))
+          msg = (d.get("choices") or [{}])[0].get("message", {}).get("content") or ""
+          print("Tra loi:", msg[:200])
+          if not msg.strip():
+              print("::error::Completion tra ve noi dung rong")
+              sys.exit(1)
+          # Dau hieu mojibake: byte UTF-8 bi doc nham thanh Latin-1 roi ma hoa lai.
+          if any(m in msg for m in ("Ã", "â€", "Â¢")):
+              print("::error::Phan hoi bi hong ma hoa UTF-8 (mojibake)")
+              sys.exit(1)
+          print("OK: completion chay duoc va UTF-8 nguyen ven")
+          PY

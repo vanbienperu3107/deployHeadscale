@@ -237,6 +237,25 @@ def test_docker_gioi_han_dung_luong_log_stdout():
     assert int(str(opts.get("max-file", 0))) >= 1, "phai gioi han so file log"
 
 
+def test_deploy_co_smoke_test_completion_utf8():
+    """/v1/models tra 200 khong chung minh goi model duoc — su co 2026-08-02 co
+    dung 25 model nhung moi completion deu chet. Deploy phai goi that mot completion
+    va prompt phai co ky tu ngoai ASCII de bat loi ma hoa UTF-8.
+    """
+    wf = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    steps = wf["jobs"]["deploy"]["steps"]
+    smoke = [s for s in steps if "chat/completions" in str(s.get("run", ""))]
+    assert smoke, "deploy phai co buoc goi that /v1/chat/completions"
+    body = smoke[0]["run"]
+    assert not body.isascii(), (
+        "prompt smoke test phai co ky tu ngoai ASCII (tieng Viet co dau) de bat "
+        "loi mojibake"
+    )
+    assert "mojibake" in body.lower() or "Ã" in body, (
+        "smoke test phai kiem tra dau hieu hong ma hoa trong phan hoi"
+    )
+
+
 def test_deploy_don_rac_request_log_cu():
     """204MB rac request-log tu su co cu phai duoc don, va chi trong logs/."""
     body = WORKFLOW.read_text(encoding="utf-8")
