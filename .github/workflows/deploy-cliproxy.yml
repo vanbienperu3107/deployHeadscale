@@ -71,17 +71,12 @@ jobs:
 
             echo "==> [3/6] Sinh config.yaml tu template + secrets"
             umask 077
-            python3 - <<'PY'
-            import os, pathlib
-            tpl = pathlib.Path("config.template.yaml").read_text()
-            out = (tpl
-                   .replace("__API_KEY__", os.environ["CLIPROXY_API_KEY"])
-                   .replace("__MANAGEMENT_KEY__", os.environ["CLIPROXY_MGMT_KEY"]))
-            p = pathlib.Path("config.yaml")
-            p.write_text(out)
-            p.chmod(0o600)
-            print("  config.yaml da ghi:", p.stat().st_size, "bytes")
-            PY
+            # KHONG dung heredoc o day: appleboy/ssh-action chen dong
+            # "DRONE_SSH_PREV_COMMAND_EXIT_CODE=$? ; ..." sau MOI dong script, dong
+            # do se roi thang vao than heredoc va lam python bao SyntaxError.
+            # Moi lenh phai gon trong dung MOT dong. (test_cliproxy_config.py chan
+            # heredoc quay lai file nay.)
+            python3 -c "import os,pathlib;t=pathlib.Path('config.template.yaml').read_text();p=pathlib.Path('config.yaml');p.write_text(t.replace('__API_KEY__',os.environ['CLIPROXY_API_KEY']).replace('__MANAGEMENT_KEY__',os.environ['CLIPROXY_MGMT_KEY']));p.chmod(0o600);print('  config.yaml da ghi:',p.stat().st_size,'bytes')"
             if grep -q '__API_KEY__\|__MANAGEMENT_KEY__' config.yaml; then
               echo "::error::config.yaml van con placeholder — secret rong?"
               exit 1
