@@ -67,6 +67,10 @@ jobs:
             cd "$DEPLOY_PATH/cliproxy"
             mkdir -p auths logs
             chmod 700 auths
+            # Don rac request-log cu (moi file toi 32MB, tung day logs len 204MB).
+            # Chi xoa trong logs/, KHONG dung toi auths/.
+            find logs -maxdepth 1 -name 'request-log-parts-*' -type d -exec rm -rf {} + 2>/dev/null || true
+            echo "  logs con: $(du -sm logs 2>/dev/null | cut -f1) MB"
             echo "  So file token hien co trong auths: $(ls -1 auths 2>/dev/null | wc -l)"
 
             echo "==> [3/6] Sinh config.yaml tu template + secrets"

@@ -35,8 +35,12 @@ services:
       # Bind mount (khong phai named volume) de backup/di chuyen server de dang.
       - ./auths:/root/.cli-proxy-api
       - ./logs:/CLIProxyAPI/logs
-    # vpn4 chi co 2GB RAM va dang chay derper + vpn-gw -> chan tran bo nho.
-    mem_limit: 512m
+    # vpn4 chi co 2GB RAM va dang chay derper + vpn-gw -> van phai chan tran.
+    # 512m TUNG GAY SU CO 2026-08-02: kernel OOM-kill CLIProxyAPI giua mot request
+    # cua OpenCode ("Memory cgroup out of memory", anon-rss 511MB) -> client treo o
+    # "Thinking". Nang len 1g (host con ~1.2GB rong) va da tat request logging trong
+    # config.template.yaml — hai thay doi di CUNG nhau.
+    mem_limit: 1g
     healthcheck:
       # Image dua tren debian:bookworm, KHONG co curl/wget -> dung /dev/tcp cua bash.
       test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8317"]

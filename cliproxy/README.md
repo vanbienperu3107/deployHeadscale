@@ -215,7 +215,9 @@ Stack không phụ thuộc gì vào vpn4 ngoài việc 80/443 đã bận. Các b
 | Gọi API bị 429/quota | Subscription hết hạn mức. Thêm account thứ 2 bằng cách login lần nữa — `routing.strategy: round-robin` sẽ tự chia tải. |
 | Container `unhealthy` | `docker compose logs --tail 100`; healthcheck chỉ mở TCP tới 8317 **bên trong container** nên unhealthy = tiến trình chết hoặc chưa bind được cổng. |
 | Gọi vào `:28417` bị treo/không kết nối | Container chưa recreate sau khi đổi cổng (`docker compose up -d`), hoặc đang gọi nhầm cổng cũ 8317 — cổng đó cố ý không còn publish ra ngoài. |
-| vpn4 hết RAM | Stack bị chặn ở `mem_limit: 512m`; nếu đụng trần thì giảm tải hoặc nâng RAM — derper + vpn-gw cũng đang chạy trên 2GB. |
+| Client treo mãi ở "Thinking", server log thấy `200` rồi tiến trình khởi động lại | **Bị OOM-kill giữa request.** Xác nhận bằng `dmesg -T \| tail -30` (tìm `Memory cgroup out of memory`) và `docker inspect cliproxy --format '{{.RestartCount}}'`. Đã xảy ra 2026-08-02 khi `mem_limit: 512m` + ghi request log ra file; đã sửa bằng `mem_limit: 1g` + `commercial-mode: true` + `logging-to-file: false`. |
+| vpn4 hết RAM | Stack bị chặn ở `mem_limit: 1g`; theo dõi bằng `docker stats --no-stream cliproxy`. Chạm 100% liên tục = phải giảm tải hoặc nâng RAM — derper + vpn-gw cũng đang chạy trên 2GB. |
+| Thư mục `logs/` phình to | Request log cũ (`request-log-parts-*`, mỗi file tới 32MB). Deploy tự dọn; muốn dọn tay: `find logs -maxdepth 1 -name 'request-log-parts-*' -type d -exec rm -rf {} +`. |
 
 ## 10. Lưu ý
 
