@@ -123,6 +123,9 @@ jobs:
             echo "  relay-vpn4 stack da don dep"
 
             echo "==> [4/4] Khoi dong DERP relay + tailscale + ping-reporter"
+            # derper nam tren mang 'edge' (dung chung voi nginx cua stack
+            # edge-vpn4 dang giu cong 443). Thieu mang nay thi compose that bai.
+            $SUDO docker network inspect edge >/dev/null 2>&1 || $SUDO docker network create edge
             cd "$DEPLOY_PATH/derp-vpn4"
             $SUDO docker compose run --rm --no-deps --entrypoint sh tailscale \
               -c 'rm -f /var/run/tailscale/tailscaled.sock' >/dev/null 2>&1 || true

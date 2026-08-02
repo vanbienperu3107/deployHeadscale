@@ -105,6 +105,28 @@ jobs:
           /tmp/venv-reporter/bin/pip install --quiet pytest
           cd ping-reporter && /tmp/venv-reporter/bin/python -m pytest -q test_reporter.py
 
+  edge-vpn4:
+    name: edge-vpn4 — nginx SNI routing (derper + cliproxy chung cong 443)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate edge-vpn4/docker-compose.yml
+        run: docker compose -f edge-vpn4/docker-compose.yml config --quiet && echo "edge-vpn4/docker-compose.yml OK"
+
+      - name: Validate deploy-edge-vpn4.yml (YAML)
+        run: python3 -c "import yaml; yaml.safe_load(open('.github/workflows/deploy-edge-vpn4.yml')); print('deploy-edge-vpn4.yml OK')"
+
+      - name: Test cau truc stack edge (pytest)
+        run: |
+          python3 -m venv /tmp/venv-edge
+          /tmp/venv-edge/bin/pip install --quiet pytest pyyaml
+          /tmp/venv-edge/bin/python -m pytest -q test/test_edge_vpn4.py
+
+      - name: Integration — dinh tuyen SNI that
+        run: bash test/edge_vpn4_integration.sh
+
   cliproxy:
     name: cliproxy — compose/config validate + integration (401/200 + persist token)
     runs-on: ubuntu-latest

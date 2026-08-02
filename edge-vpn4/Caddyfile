@@ -1,0 +1,38 @@
+# Caddy chi phuc vu DUY NHAT ten mien cliproxy.hangocthanh.io.vn, nam sau nginx.
+#
+# Caddy nghe 8444 (khong publish ra host). nginx nhan 443, thay SNI la
+# cliproxy.hangocthanh.io.vn thi noi TCP toi day, Caddy terminate TLS.
+{
+	# Khong mo API quan tri (mac dinh 2019) — stack nay khong dung toi.
+	admin off
+	# Cong 80 cua host thuoc ve derper (ACME HTTP-01 cua no) nen Caddy KHONG the
+	# dung http challenge. TLS-ALPN chay ngay tren cong 8444 nay, va nginx da
+	# chuyen tiep dung SNI toi day nen Let's Encrypt van bat tay duoc.
+	auto_https disable_redirects
+}
+
+https://cliproxy.hangocthanh.io.vn:8444 {
+	tls {
+		issuer acme {
+			disable_http_challenge
+		}
+	}
+
+	# Chan truy cap khong co API key ngay tu day thi khong duoc: CLIProxyAPI tu
+	# xac thuc bang api-keys va tra 401. Caddy chi chuyen tiep.
+	reverse_proxy cliproxy:8317 {
+		# Tra loi cua LLM la SSE — phai day tung chunk ra ngay, khong dem.
+		# Thieu dong nay thi client "dung hinh" cho toi khi ket thuc phan hoi.
+		flush_interval -1
+
+		# Phan hoi dai (sinh code) co the mat vai phut; khong dat read timeout.
+		transport http {
+			dial_timeout 10s
+		}
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}

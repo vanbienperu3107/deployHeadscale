@@ -110,13 +110,32 @@ def test_derp_vpn4_compose_co_derper_service():
     )
 
 
-def test_derp_vpn4_expose_port_443_va_3478():
-    compose = ROOT / "derp-vpn4" / "docker-compose.yml"
-    data = yaml.safe_load(compose.read_text())
-    ports = data["services"]["derper"].get("ports", [])
-    ports_str = " ".join(str(p) for p in ports)
-    assert "443" in ports_str, "derp-vpn4 phai expose port 443 (DERP/HTTPS)"
-    assert "3478" in ports_str, "derp-vpn4 phai expose port 3478/udp (STUN)"
+def test_derp_vpn4_van_phuc_vu_443_nhung_qua_nginx():
+    """Tu 2026-08-02 vpn4 chia se cong 443 voi CLIProxyAPI (vpn4 chi co MOT IP).
+
+    nginx cua stack edge-vpn4 giu 443 va dinh tuyen theo SNI; derper VAN nghe :443
+    ben trong container va van tu terminate TLS bang autocert cua no. Y dinh cu
+    ("DERP phai den duoc qua 443") khong doi, chi doi ai la nguoi bind cong tren
+    host. Chi tiet o test/test_edge_vpn4.py.
+    """
+    data = yaml.safe_load((ROOT / "derp-vpn4" / "docker-compose.yml").read_text())
+    derper = data["services"]["derper"]
+    ports = [str(p) for p in derper.get("ports", [])]
+
+    assert not any(p.startswith("443:") for p in ports), (
+        f"derper KHONG duoc publish 443 nua (nginx giu cong do): {ports}"
+    )
+    assert "3478:3478/udp" in ports, "derp-vpn4 phai expose 3478/udp (STUN) truc tiep"
+    assert "80:80" in ports, "derper phai giu cong 80 cho ACME HTTP-01 cua chinh no"
+
+    cmd_str = " ".join(str(c) for c in derper.get("command", []))
+    assert "--a=:443" in cmd_str, "derper van phai nghe :443 ben trong container"
+
+    edge = yaml.safe_load((ROOT / "edge-vpn4" / "docker-compose.yml").read_text())
+    edge_ports = [str(p) for p in edge["services"]["nginx"].get("ports", [])]
+    assert "443:443" in edge_ports, (
+        "phai co nginx cua edge-vpn4 giu 443, neu khong DERP mat duong vao"
+    )
 
 
 def test_derp_vpn4_hostname_trong_compose():
