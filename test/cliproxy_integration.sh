@@ -41,7 +41,7 @@ echo "==> [3/6] Cho API san sang (toi da 120s)"
 ok=0
 for _ in $(seq 1 60); do
   code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 \
-    -H "Authorization: Bearer $TEST_KEY" http://127.0.0.1:8317/v1/models || echo 000)
+    -H "Authorization: Bearer $TEST_KEY" http://127.0.0.1:28417/v1/models || echo 000)
   if [ "$code" = "200" ]; then ok=1; break; fi
   sleep 2
 done
@@ -53,10 +53,20 @@ fi
 echo "  /v1/models co key -> 200 OK"
 
 echo "==> [4/6] Goi KHONG kem API key phai bi tu choi"
-nokey=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 http://127.0.0.1:8317/v1/models || echo 000)
+nokey=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 http://127.0.0.1:28417/v1/models || echo 000)
 echo "  khong key -> HTTP $nokey"
 if [ "$nokey" = "200" ]; then
-  echo "::error::API tra 200 khi khong co key — 8317 mo cong khai tren vpn4, khong duoc phep!"
+  echo "::error::API tra 200 khi khong co key — cong nay mo cong khai tren vpn4, khong duoc phep!"
+  exit 1
+fi
+
+echo "==> [4b/6] Cong mac dinh 8317 phai KHONG duoc publish ra host"
+# KHONG dung "|| echo 000": khi khong ket noi duoc, curl vua in 000 vua tra exit
+# code != 0 -> echo bồi them mot lan nua thanh "000000". Dung "|| true" roi mac dinh hoa.
+old=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 http://127.0.0.1:8317/v1/models || true); old=${old:-000}
+echo "  127.0.0.1:8317 -> $old (mong doi 000)"
+if [ "$old" != "000" ]; then
+  echo "::error::compose van publish cong mac dinh 8317 — mat tac dung cua viec doi cong"
   exit 1
 fi
 

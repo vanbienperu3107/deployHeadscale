@@ -94,20 +94,20 @@ jobs:
             $SUDO docker compose up -d --remove-orphans
             $SUDO docker compose ps
 
-            echo "==> [6/6] Verify cong 8317 tren host"
+            echo "==> [6/6] Verify cong 28417 tren host (ben trong container van la 8317)"
             up=0
             for _ in $(seq 1 30); do
-              if curl -sf -o /dev/null --max-time 3 http://127.0.0.1:8317/v1/models \
+              if curl -sf -o /dev/null --max-time 3 http://127.0.0.1:28417/v1/models \
                  -H "Authorization: Bearer $CLIPROXY_API_KEY"; then up=1; break; fi
               sleep 2
             done
             if [ "$up" != "1" ]; then
-              echo "::error::8317 khong tra loi sau 60s"
+              echo "::error::28417 khong tra loi sau 60s"
               $SUDO docker logs --tail 60 cliproxy 2>&1 || true
               exit 1
             fi
             NOKEY=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 \
-              http://127.0.0.1:8317/v1/models || echo 000)
+              http://127.0.0.1:28417/v1/models || echo 000)
             echo "  /v1/models KHONG kem key -> HTTP $NOKEY (mong doi 401)"
             if [ "$NOKEY" = "200" ]; then
               echo "::error::API mo toang: goi khong kem key van duoc 200. Kiem tra api-keys trong config.yaml"
@@ -123,13 +123,13 @@ jobs:
           CLIPROXY_MGMT_KEY: ${{ secrets.CLIPROXY_MGMT_KEY }}
           CLIPROXY_IMAGE: ${{ github.event.inputs.image_tag && format('eceasy/cli-proxy-api:{0}', github.event.inputs.image_tag) || '' }}
 
-      - name: Verify tu Internet (runner goi vao 8317 cua vpn4)
+      - name: Verify tu Internet (runner goi vao 28417 cua vpn4)
         env:
           HOST: ${{ secrets.SSH_HOST_VPN4 }}
           API_KEY: ${{ secrets.CLIPROXY_API_KEY }}
         run: |
           CODE=$(curl -s -o /tmp/models.json -w '%{http_code}' --max-time 20 \
-            -H "Authorization: Bearer $API_KEY" "http://$HOST:8317/v1/models" || echo 000)
+            -H "Authorization: Bearer $API_KEY" "http://$HOST:28417/v1/models" || echo 000)
           echo "GET /v1/models tu Internet -> HTTP $CODE"
           if [ "$CODE" != "200" ]; then
             echo "::error::Khong goi duoc API tu ben ngoai (HTTP $CODE)"
@@ -138,9 +138,18 @@ jobs:
           fi
           NMODEL=$(python3 -c "import json;d=json.load(open('/tmp/models.json'));print(len(d.get('data',[])))" 2>/dev/null || echo "?")
           echo "So model kha dung: $NMODEL (0 la binh thuong khi chua login Claude/Codex)"
-          NOKEY=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "http://$HOST:8317/v1/models" || echo 000)
+          NOKEY=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "http://$HOST:28417/v1/models" || echo 000)
           echo "GET /v1/models KHONG kem key tu Internet -> HTTP $NOKEY (mong doi 401)"
           if [ "$NOKEY" = "200" ]; then
             echo "::error::Endpoint cong khai khong yeu cau API key!"
+            exit 1
+          fi
+          # Cong mac dinh 8317 phai KHONG con mo ra Internet nua (day la muc dich
+          # cua viec doi cong). Container cu con song se lam buoc nay that bai.
+          # "|| echo 000" se cho ra "000000" vi curl that bai da tu in 000 roi.
+          OLD=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "http://$HOST:8317/v1/models" || true); OLD=${OLD:-000}
+          echo "GET vao cong mac dinh 8317 tu Internet -> $OLD (mong doi 000 = khong ket noi duoc)"
+          if [ "$OLD" != "000" ]; then
+            echo "::error::Cong mac dinh 8317 van mo ra Internet (HTTP $OLD)"
             exit 1
           fi
