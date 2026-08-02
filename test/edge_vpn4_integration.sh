@@ -107,17 +107,25 @@ if [ "${routed:-0}" -lt 1 ]; then
   exit 1
 fi
 
-# Chung minh nginx khong giai ma: hai backend co cert khac nhau, curl xac minh
-# duoc rang cert nhan duoc dung la cert do backend phat ra.
-echo "--- kiem chung TLS di xuyen qua (cert do backend giu) ---"
-subj_a=$(curl -skv --max-time 10 --resolve "vpn4.hangocthanh.io.vn:$PORT:127.0.0.1" \
-  "https://vpn4.hangocthanh.io.vn:$PORT/" 2>&1 | grep -i "subject:" | head -1 || true)
-subj_b=$(curl -skv --max-time 10 --resolve "cliproxy.hangocthanh.io.vn:$PORT:127.0.0.1" \
-  "https://cliproxy.hangocthanh.io.vn:$PORT/" 2>&1 | grep -i "subject:" | head -1 || true)
-echo "  cert derper  : $subj_a"
-echo "  cert cliproxy: $subj_b"
-if [ "$subj_a" = "$subj_b" ]; then
-  echo "::error::hai backend tra ve cung mot cert — nginx dang terminate TLS chu khong passthrough"
+# Chung minh nginx KHONG giai ma: moi backend tu phat cert rieng, nen van tay cert
+# nhan duoc phai KHAC nhau. Neu nginx terminate TLS thi ca hai se tra ve cung mot
+# cert — luc do derper mat quyen tu giu autocert cua no.
+# (Khong so "subject" vi cert `tls internal` cua Caddy co subject rong.)
+echo "--- kiem chung TLS di xuyen qua (moi backend giu cert rieng) ---"
+fingerprint() {
+  echo | openssl s_client -connect "127.0.0.1:$PORT" -servername "$1" 2>/dev/null \
+    | openssl x509 -noout -fingerprint -sha256 2>/dev/null | cut -d= -f2 || true
+}
+fp_a=$(fingerprint vpn4.hangocthanh.io.vn)
+fp_b=$(fingerprint cliproxy.hangocthanh.io.vn)
+echo "  cert derper  : ${fp_a:-<khong lay duoc>}"
+echo "  cert cliproxy: ${fp_b:-<khong lay duoc>}"
+if [ -z "$fp_a" ] || [ -z "$fp_b" ]; then
+  echo "::error::khong lay duoc cert tu backend"
+  exit 1
+fi
+if [ "$fp_a" = "$fp_b" ]; then
+  echo "::error::hai backend tra ve CUNG mot cert — nginx dang terminate TLS chu khong passthrough"
   exit 1
 fi
 
