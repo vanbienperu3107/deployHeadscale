@@ -97,7 +97,8 @@ echo "==> [5/5] Khong co SNI phai duoc DINH TUYEN ve derper (bat bien an toan ch
 # la NGINX QUYET DINH DI DAU. Log dinh tuyen cua nginx tra loi chinh xac dieu do.
 curl -sk --max-time 5 "https://127.0.0.1:$PORT/" >/dev/null 2>&1 || true
 sleep 1
-routed=$(docker logs edge-test-nginx 2>&1 | grep -c "sni=- -> derper:443" || true)
+# Bien rong trong context `stream` duoc in ra la RONG (khac http log, noi no thanh '-').
+routed=$(docker logs edge-test-nginx 2>&1 | grep -cE "sni=-? -> derper:443" || true)
 echo "  so ket noi khong SNI duoc dinh tuyen ve derper: $routed"
 if [ "${routed:-0}" -lt 1 ]; then
   echo "::error::ket noi khong co SNI KHONG duoc dinh tuyen ve derper — loi ten mien se lam chet DERP"
