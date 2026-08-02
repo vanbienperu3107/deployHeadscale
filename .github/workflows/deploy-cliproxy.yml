@@ -13,6 +13,12 @@ on:
         description: "Tag image cli-proxy-api (vd v7.2.112). Bo trong = dung mac dinh trong docker-compose.yml"
         required: false
         default: ""
+      debug_logging:
+        description: "Bat ghi log loi ra file de doc lai request that bai. CHI bat khi dang dieu tra roi tat lai."
+        required: false
+        default: "false"
+        type: choice
+        options: ["false", "true"]
 
 concurrency:
   # Cung host vpn4 voi deploy-derp-vpn4 / deploy-vpn-gw -> xep hang tuan tu,
@@ -45,7 +51,7 @@ jobs:
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_KEY }}
           port: ${{ secrets.SSH_PORT || '22' }}
-          envs: DEPLOY_PATH,REPO_URL,DEPLOY_REF,CLIPROXY_API_KEY,CLIPROXY_MGMT_KEY,CLIPROXY_IMAGE
+          envs: DEPLOY_PATH,REPO_URL,DEPLOY_REF,CLIPROXY_API_KEY,CLIPROXY_MGMT_KEY,CLIPROXY_IMAGE,DEBUG_LOGGING
           script_stop: true
           command_timeout: 15m
           script: |
@@ -85,6 +91,11 @@ jobs:
               echo "::error::config.yaml van con placeholder — secret rong?"
               exit 1
             fi
+            # Cong tac dieu tra: bat ghi log ra file de CLIProxyAPI dump request that
+            # bai (kem header + Content-Length) ra logs/error-*.log. Mac dinh TAT vi
+            # tung lam phinh bo nho toi OOM — chi bat khi dang truy loi.
+            test "${DEBUG_LOGGING:-false}" = "true" && sed -i 's/^logging-to-file: false/logging-to-file: true/' config.yaml || true
+            echo "  debug_logging=${DEBUG_LOGGING:-false} -> $(grep '^logging-to-file' config.yaml)"
 
             echo "==> [4/6] Ghi .env (tag image) + pull"
             # KHONG dung khoi if/else o day: ssh-action chen dong kiem tra exit code
@@ -126,6 +137,7 @@ jobs:
           CLIPROXY_API_KEY: ${{ secrets.CLIPROXY_API_KEY }}
           CLIPROXY_MGMT_KEY: ${{ secrets.CLIPROXY_MGMT_KEY }}
           CLIPROXY_IMAGE: ${{ github.event.inputs.image_tag && format('eceasy/cli-proxy-api:{0}', github.event.inputs.image_tag) || '' }}
+          DEBUG_LOGGING: ${{ github.event.inputs.debug_logging || 'false' }}
 
       - name: Verify tu Internet (runner goi vao 28417 cua vpn4)
         env:
