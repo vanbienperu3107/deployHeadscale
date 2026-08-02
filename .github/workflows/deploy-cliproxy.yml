@@ -83,11 +83,11 @@ jobs:
             fi
 
             echo "==> [4/6] Ghi .env (tag image) + pull"
-            if [ -n "${CLIPROXY_IMAGE:-}" ]; then
-              printf 'CLIPROXY_IMAGE=%s\n' "$CLIPROXY_IMAGE" > .env
-            else
-              rm -f .env
-            fi
+            # KHONG dung khoi if/else o day: ssh-action chen dong kiem tra exit code
+            # ngay sau dong "else", luc do $? van la ket qua cua dieu kien if (=1 khi
+            # dieu kien sai) -> script thoat 1 vo co. Rong thi ghi CLIPROXY_IMAGE=
+            # cung duoc vi compose dung ${CLIPROXY_IMAGE:-<mac dinh>}.
+            printf 'CLIPROXY_IMAGE=%s\n' "${CLIPROXY_IMAGE:-}" > .env
             $SUDO docker compose pull
 
             echo "==> [5/6] Compose up"
