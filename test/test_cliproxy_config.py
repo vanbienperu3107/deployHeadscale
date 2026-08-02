@@ -211,6 +211,23 @@ def test_workflow_khong_dung_heredoc_trong_script_ssh():
         )
 
 
+def test_workflow_khong_dung_else_trong_script_ssh():
+    """Bay thu hai (run 30751710639): dong kiem tra exit code duoc chen NGAY SAU
+    dong 'else', luc do $? van la ket qua cua dieu kien if (=1 khi dieu kien sai)
+    -> script thoat 1 vo co du chua chay lenh nao trong nhanh else. Viet lai bang
+    lenh mot dong hoac nhieu khoi if rieng.
+    """
+    wf = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    for step in wf["jobs"]["deploy"]["steps"]:
+        if not step.get("uses", "").startswith("appleboy/ssh-action"):
+            continue
+        for line in step["with"]["script"].splitlines():
+            stripped = line.strip()
+            assert stripped != "else" and not stripped.startswith("elif "), (
+                f"script cua ssh-action khong duoc co nhanh else/elif: {line!r}"
+            )
+
+
 def test_workflow_dung_chung_concurrency_group_voi_stack_vpn4_khac():
     """derper/vpn-gw cung o vpn4 — deploy song song de dinh lock docker/dpkg."""
     body = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
