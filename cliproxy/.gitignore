@@ -1,0 +1,6 @@
+# config.yaml that duoc sinh tu template + secrets luc deploy (chua API key).
+config.yaml
+# Token OAuth Claude/Codex — TUYET DOI khong commit.
+auths/
+logs/
+.env

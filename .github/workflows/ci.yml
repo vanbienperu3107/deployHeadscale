@@ -105,6 +105,28 @@ jobs:
           /tmp/venv-reporter/bin/pip install --quiet pytest
           cd ping-reporter && /tmp/venv-reporter/bin/python -m pytest -q test_reporter.py
 
+  cliproxy:
+    name: cliproxy — compose/config validate + integration (401/200 + persist token)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate cliproxy/docker-compose.yml
+        run: docker compose -f cliproxy/docker-compose.yml config --quiet && echo "cliproxy/docker-compose.yml OK"
+
+      - name: Validate deploy-cliproxy.yml (YAML)
+        run: python3 -c "import yaml; yaml.safe_load(open('.github/workflows/deploy-cliproxy.yml')); print('deploy-cliproxy.yml OK')"
+
+      - name: Test cau truc stack cliproxy (pytest)
+        run: |
+          python3 -m venv /tmp/venv-cliproxy
+          /tmp/venv-cliproxy/bin/pip install --quiet pytest pyyaml
+          /tmp/venv-cliproxy/bin/python -m pytest -q test/test_cliproxy_config.py
+
+      - name: Integration — chay that stack cliproxy
+        run: bash test/cliproxy_integration.sh
+
   relay-vpn5-build:
     name: relay-vpn5 — Go build + vet + compose validate
     runs-on: ubuntu-latest
