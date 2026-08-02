@@ -100,9 +100,24 @@ def test_nginx_dinh_tuyen_bang_ssl_preread_khong_giai_ma():
 def test_sni_khong_khop_thi_ve_derper():
     """Bat bien an toan: cau hinh ten mien sai khong duoc lam chet DERP."""
     conf = NGINX_CONF.read_text(encoding="utf-8")
-    m = re.search(r"default\s+(\w+);", conf)
+    m = re.search(r"default\s+([\w.:-]+);", conf)
     assert m, "map phai co nhanh default"
-    assert "derper" in m.group(1), f"default phai tro ve derper, dang la {m.group(1)}"
+    assert m.group(1).startswith("derper:"), (
+        f"default phai tro ve derper, dang la {m.group(1)}"
+    )
+
+
+def test_khong_dung_upstream_block_de_nginx_t_chay_doc_lap():
+    """Khoi `upstream` bat nginx resolve NGAY luc doc config: `nginx -t` trong
+    workflow (chay truoc khi derper vao mang edge) se that bai, va derper khoi dong
+    lai doi IP thi nginx cung khong bat kip. Phai dung resolver + bien.
+    """
+    conf = NGINX_CONF.read_text(encoding="utf-8")
+    assert not re.search(r"^\s*upstream\s+", conf, re.MULTILINE), (
+        "khong duoc dung khoi upstream — dung `resolver` + bien trong proxy_pass"
+    )
+    assert "resolver 127.0.0.11" in conf, "phai khai bao DNS noi bo cua Docker"
+    assert "proxy_pass $backend" in conf, "proxy_pass phai dung bien de resolve luc chay"
 
 
 def test_ten_mien_cliproxy_duoc_dinh_tuyen():
