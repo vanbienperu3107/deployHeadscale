@@ -105,6 +105,10 @@ jobs:
             printf 'CLIPROXY_IMAGE=%s\n' "${CLIPROXY_IMAGE:-}" > .env
             $SUDO docker compose pull
 
+            # cliproxy nam tren mang 'edge' de Caddy (stack edge-vpn4, phuc vu
+            # https://cliproxy.hangocthanh.io.vn tren cong 443) goi toi duoc.
+            $SUDO docker network inspect edge >/dev/null 2>&1 || $SUDO docker network create edge
+
             echo "==> [5/6] Compose up"
             $SUDO docker compose up -d --remove-orphans
             $SUDO docker compose ps

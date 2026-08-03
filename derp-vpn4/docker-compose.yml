@@ -23,9 +23,15 @@ services:
       - --stun-port=3478
       - --verify-clients=false
     ports:
+      # 80: ACME HTTP-01 cua chinh derper (autocert) — GIU NGUYEN tren host.
       - "80:80"
-      - "443:443"
+      # 443 KHONG con publish truc tiep: tu 2026-08-02, nginx cua stack edge-vpn4
+      # giu 443 va dinh tuyen theo SNI. derper van tu terminate TLS bang cert
+      # autocert cua no — nginx chi noi TCP thang (ssl_preread), khong dung toi
+      # noi dung. Xem edge-vpn4/README.md.
       - "3478:3478/udp"
+    networks:
+      - edge
     volumes:
       - derper_certs:/data/derper-certs
 
@@ -69,6 +75,13 @@ services:
       - ts_sock:/var/run/tailscale
     depends_on:
       - tailscale
+
+networks:
+  # Mang dung chung voi stack edge-vpn4 (nginx/caddy) va cliproxy. Tao san bang
+  # `docker network create edge` — cac workflow deploy deu tu tao neu chua co.
+  edge:
+    name: edge
+    external: true
 
 volumes:
   derper_certs:

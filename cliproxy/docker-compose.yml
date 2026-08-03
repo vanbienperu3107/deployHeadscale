@@ -28,6 +28,10 @@ services:
       - "127.0.0.1:54545:54545"  # Claude Code
       - "127.0.0.1:1455:1455"    # OpenAI Codex
       - "127.0.0.1:8085:8085"    # Gemini CLI (du phong, chua dung)
+    networks:
+      # Mang dung chung de Caddy cua stack edge-vpn4 goi toi cliproxy:8317 khi
+      # phuc vu https://cliproxy.hangocthanh.io.vn (cong 443).
+      - edge
     volumes:
       # config.yaml do workflow sinh tu secrets (khong commit vao repo).
       - ./config.yaml:/CLIProxyAPI/config.yaml
@@ -53,3 +57,8 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+
+networks:
+  edge:
+    name: edge
+    external: true

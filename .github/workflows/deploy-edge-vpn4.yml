@@ -1,0 +1,185 @@
+name: Deploy edge 443 (vpn4)
+
+# Chia se cong 443 cua vpn4 giua derper va CLIProxyAPI bang nginx dinh tuyen SNI.
+# Xem edge-vpn4/README.md.
+#
+# THU TU CAT CHUYEN quan trong: derper phai nha 443 TRUOC khi nginx gianh duoc no.
+# Buoc kiem tra DNS chay dau tien de khong dung toi derper khi ten mien chua san.
+on:
+  workflow_dispatch:
+
+concurrency:
+  # Cung host vpn4 voi deploy-derp-vpn4 / deploy-cliproxy / deploy-vpn-gw.
+  group: deploy-vpn4-host
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy nginx SNI + Caddy len vpn4
+    runs-on: ubuntu-latest
+    steps:
+      - name: Kiem tra DNS cliproxy.hangocthanh.io.vn (truoc khi dung toi derper)
+        env:
+          HOST: ${{ secrets.SSH_HOST_VPN4 }}
+        run: |
+          RESOLVED=$(python3 -c "import socket;print(socket.gethostbyname('cliproxy.hangocthanh.io.vn'))" 2>/dev/null || echo "")
+          if [ -z "$RESOLVED" ]; then
+            echo "::error::cliproxy.hangocthanh.io.vn chua phan giai duoc. Them ban ghi A tro toi vpn4 roi chay lai."
+            exit 1
+          fi
+          if [ "$RESOLVED" != "$HOST" ]; then
+            echo "::error::cliproxy.hangocthanh.io.vn tro sai dich (khong phai vpn4). Kiem tra lai ban ghi A."
+            exit 1
+          fi
+          echo "DNS OK: cliproxy.hangocthanh.io.vn -> vpn4"
+
+      - name: Kiem tra secrets bat buoc
+        env:
+          API_KEY: ${{ secrets.CLIPROXY_API_KEY }}
+        run: |
+          if [ -z "$API_KEY" ]; then
+            echo "::error::Thieu secret CLIPROXY_API_KEY"; exit 1
+          fi
+          echo "OK"
+
+      - name: SSH vao vpn4 — cat chuyen 443 sang nginx
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SSH_HOST_VPN4 }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT || '22' }}
+          envs: DEPLOY_PATH,REPO_URL,DEPLOY_REF,CLIPROXY_API_KEY
+          script_stop: true
+          command_timeout: 20m
+          script: |
+            set -e
+            if [ "$(id -u)" -ne 0 ]; then SUDO="sudo"; else SUDO=""; fi
+
+            echo "==> [1/7] Cap nhat repo"
+            cd "$DEPLOY_PATH"
+            git config --global --add safe.directory "$DEPLOY_PATH" || true
+            git fetch --all --prune
+            git reset --hard "origin/${DEPLOY_REF:-main}"
+
+            echo "==> [2/7] Tao mang edge neu chua co"
+            $SUDO docker network inspect edge >/dev/null 2>&1 || $SUDO docker network create edge
+            echo "  mang edge san sang"
+
+            echo "==> [3/7] Kiem tra config nginx truoc khi dung toi derper"
+            $SUDO docker run --rm -v "$DEPLOY_PATH/edge-vpn4/nginx.conf:/etc/nginx/nginx.conf:ro" nginx:1.27-alpine nginx -t
+            echo "  nginx.conf hop le"
+
+            echo "==> [4/7] Recreate derper (nha cong 443, vao mang edge)"
+            cd "$DEPLOY_PATH/derp-vpn4"
+            $SUDO docker compose up -d --remove-orphans
+            sleep 3
+            $SUDO docker compose ps
+
+            echo "==> [5/7] Recreate cliproxy (vao mang edge)"
+            cd "$DEPLOY_PATH/cliproxy"
+            $SUDO docker compose up -d --remove-orphans
+
+            echo "==> [6/7] Bat nginx + caddy (gianh cong 443)"
+            cd "$DEPLOY_PATH/edge-vpn4"
+            $SUDO docker compose pull
+            $SUDO docker compose up -d --remove-orphans
+            sleep 5
+            $SUDO docker compose ps
+
+            echo "==> [7/7] Cho Caddy xin chung chi (toi da 150s)"
+            ok=0
+            for _ in $(seq 1 30); do
+              if $SUDO docker logs caddy-edge 2>&1 | grep -q "certificate obtained successfully\|serving initial configuration"; then ok=1; break; fi
+              sleep 5
+            done
+            $SUDO docker logs --tail 25 caddy-edge 2>&1 || true
+            if [ "$ok" != "1" ]; then
+              echo "::warning::Chua thay log cap chung chi — buoc verify tu Internet se noi ro"
+            fi
+            echo "  cong dang nghe tren host:"
+            $SUDO ss -tlnp | grep -E ':(80|443)\b' || true
+        env:
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          REPO_URL: https://github.com/vanbienperu3107/deployHeadscale.git
+          DEPLOY_REF: ${{ github.ref_name }}
+          CLIPROXY_API_KEY: ${{ secrets.CLIPROXY_API_KEY }}
+
+      - name: Verify tu Internet — DERP van song qua 443
+        run: |
+          # Quan trong nhat: derper KHONG duoc chet vi viec chia se cong.
+          ok=0
+          for i in $(seq 1 10); do
+            CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 https://vpn4.hangocthanh.io.vn/derp/probe || true)
+            echo "  lan $i: /derp/probe -> ${CODE:-000}"
+            if [ "${CODE:-000}" = "200" ]; then ok=1; break; fi
+            sleep 6
+          done
+          if [ "$ok" != "1" ]; then
+            echo "::error::DERP vpn4 KHONG con tra loi qua 443 — rollback ngay: xoa 'networks/edge' + tra lai '443:443' trong derp-vpn4/docker-compose.yml, tat stack edge-vpn4"
+            exit 1
+          fi
+          echo "DERP OK qua nginx (chung chi van la cua derper, TLS khong bi dung toi)"
+
+      - name: Verify tu Internet — CLIProxyAPI qua 443
+        env:
+          API_KEY: ${{ secrets.CLIPROXY_API_KEY }}
+          HOST: ${{ secrets.SSH_HOST_VPN4 }}
+        run: |
+          ok=0
+          for i in $(seq 1 20); do
+            CODE=$(curl -s -o /tmp/models.json -w '%{http_code}' --max-time 20 \
+              -H "Authorization: Bearer $API_KEY" https://cliproxy.hangocthanh.io.vn/v1/models || true)
+            echo "  lan $i: https://cliproxy.hangocthanh.io.vn/v1/models -> ${CODE:-000}"
+            if [ "${CODE:-000}" = "200" ]; then ok=1; break; fi
+            sleep 8
+          done
+          if [ "$ok" != "1" ]; then
+            echo "::error::Khong goi duoc CLIProxyAPI qua 443 (thuong la Caddy chua xin duoc chung chi)"
+            head -c 400 /tmp/models.json || true
+            exit 1
+          fi
+          NMODEL=$(python3 -c "import json;print(len(json.load(open('/tmp/models.json')).get('data',[])))" 2>/dev/null || echo "?")
+          echo "So model qua 443: $NMODEL"
+          NOKEY=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 https://cliproxy.hangocthanh.io.vn/v1/models || true)
+          echo "Goi khong kem key -> ${NOKEY:-000} (mong doi 401)"
+          if [ "${NOKEY:-000}" = "200" ]; then
+            echo "::error::Endpoint 443 khong yeu cau API key!"
+            exit 1
+          fi
+          # Duong cu (28417) phai con nguyen de khong lam hong may dang dung.
+          OLD=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 \
+            -H "Authorization: Bearer $API_KEY" "http://$HOST:28417/v1/models" || true)
+          echo "Duong cu http://vpn4:28417 -> ${OLD:-000} (mong doi 200)"
+          if [ "${OLD:-000}" != "200" ]; then
+            echo "::error::Duong cu 28417 da hong"
+            exit 1
+          fi
+
+      - name: Smoke test completion qua 443 (tieng Viet, kiem tra UTF-8 + SSE)
+        env:
+          API_KEY: ${{ secrets.CLIPROXY_API_KEY }}
+        run: |
+          printf '%s' '{"model":"claude-opus-5","max_tokens":128,"messages":[{"role":"user","content":"Trả lời đúng một câu tiếng Việt có dấu: bạn là model nào?"}]}' > /tmp/req.json
+          CODE=$(curl -s -o /tmp/chat.json -w '%{http_code}' --max-time 120 \
+            -H "Authorization: Bearer $API_KEY" -H "Content-Type: application/json" \
+            --data-binary @/tmp/req.json https://cliproxy.hangocthanh.io.vn/v1/chat/completions || true)
+          echo "POST /v1/chat/completions qua 443 -> ${CODE:-000}"
+          if [ "${CODE:-000}" != "200" ]; then
+            echo "::error::Completion qua 443 that bai"
+            head -c 600 /tmp/chat.json || true
+            exit 1
+          fi
+          python3 - <<'PY'
+          import json, sys
+          d = json.load(open("/tmp/chat.json", encoding="utf-8"))
+          msg = (d.get("choices") or [{}])[0].get("message", {}).get("content") or ""
+          print("Tra loi:", msg[:200])
+          if not msg.strip():
+              print("::error::Noi dung rong")
+              sys.exit(1)
+          if any(m in msg for m in ("Ã", "â€", "Â¢")):
+              print("::error::Hong ma hoa UTF-8 qua duong 443")
+              sys.exit(1)
+          print("OK: 443 chay duoc, UTF-8 nguyen ven")
+          PY

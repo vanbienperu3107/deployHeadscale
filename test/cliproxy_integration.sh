@@ -16,10 +16,15 @@ TEST_KEY="ci-test-key-$RANDOM$RANDOM"
 cleanup() {
   echo "--- don dep ---"
   (cd "$STACK" && docker compose down -v --remove-orphans >/dev/null 2>&1 || true)
+  docker network rm edge >/dev/null 2>&1 || true
   rm -f "$STACK/config.yaml"
   rm -rf "$STACK/auths" "$STACK/logs"
 }
 trap cleanup EXIT
+
+# cliproxy nam tren mang 'edge' (dung chung voi nginx/caddy cua stack edge-vpn4).
+# Mang la external nen phai tao truoc, giong het buoc deploy tren vpn4.
+docker network inspect edge >/dev/null 2>&1 || docker network create edge >/dev/null
 
 echo "==> [1/6] Sinh config.yaml tu template (giong het buoc deploy)"
 mkdir -p "$STACK/auths" "$STACK/logs"
