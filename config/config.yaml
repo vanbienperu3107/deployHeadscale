@@ -25,7 +25,7 @@ derp:
     stun_listen_addr: "0.0.0.0:3478"
     private_key_path: /var/lib/headscale/derp_server_private.key
     automatically_add_embedded_derp_region: false
-    ipv4: 165.22.12.169    # IP public VPS (vpn2.hangocthanh.io.vn)
+    ipv4: 45.119.87.220    # IP public VPS (vpn2.hangocthanh.io.vn -> vpn6 sau cutover 2026-07-25)
     # ipv6: YOUR_IPV6              # ← nếu có
 
   # DERP map bo sung: vpn3 (region 1000) tu file ngoai. Region 999 (embedded, vpn2)
@@ -102,10 +102,16 @@ dns:
   # Bản ghi dưới đây để MagicDNS tự trả lời tên control server từ netmap đã
   # cache trong tailscaled, không cần ra ngoài. Sửa IP của vpn2 thì PHẢI sửa
   # cả ở đây, nếu không toàn bộ fleet mất đường hồi phục.
+  #
+  # 2026-08-02: file này còn giữ IP DigitalOcean cũ (165.22.12.169) trong khi
+  # cutover sang vpn6 đã xong từ 2026-07-25 — server production đã được sửa tay
+  # thành 45.119.87.220, chỉ repo bị bỏ quên. Nếu bật lại workflow "Deploy"
+  # (đang disabled_manually) thì bản sai này sẽ ghi đè bản đúng trên server và
+  # hạ cả fleet. Đồng bộ lại cho khớp production.
   extra_records:
     - name: "vpn2.hangocthanh.io.vn"
       type: "A"
-      value: "165.22.12.169"
+      value: "45.119.87.220"
 
 # === ACL Policy ===
 # database: cho phep dashboard (CMS) day nodeAttrs/grants (Taildrive per-PC share)
