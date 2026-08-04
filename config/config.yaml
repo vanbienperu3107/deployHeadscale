@@ -72,7 +72,29 @@ database:
 dns:
   magic_dns: true
   base_domain: tail.hangocthanh.io.vn    # base domain MagicDNS (PHẢI khác server_url)
-  override_local_dns: true
+  # false (đổi 2026-08-03) — KHÔNG bật lại nếu chưa đọc hết đoạn dưới.
+  #
+  # true = bỏ qua DNS của WiFi, ép mọi truy vấn ra global nameservers. Nghe thì
+  # gọn, nhưng làm chết máy trên đúng hai loại mạng:
+  #
+  #   1. WiFi có trang đăng nhập (khách sạn, quán, sân bay). Portal hoạt động
+  #      bằng cách cố tình trả lời sai DNS để đẩy về trang đăng nhập. Máy bị ép
+  #      hỏi 1.1.1.1 nên router không có cơ hội đẩy -> trang đăng nhập KHÔNG BAO
+  #      GIỜ hiện -> không đăng nhập được -> WiFi không cho ra internet.
+  #   2. WiFi chặn DNS ra ngoài (mạng công ty, một số ISP) -> truy vấn tới
+  #      1.1.1.1/8.8.8.8 bị chặn thẳng -> không phân giải được gì.
+  #
+  # Cả hai đều biểu hiện là "đã kết nối WiFi mà không vào được web nào", rất dễ
+  # bị chẩn đoán nhầm thành hỏng mạng/hỏng máy. Máy votam gặp cả hai.
+  #
+  # false = tên miền công cộng dùng DNS của WiFi; domain nội bộ vẫn đi đúng chỗ
+  # nhờ split routes (bitel.com.pe, viettel.vn -> 10.121.127.193) và MagicDNS
+  # vẫn phục vụ *.tail.hangocthanh.io.vn. Không mất chức năng nào.
+  #
+  # Nếu sau này cần ép DNS lại (DNS nhà mạng bẩn/chậm): KHÔNG bật lại cờ này —
+  # đặt resolver TRONG tailnet rồi trỏ split route vào đó, vừa kiểm soát được
+  # DNS vừa không phá cơ chế đăng nhập WiFi.
+  override_local_dns: false
   nameservers:
     global:
       - 1.1.1.1
@@ -85,7 +107,11 @@ dns:
   search_domains: []
   # ★ PHÁ THẾ KẸT DNS — KHÔNG ĐƯỢC XOÁ (sự cố votam-pc 2026-07-19).
   #
-  # override_local_dns: true ở trên thay DNS của máy bằng 100.100.100.100, rồi
+  # (Bối cảnh gốc, thời override_local_dns còn là true — vẫn giữ vì bản ghi
+  # dưới đây vẫn cần thiết kể cả khi cờ đó đã tắt: MagicDNS vẫn chạy, và DNS
+  # của WiFi cũng có lúc hỏng.)
+  #
+  # override_local_dns: true thay DNS của máy bằng 100.100.100.100, rồi
   # chuyển tiếp lên 1.1.1.1/8.8.8.8 QUA ĐƯỜNG HẦM. Nhưng chính server_url
   # (vpn2.hangocthanh.io.vn) cũng là một tên miền cần phân giải. Nên khi đường
   # hầm rớt:
