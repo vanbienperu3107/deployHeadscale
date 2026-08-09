@@ -146,13 +146,15 @@ jobs:
             # 31289161190) chet dung tai comment co backtick, moi lan lai o mot
             # cho khac — rat de doc nham thanh "lenh ke ben bi loi".
             # Kiem tra unit bang tay: systemd-analyze verify /etc/systemd/system/vpngw-route-agent.service
-            if [ -n "${VPN_GW_ROUTES:-}" ]; then
-              $SUDO systemctl enable --now vpngw-route-agent.timer
-              echo "  route-agent BAT (routes=${VPN_GW_ROUTES})"
-            else
-              $SUDO systemctl disable --now vpngw-route-agent.timer >/dev/null 2>&1 || true
-              echo "  route-agent TAT (VPN_GW_ROUTES rong) - dung theo thiet ke Pha 1"
-            fi
+            # set -x de log lo ra LENH THAT dang chay: bon lan deploy truoc deu
+            # dung ngay sau moc echo gan nhat, ma moi lan doan "lenh ke tiep" lai
+            # sai. Dung dang PHANG (khong if/else nhieu dong) cho de doc log.
+            set -x
+            $SUDO systemctl disable --now vpngw-route-agent.timer >/dev/null 2>&1 || true
+            ROUTES_ON="${VPN_GW_ROUTES:-}"
+            [ -z "$ROUTES_ON" ] || $SUDO systemctl enable --now vpngw-route-agent.timer
+            set +x
+            echo "  route-agent cai xong (VPN_GW_ROUTES='${VPN_GW_ROUTES:-}')"
 
             echo "==> [4/6] Login GHCR + pull image"
             echo "$GHCR_TOKEN" | $SUDO docker login ghcr.io -u "$GHCR_ACTOR" --password-stdin
