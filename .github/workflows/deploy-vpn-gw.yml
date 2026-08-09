@@ -5,6 +5,22 @@ name: Deploy vpn-gw (vpn4)
 # Xem docs/plan-vpn-gateway-bitel.md (Phase 2).
 on:
   workflow_dispatch:
+    inputs:
+      routes:
+        description: >-
+          Subnet route du phong cho vpngw (vd 10.121.0.0/16). RONG = tat.
+          Bat = Pha 2, phai lam trong cua so bao tri: doc docs/plan-vpn-route-failover.md
+          §5 truoc. Route chi thuc su len khi route-agent probe THANH CONG
+          (advertise-on-healthy), va van phai duoc approve trong headscale.
+        required: false
+        default: ''
+      probe_target:
+        description: >-
+          host:port de probe "duong con song that". Mac dinh 10.121.124.155:3389
+          (RDP may IT OPS). Phai la dich vu THAT — ping khong dung duoc vi may
+          dich chan ICMP.
+        required: false
+        default: '10.121.124.155:3389'
 
 concurrency:
   # Cung host vpn4 voi deploy-derp-vpn4 -> xep hang tuan tu, tranh dpkg/docker lock.
@@ -86,14 +102,43 @@ jobs:
             chmod 600 config/client.ovpn config/auth.txt
             echo "  config da ghi ($(wc -c < config/client.ovpn) bytes ovpn)"
 
-            echo "==> [3/6] Ghi .env (TS_AUTHKEY + telemetry)"
+            echo "==> [3/6] Ghi .env (TS_AUTHKEY + telemetry + route/probe)"
+            # ⚠️ `>` cat cut file: MOI khoa can thiet phai co mat o day. Truoc
+            # 2026-08-09 VPN_GW_ROUTES/PROBE_TARGET chi ton tai neu go tay tren
+            # may -> mot lan chay workflow la bay mat, va dieu do khong bao gio
+            # duoc phat hien cho toi luc itop chet that.
             {
               printf 'TS_AUTHKEY=%s\n' "${TS_AUTHKEY:-}"
               printf 'DASHBOARD_URL=%s\n' "${DASHBOARD_URL:-}"
               printf 'VPN_GW_NAME=%s\n' "${VPN_GW_NAME:-}"
               printf 'VPN_GW_AGENT_TOKEN=%s\n' "${VPN_GW_AGENT_TOKEN:-}"
+              printf 'VPN_GW_ROUTES=%s\n' "${VPN_GW_ROUTES:-}"
+              printf 'PROBE_TARGET=%s\n' "${PROBE_TARGET:-10.121.124.155:3389}"
+              printf 'REQUIRE_FORWARD=%s\n' "${REQUIRE_FORWARD:-0}"
             } > .env
             chmod 600 .env
+
+            echo "==> [3b/6] Cai route-agent (advertise-on-healthy)"
+            # Agent chay tren HOST, khong trong container: no goi `tailscale set`
+            # tren socket LocalAPI, ma mount socket do vao container dang mo
+            # tinyproxy cho ca tailnet la trao quyen dieu khien node cho be mat
+            # tan cong do. Xem vpn-gw/route-agent.sh.
+            $SUDO chmod +x "$DEPLOY_PATH/vpn-gw/route-agent.sh"
+            {
+              printf 'VPN_GW_ROUTES=%s\n' "${VPN_GW_ROUTES:-}"
+              printf 'PROBE_TARGET=%s\n' "${PROBE_TARGET:-10.121.124.155:3389}"
+            } | $SUDO tee /etc/vpngw-route-agent.env >/dev/null
+            $SUDO chmod 600 /etc/vpngw-route-agent.env
+            $SUDO cp "$DEPLOY_PATH/vpn-gw/vpngw-route-agent.service" /etc/systemd/system/
+            $SUDO cp "$DEPLOY_PATH/vpn-gw/vpngw-route-agent.timer"   /etc/systemd/system/
+            $SUDO systemctl daemon-reload
+            if [ -n "${VPN_GW_ROUTES:-}" ]; then
+              $SUDO systemctl enable --now vpngw-route-agent.timer
+              echo "  route-agent BAT (routes=${VPN_GW_ROUTES})"
+            else
+              $SUDO systemctl disable --now vpngw-route-agent.timer 2>/dev/null || true
+              echo "  route-agent TAT (VPN_GW_ROUTES rong) — dung theo thiet ke Pha 1"
+            fi
 
             echo "==> [4/6] Login GHCR + pull image"
             echo "$GHCR_TOKEN" | $SUDO docker login ghcr.io -u "$GHCR_ACTOR" --password-stdin
@@ -131,6 +176,39 @@ jobs:
             echo "  jump.bitel.com.pe qua proxy: HTTP $CODE"
             echo "  IP tailnet vpngw:"
             $SUDO docker exec ts-vpngw tailscale ip -4 2>&1 | head -2 || true
+
+            echo "==> [6b/6] Assert mat phang forward (chan cac loi im lang)"
+            # (1) ip_forward: neu 0 thi subnet route quang ba ma khong chuyen tiep
+            #     duoc goi nao — `headscale nodes list-routes` van xanh, khong ai biet.
+            FWD=$($SUDO docker exec ts-vpngw cat /proc/sys/net/ipv4/ip_forward 2>/dev/null || echo 0)
+            echo "  ip_forward=$FWD"
+            if [ "$FWD" != "1" ]; then
+              echo "::error::ip_forward=0 — thieu 'sysctls: [net.ipv4.ip_forward=1]' tren ts-vpngw"
+              exit 1
+            fi
+            # (2) crashloop: containerboot coi loi ghi sysctl la FATAL. ts-vpngw la
+            #     chu netns nen no crashloop keo theo tinyproxy chet cung.
+            RC=$($SUDO docker inspect -f '{{.RestartCount}}' ts-vpngw 2>/dev/null || echo -1)
+            echo "  ts-vpngw RestartCount=$RC"
+            if [ "$RC" != "0" ]; then
+              echo "::error::ts-vpngw da restart $RC lan — nghi crashloop"
+              $SUDO docker logs --tail 40 ts-vpngw 2>&1 || true
+              exit 1
+            fi
+            # (3) luat FORWARD phai do IMAGE tao, khong phai do nguoi go tay.
+            $SUDO docker exec vpn-gw iptables -C FORWARD -i tailscale0 -o tun0 -j ACCEPT 2>/dev/null \
+              && echo "  FORWARD tailscale0->tun0: OK" \
+              || { echo "::error::thieu luat FORWARD tailscale0->tun0"; exit 1; }
+            $SUDO docker exec vpn-gw iptables -C FORWARD -i tailscale0 '!' -o tun0 -j REJECT --reject-with icmp-net-unreachable 2>/dev/null \
+              && echo "  REJECT ro ra eth0: OK" \
+              || { echo "::error::thieu luat REJECT chong ro ra eth0"; exit 1; }
+            # (4) advertise phai KHOP y dinh: rong o Pha 1, dung VPN_GW_ROUTES khi bat.
+            ADV=$($SUDO docker exec ts-vpngw tailscale debug prefs 2>/dev/null | grep -o '"AdvertiseRoutes":[^,]*' || echo '?')
+            echo "  prefs $ADV (VPN_GW_ROUTES='${VPN_GW_ROUTES:-}')"
+            if [ -z "${VPN_GW_ROUTES:-}" ] && ! printf '%s' "$ADV" | grep -q 'null'; then
+              echo "::error::VPN_GW_ROUTES rong nhung node VAN dang advertise — route-agent hoac containerboot ghi ngoai y muon"
+              exit 1
+            fi
         env:
           DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
           REPO_URL: https://github.com/vanbienperu3107/deployHeadscale.git
@@ -145,3 +223,15 @@ jobs:
           DASHBOARD_URL: https://vpn2.hangocthanh.io.vn/app
           VPN_GW_NAME: bitel
           VPN_GW_AGENT_TOKEN: ${{ secrets.VPN_GW_AGENT_TOKEN }}
+          # ── Subnet route du phong ──────────────────────────────────────────
+          # RONG = tat (Pha 1: chi cai san mat phang forward + route-agent, KHONG
+          # dong gi vao tailnet). Bat o Pha 2 bang cach dat inputs.routes khi chay
+          # workflow — KHONG sua tay .env tren may, vi `>` o buoc [3/6] cat cut
+          # file moi lan deploy.
+          VPN_GW_ROUTES: ${{ inputs.routes }}
+          # Dich probe "duong con song that". Mac dinh RDP may IT OPS — dung dich
+          # vu nguoi dung can. KHONG dung ping (may dich chan ICMP) va khong dung
+          # link-state tun0 (Bitel chan theo tai khoan thi tun0 van UP).
+          PROBE_TARGET: ${{ inputs.probe_target || '10.121.124.155:3389' }}
+          # =1 khi da bat route: healthcheck coi ip_forward=0 la hong.
+          REQUIRE_FORWARD: ${{ inputs.routes && '1' || '0' }}

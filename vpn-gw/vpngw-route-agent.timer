@@ -1,0 +1,13 @@
+[Unit]
+Description=Chay vpngw route agent moi 10s
+
+[Timer]
+# 10s/nhip: rut sau 3 nhip fail (~30s), advertise lai sau 6 nhip OK (~60s).
+# Xem hysteresis trong route-agent.sh.
+OnBootSec=60
+OnUnitActiveSec=10
+AccuracySec=1s
+Unit=vpngw-route-agent.service
+
+[Install]
+WantedBy=timers.target

@@ -7,17 +7,34 @@
 
 services:
   ts-vpngw:
-    image: tailscale/tailscale:latest
+    # GHIM TAG: ca stack dua vao ngu nghia cua containerboot (khi nao no chay
+    # `tailscale up` vs `tailscale set`, khi nao no bat ip_forward). `:latest`
+    # co the doi duoi chan giua mot cua so bao tri.
+    image: tailscale/tailscale:v1.98.9
     container_name: ts-vpngw
     hostname: vpngw
     restart: unless-stopped
+    # ⚠️ BAT BUOC khi node lam subnet router. containerboot goi ensureIPForwarding
+    # va COI LOI LA FATAL (cmd/containerboot/main.go:187-196) — ma /proc/sys
+    # trong container khong ghi duoc (da do: "Read-only file system"), nen no se
+    # thoat -> restart: unless-stopped -> CRASHLOOP. Va vi ts-vpngw la CHU
+    # NETNS, no chet keo theo vpn-gw (tinyproxy + tun0) chet cung.
+    # Dat o day thi runtime ghi truoc khi containerboot doc -> no thay "1" va bo qua.
+    sysctls:
+      - net.ipv4.ip_forward=1
     environment:
       - TS_AUTHKEY=${TS_AUTHKEY:-}
-      # advertise-routes: CHI advertise IP ma CHINH vpngw (qua OpenVPN account) toi
-      # duoc ma itop KHONG toi. jump (10.121.13.186) itop vao truc tiep qua LAN Bitel
-      # nen KHONG advertise o day (neu advertise se de route /8 cua itop -> may TUN
-      # dam vao vpngw thay vi itop). Mac dinh RONG. Set VPN_GW_ROUTES khi that su can.
-      - TS_EXTRA_ARGS=--login-server=https://vpn2.hangocthanh.io.vn --hostname=vpngw --accept-dns=false --advertise-routes=${VPN_GW_ROUTES:-}
+      # ⚠️ KHONG dat --advertise-routes o day, va KHONG dat TS_ROUTES.
+      #
+      # containerboot ap route VO DIEU KIEN luc khoi dong (tailscaled.go:139-141
+      # qua `up`, :172-174 qua `set`), trong khi TUN_WAIT=90 bao dam tun0 CHUA
+      # len trong hang chuc giay dau. Neu itop dang offline dung luc do, gateway
+      # gianh primary route trong trang thai chua forward duoc gi.
+      #
+      # Thay vao do: route-agent tren HOST la nguoi ghi DUY NHAT, va chi
+      # advertise SAU khi probe TCP toi dich that su thanh cong
+      # (advertise-on-healthy). Xem vpn-gw/route-agent.sh.
+      - TS_EXTRA_ARGS=--login-server=https://vpn2.hangocthanh.io.vn --hostname=vpngw --accept-dns=false
       - TS_STATE_DIR=/var/lib/tailscale
       - TS_USERSPACE=false
       - TS_SOCKET=/var/run/tailscale/tailscaled.sock
@@ -28,6 +45,9 @@ services:
       - /dev/net/tun
     cap_add:
       - NET_ADMIN
+    logging:
+      driver: json-file
+      options: { max-size: "20m", max-file: "3" }
 
   vpn-gw:
     image: ghcr.io/vanbienperu3107/vpn-gw:latest
@@ -44,6 +64,13 @@ services:
       - BITEL_DNS1=10.121.127.193
       - BITEL_DNS2=10.121.127.194
       - TUN_WAIT=90
+      # Dich probe "duong con song that" — TCP toi dung cong dich vu nguoi dung
+      # can. KHONG dung ping (may dich chan ICMP) va khong dung link-state tun0
+      # (Bitel chan theo tai khoan thi tun0 van UP ma khong toi duoc gi).
+      - PROBE_TARGET=${PROBE_TARGET:-10.121.124.155:3389}
+      - PROBE_TIMEOUT=${PROBE_TIMEOUT:-4}
+      # =1 khi node dang lam subnet router: healthcheck coi ip_forward=0 la hong.
+      - REQUIRE_FORWARD=${REQUIRE_FORWARD:-0}
       # Telemetry (Phase 5): bao trang thai len dashboard. Trong = tat.
       - DASHBOARD_URL=${DASHBOARD_URL:-}
       - VPN_GW_NAME=${VPN_GW_NAME:-}
@@ -57,6 +84,9 @@ services:
       - NET_ADMIN
     depends_on:
       - ts-vpngw
+    logging:
+      driver: json-file
+      options: { max-size: "20m", max-file: "3" }
 
 volumes:
   tailscale_vpngw:

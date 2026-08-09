@@ -15,8 +15,33 @@ UPSTREAM_DNS2="${UPSTREAM_DNS2:-8.8.8.8}"
 OVPN_SKIP="${OVPN_SKIP:-0}"                    # =1: bo qua openvpn (smoke test proxy)
 TUN_WAIT="${TUN_WAIT:-60}"                     # so giay cho tun0 len
 KILLSWITCH="${KILLSWITCH:-0}"                  # =1: chan dai Bitel neu tun0 down
+# Dich probe "duong con song that": host:port BEN TRONG mang Bitel. Mac dinh la
+# RDP cua may IT OPS — dung dich vu nguoi dung can, khong phai mot IP moc bat ky.
+PROBE_TARGET="${PROBE_TARGET:-10.121.124.155:3389}"
+PROBE_TIMEOUT="${PROBE_TIMEOUT:-4}"
+# =1: healthcheck coi ip_forward=0 la HONG (bat khi node lam subnet router).
+REQUIRE_FORWARD="${REQUIRE_FORWARD:-0}"
 
 log() { echo "$(date -u +%H:%M:%S) vpn-gw: $*"; }
+
+# probe_ok: TCP connect toi PROBE_TARGET qua tun0.
+#
+# Vi sao KHONG dung `ip link show tun0 up` hay `ping`: da do tren prod
+# 2026-08-09 — (1) tun0 co the UP ma duong van chet (Bitel chan theo TAI KHOAN:
+# ca dai 10.121.13.x timeout du co route, trong khi 10.121.124.x thong);
+# (2) may dich chan ICMP nen ping that bai 100% trong khi TCP 3389 bat tay
+# thanh cong. Chi TCP toi dung cong dich vu moi noi len su that.
+# KHONG dung `nc -z`: busybox trong alpine chi co `-z` khi build kem NC_EXTRA,
+# khong bao dam. Dang `nc -w T host port </dev/null` chay duoc tren CA busybox
+# lan openbsd-netcat: ket noi duoc thi stdin EOF ngay -> exit 0; refused/timeout
+# -> exit != 0. Server co gui banner cung khong sao — ta chi hoi "TCP mo khong".
+probe_ok() {
+  local hp="${1:-$PROBE_TARGET}" h p
+  [ -n "$hp" ] || return 0          # khong cau hinh dich -> khong danh gia, coi nhu OK
+  h="${hp%%:*}"; p="${hp##*:}"
+  [ -n "$h" ] && [ -n "$p" ] || return 1
+  nc -w "$PROBE_TIMEOUT" "$h" "$p" </dev/null >/dev/null 2>&1
+}
 
 # ---------------------------------------------------------------------------
 # healthcheck: goi boi Docker HEALTHCHECK. Proxy phai song; neu dang chay VPN
@@ -26,6 +51,12 @@ if [ "${1:-run}" = "healthcheck" ]; then
   pidof tinyproxy >/dev/null 2>&1 || { echo "tinyproxy chet"; exit 1; }
   if [ "$OVPN_SKIP" != "1" ]; then
     ip link show tun0 up >/dev/null 2>&1 || { echo "tun0 khong len"; exit 1; }
+  fi
+  # Khi node lam subnet router, ip_forward=0 nghia la no quang ba route ma
+  # KHONG chuyen tiep duoc goi nao — hong im lang, `list-routes` van xanh.
+  if [ "$REQUIRE_FORWARD" = "1" ]; then
+    [ "$(cat /proc/sys/net/ipv4/ip_forward 2>/dev/null || echo 0)" = "1" ] \
+      || { echo "ip_forward=0 nhung REQUIRE_FORWARD=1"; exit 1; }
   fi
   exit 0
 fi
@@ -98,6 +129,63 @@ else
     || iptables -t nat -A POSTROUTING -o tun0 -j MASQUERADE
   log "NAT MASQUERADE ra tun0 (subnet route cho may co TUN)"
 
+  # ---- Mat phang forward cho subnet-route ----
+  # Truoc 2026-08-09 ba thu duoi day chi ton tai vi co nguoi go tay trong netns:
+  # KHONG co trong image, nen moi lan recreate la mat sach va gateway "quang ba
+  # route" ma khong chuyen tiep duoc goi nao. Dua han vao day.
+  #
+  # ip_forward do RUNTIME dat qua `sysctls:` cua ts-vpngw trong compose — netns
+  # nay la cua sidecar va /proc/sys trong container KHONG ghi duoc (da do:
+  # "sysctl: error setting key 'net.ipv4.ip_forward': Read-only file system").
+  # O day chi kiem tra + canh bao, tuyet doi khong `sysctl -w` (script chay
+  # `set -e`, lenh that bai se giet luon tinyproxy dang chay tot).
+  fwd=$(cat /proc/sys/net/ipv4/ip_forward 2>/dev/null || echo 0)
+  if [ "$fwd" != "1" ]; then
+    log "CANH BAO: ip_forward=$fwd — subnet route se KHONG forward duoc. Them 'sysctls: [net.ipv4.ip_forward=1]' cho ts-vpngw."
+  fi
+
+  # tailscale0 do sidecar tao; no khoi dong truoc nhung tailscaled can vai giay.
+  ts_up=0
+  for _ in $(seq 1 30); do
+    if ip link show tailscale0 >/dev/null 2>&1; then ts_up=1; break; fi
+    sleep 1
+  done
+
+  if [ "$ts_up" = "1" ]; then
+    # Khong dua vao policy ACCEPT mac dinh cua FORWARD: tailscaled co the doi
+    # policy khi bat netfilter.
+    iptables -C FORWARD -i tailscale0 -o tun0 -j ACCEPT 2>/dev/null \
+      || iptables -A FORWARD -i tailscale0 -o tun0 -j ACCEPT || true
+    iptables -C FORWARD -i tun0 -o tailscale0 -j ACCEPT 2>/dev/null \
+      || iptables -A FORWARD -i tun0 -o tailscale0 -j ACCEPT || true
+
+    # CHONG RO — quan trong. OpenVPN chi push ~42 route roi rac, KHONG phai ca
+    # 10.121.0.0/16. Goi tu tailnet toi mot IP 10.121.x ngoai tap do se khop
+    # DEFAULT ROUTE -> ra eth0 voi src 100.64.x (MASQUERADE chi gan `-o tun0`)
+    # -> roi ra internet cong cong, va nguoi dung thay TREO chu khong thay loi.
+    # Vi du that: 10.121.13.135 (remote DC) `ip route get` -> dev eth0.
+    # Chan thang + tra ICMP de fail NHANH. Kill-switch san co KHONG che duoc ca
+    # nay: no chi dung chain OUTPUT, con traffic subnet-route di qua FORWARD.
+    iptables -C FORWARD -i tailscale0 ! -o tun0 -j REJECT --reject-with icmp-net-unreachable 2>/dev/null \
+      || iptables -A FORWARD -i tailscale0 ! -o tun0 -j REJECT --reject-with icmp-net-unreachable || true
+
+    # MSS clamp: WireGuard (1280) long trong OpenVPN lam PMTU vo — RDP/SMB bat
+    # tay xong roi treo giua chung khi goi lon. Kep MSS theo PMTU that.
+    iptables -t mangle -C FORWARD -p tcp --syn -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null \
+      || iptables -t mangle -A FORWARD -p tcp --syn -j TCPMSS --clamp-mss-to-pmtu || true
+
+    log "forward plane san sang (ACCEPT tailnet<->tun0, REJECT ro ra eth0, MSS clamp)"
+  else
+    log "CANH BAO: khong thay tailscale0 sau 30s — bo qua luat FORWARD"
+  fi
+
+  # Bao ngay duong that con song hay khong (probe TCP, khong phai link-state).
+  if probe_ok; then
+    log "probe $PROBE_TARGET: OK"
+  else
+    log "probe $PROBE_TARGET: THAT BAI — tun0 len nhung duong toi dich khong thong"
+  fi
+
   # ---- kill-switch (optional) ----
   if [ "$KILLSWITCH" = "1" ]; then
     log "bat kill-switch: chan dai Bitel neu khong ra qua tun0"
@@ -124,7 +212,11 @@ report_loop() {
   log "reporter: bao trang thai moi ${iv}s toi ${DASHBOARD_URL} (gateway=${VPN_GW_NAME})"
   while true; do
     state=""; tunip=""; tsip=""; egress=""; cfg=""; pport=""
-    if ip link show tun0 up >/dev/null 2>&1; then state="up"; else state="error"; fi
+    # state = tun0 UP **VA** duong toi dich that su thong. Link-state mot minh
+    # noi doi: Bitel chan theo tai khoan thi tun0 van UP ma khong toi duoc gi.
+    # Dashboard dua vao `state` de xep hang gateway (computeGatewayHealth) va
+    # route-agent dua vao no de rut/khoi phuc advertise.
+    if ip link show tun0 up >/dev/null 2>&1 && probe_ok; then state="up"; else state="error"; fi
     tunip=$(ip -4 -o addr show tun0 2>/dev/null | awk '{print $4}' | cut -d/ -f1)
     # IP tailnet (100.x) tu interface tailscale0 (chung netns voi sidecar) -> dashboard
     # tu cap nhat vpn_gateways.tailnet_ip, KHONG hardcode IP o deploy.

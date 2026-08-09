@@ -28,6 +28,45 @@ IP `100.x` của node — client trỏ PAC `PROXY <100.x>:8888`.
 | `BITEL_DOMAIN` | `bitel.com.pe` | Domain đẩy qua DNS nội bộ |
 | `BITEL_DNS1/2` | `10.121.127.193/194` | DNS nội bộ Bitel (đã kiểm chứng) |
 | `UPSTREAM_DNS/2` | `1.1.1.1` / `8.8.8.8` | DNS public cho domain còn lại |
+| `PROBE_TARGET` | `10.121.124.155:3389` | Đích probe "đường còn sống thật" — TCP tới **dịch vụ thật**, không phải link-state |
+| `PROBE_TIMEOUT` | `4` | Giây cho mỗi lần probe |
+| `REQUIRE_FORWARD` | `0` | `1` = healthcheck coi `ip_forward=0` là hỏng (bật khi làm subnet router) |
+
+## Subnet route dự phòng (advertise-on-healthy)
+
+Ngoài đường proxy, gateway có thể làm **subnet router dự phòng**: khi tailscale
+trên itop (`100.64.0.21`) chết, headscale chuyển route `10.121.0.0/16` sang node
+này để RDP/SMB/mọi giao thức vẫn đi được. Chi tiết + cách triển khai từng pha:
+[docs/plan-vpn-route-failover.md](../docs/plan-vpn-route-failover.md).
+
+Bốn điều **phải nhớ**, mỗi cái đều đổi bằng một sự cố thật:
+
+1. **`sysctls: [net.ipv4.ip_forward=1]` nằm trên `ts-vpngw`, không phải `vpn-gw`.**
+   `/proc/sys` trong container là read-only (đã đo). containerboot coi lỗi ghi
+   sysctl là **fatal** → thoát → `restart: unless-stopped` → crashloop; mà
+   `ts-vpngw` là **chủ netns** nên nó chết kéo theo tinyproxy + tun0 chết cùng.
+
+2. **`TS_ROUTES` / `--advertise-routes` để RỖNG trong compose.** containerboot áp
+   route vô điều kiện lúc khởi động, trong khi `TUN_WAIT=90` bảo đảm tun0 chưa
+   lên — gateway sẽ quảng bá route khi chưa forward được gì.
+   [`route-agent.sh`](route-agent.sh) trên host là **người ghi duy nhất**, và chỉ
+   advertise sau khi probe TCP thành công.
+
+3. **Probe phải là TCP tới dịch vụ thật.** `ping` vô dụng (máy đích chặn ICMP —
+   fail 100% trong khi TCP 3389 bắt tay được), `ip link show tun0 up` cũng vô
+   dụng (Bitel chặn theo **tài khoản**: cả dải `10.121.13.x` timeout dù có route,
+   trong khi `10.121.124.x` thông).
+
+4. **tun0 KHÔNG phủ cả `10.121.0.0/16`** — chỉ ~42 prefix rời rạc. Gói tới IP
+   ngoài tập đó rơi ra `eth0` với src `100.64.x` (MASQUERADE chỉ gắn `-o tun0`)
+   → rò ra internet và người dùng thấy **treo**. Luật
+   `FORWARD -i tailscale0 ! -o tun0 -j REJECT` chặn thẳng để fail nhanh.
+   Kill-switch sẵn có không che được ca này (nó chỉ đụng chain `OUTPUT`).
+
+**Vùng phủ đã đo (2026-08-09):** `10.121.124.155:3389` ✅ · `10.121.13.135`
+(remote DC) ❌ · `10.121.13.131` ❌ · `jump 10.121.13.186` ❌ — cả dải
+`10.121.13.x` bị chặn với tài khoản OpenVPN hiện tại. Thêm IP mới vào danh sách
+"đi qua VPN" thì **phải probe lại** trước khi hứa nó được bảo vệ.
 | `OVPN_SKIP` | `0` | `=1` bỏ qua openvpn (test proxy) |
 | `TUN_WAIT` | `60` | Số giây chờ tun0 |
 | `KILLSWITCH` | `0` | `=1` chặn dải Bitel khi tun0 down |
