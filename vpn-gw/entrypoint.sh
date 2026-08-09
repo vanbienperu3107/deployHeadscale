@@ -31,12 +31,16 @@ log() { echo "$(date -u +%H:%M:%S) vpn-gw: $*"; }
 # ca dai 10.121.13.x timeout du co route, trong khi 10.121.124.x thong);
 # (2) may dich chan ICMP nen ping that bai 100% trong khi TCP 3389 bat tay
 # thanh cong. Chi TCP toi dung cong dich vu moi noi len su that.
+# KHONG dung `nc -z`: busybox trong alpine chi co `-z` khi build kem NC_EXTRA,
+# khong bao dam. Dang `nc -w T host port </dev/null` chay duoc tren CA busybox
+# lan openbsd-netcat: ket noi duoc thi stdin EOF ngay -> exit 0; refused/timeout
+# -> exit != 0. Server co gui banner cung khong sao — ta chi hoi "TCP mo khong".
 probe_ok() {
   local hp="${1:-$PROBE_TARGET}" h p
   [ -n "$hp" ] || return 0          # khong cau hinh dich -> khong danh gia, coi nhu OK
   h="${hp%%:*}"; p="${hp##*:}"
   [ -n "$h" ] && [ -n "$p" ] || return 1
-  nc -z -w "$PROBE_TIMEOUT" "$h" "$p" >/dev/null 2>&1
+  nc -w "$PROBE_TIMEOUT" "$h" "$p" </dev/null >/dev/null 2>&1
 }
 
 # ---------------------------------------------------------------------------

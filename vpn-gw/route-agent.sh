@@ -55,8 +55,10 @@ rd()  { cat "$1" 2>/dev/null || echo "${2:-0}"; }
 [ -n "$ROUTES" ] || { log "VPN_GW_ROUTES rong -> khong lam gi (tinh nang tat)"; exit 0; }
 
 # ── probe: TCP toi dich, chay TRONG netns cua gateway (host khong co route 10.121.x)
+# KHONG dung `nc -z` (busybox alpine khong bao dam co co do). Dang duoi day chay
+# duoc tren ca busybox lan openbsd-netcat — xem probe_ok() trong entrypoint.sh.
 host="${PROBE_TARGET%%:*}"; port="${PROBE_TARGET##*:}"
-if docker exec "$GW_CONTAINER" nc -z -w "$PROBE_TIMEOUT" "$host" "$port" >/dev/null 2>&1; then
+if docker exec "$GW_CONTAINER" nc -w "$PROBE_TIMEOUT" "$host" "$port" </dev/null >/dev/null 2>&1; then
   probe=ok
 else
   probe=fail
