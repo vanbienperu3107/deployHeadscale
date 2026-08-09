@@ -132,9 +132,16 @@ jobs:
             # bien mat sau MOI lan reset. Cai ra /usr/local/bin voi mode tuong
             # minh thi khong phu thuoc mode trong repo nua.
             $SUDO install -m 0755 "$DEPLOY_PATH/vpn-gw/route-agent.sh" /usr/local/bin/vpngw-route-agent.sh
+            # DASHBOARD_URL/VPN_GW_NAME/VPN_GW_AGENT_TOKEN: de route-agent doc
+            # danh sach route tu bang "TRANG DI QUA VPN" tren dashboard. Admin
+            # bat/tat mot IP o do la route theo do ma len/xuong, khong phai chay
+            # lai workflow. VPN_GW_ROUTES chi con la fallback khi API loi.
             {
               printf 'VPN_GW_ROUTES=%s\n' "${VPN_GW_ROUTES:-}"
               printf 'PROBE_TARGET=%s\n' "${PROBE_TARGET:-10.121.124.155:3389}"
+              printf 'DASHBOARD_URL=%s\n' "${DASHBOARD_URL:-}"
+              printf 'VPN_GW_NAME=%s\n' "${VPN_GW_NAME:-}"
+              printf 'VPN_GW_AGENT_TOKEN=%s\n' "${VPN_GW_AGENT_TOKEN:-}"
             } | $SUDO tee /etc/vpngw-route-agent.env >/dev/null
             $SUDO chmod 600 /etc/vpngw-route-agent.env
             $SUDO install -m 0644 "$DEPLOY_PATH/vpn-gw/vpngw-route-agent.service" /etc/systemd/system/vpngw-route-agent.service
@@ -154,10 +161,13 @@ jobs:
             # sai. Dung dang PHANG (khong if/else nhieu dong) cho de doc log.
             set -x
             $SUDO systemctl disable --now vpngw-route-agent.timer >/dev/null 2>&1 || true
-            ROUTES_ON="${VPN_GW_ROUTES:-}"
-            [ -z "$ROUTES_ON" ] || $SUDO systemctl enable --now vpngw-route-agent.timer
+            # Bat agent khi CO NGUON cau hinh: token dashboard (nguon chinh) HOAC
+            # VPN_GW_ROUTES (fallback). Agent tu quyet dinh quang ba gi dua tren
+            # bang "TRANG DI QUA VPN" + ket qua probe; danh sach trong = no rut.
+            AGENT_ON="${VPN_GW_AGENT_TOKEN:-}${VPN_GW_ROUTES:-}"
+            [ -z "$AGENT_ON" ] || $SUDO systemctl enable --now vpngw-route-agent.timer
             set +x
-            echo "  route-agent cai xong (VPN_GW_ROUTES='${VPN_GW_ROUTES:-}')"
+            echo "  route-agent cai xong (nguon: dashboard; fallback VPN_GW_ROUTES='${VPN_GW_ROUTES:-}')"
 
             echo "==> [4/6] Login GHCR + pull image"
             echo "$GHCR_TOKEN" | $SUDO docker login ghcr.io -u "$GHCR_ACTOR" --password-stdin
@@ -228,8 +238,8 @@ jobs:
             #     dung lop loi cua deploy 31293752510: workflow xanh, moi assert
             #     xanh, nhung bien khong toi duoc may nen route khong bao gio bat
             #     — va khong ai biet cho toi luc itop chet that.
-            [ -z "${VPN_GW_ROUTES:-}" ] || $SUDO systemctl is-enabled vpngw-route-agent.timer >/dev/null 2>&1 || {
-              echo "::error::VPN_GW_ROUTES='${VPN_GW_ROUTES}' nhung timer route-agent KHONG enabled"; exit 1; }
+            [ -z "${VPN_GW_AGENT_TOKEN:-}${VPN_GW_ROUTES:-}" ] || $SUDO systemctl is-enabled vpngw-route-agent.timer >/dev/null 2>&1 || {
+              echo "::error::co nguon cau hinh route nhung timer route-agent KHONG enabled"; exit 1; }
             if [ -z "${VPN_GW_ROUTES:-}" ] && ! printf '%s' "$ADV" | grep -q 'null'; then
               echo "::error::VPN_GW_ROUTES rong nhung node VAN dang advertise — route-agent hoac containerboot ghi ngoai y muon"
               exit 1
