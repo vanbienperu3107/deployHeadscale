@@ -7,5 +7,8 @@ Requires=docker.service
 [Service]
 Type=oneshot
 EnvironmentFile=-/etc/vpngw-route-agent.env
-ExecStart=/opt/deployHeadscale/vpn-gw/route-agent.sh
+# Cai boi workflow qua `install -m 0755` — KHONG tro thang vao thu muc repo:
+# buoc [1/6] chay `git reset --hard` moi lan deploy va git khong giu bit +x cho
+# file duoc them tu Windows (mode 644 trong index).
+ExecStart=/usr/local/bin/vpngw-route-agent.sh
 # Khong Restart=: day la oneshot chay theo timer. Loi mot nhip thi nhip sau thu lai.

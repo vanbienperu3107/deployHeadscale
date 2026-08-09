@@ -123,15 +123,23 @@ jobs:
             # tren socket LocalAPI, ma mount socket do vao container dang mo
             # tinyproxy cho ca tailnet la trao quyen dieu khien node cho be mat
             # tan cong do. Xem vpn-gw/route-agent.sh.
-            $SUDO chmod +x "$DEPLOY_PATH/vpn-gw/route-agent.sh"
+            # `install -m 0755` chu KHONG phai cp+chmod: buoc [1/6] chay
+            # `git reset --hard` moi lan deploy, ma git chi luu mode 644/755 theo
+            # index — file tao tren Windows vao repo voi mode 644 nen bit +x se
+            # bien mat sau MOI lan reset. Cai ra /usr/local/bin voi mode tuong
+            # minh thi khong phu thuoc mode trong repo nua.
+            $SUDO install -m 0755 "$DEPLOY_PATH/vpn-gw/route-agent.sh" /usr/local/bin/vpngw-route-agent.sh
             {
               printf 'VPN_GW_ROUTES=%s\n' "${VPN_GW_ROUTES:-}"
               printf 'PROBE_TARGET=%s\n' "${PROBE_TARGET:-10.121.124.155:3389}"
             } | $SUDO tee /etc/vpngw-route-agent.env >/dev/null
             $SUDO chmod 600 /etc/vpngw-route-agent.env
-            $SUDO cp "$DEPLOY_PATH/vpn-gw/vpngw-route-agent.service" /etc/systemd/system/
-            $SUDO cp "$DEPLOY_PATH/vpn-gw/vpngw-route-agent.timer"   /etc/systemd/system/
+            $SUDO install -m 0644 "$DEPLOY_PATH/vpn-gw/vpngw-route-agent.service" /etc/systemd/system/vpngw-route-agent.service
+            $SUDO install -m 0644 "$DEPLOY_PATH/vpn-gw/vpngw-route-agent.timer"   /etc/systemd/system/vpngw-route-agent.timer
             $SUDO systemctl daemon-reload
+            # Bat loi cu phap unit ngay o deploy thay vi doi toi luc timer chay.
+            $SUDO systemd-analyze verify /etc/systemd/system/vpngw-route-agent.service || {
+              echo "::error::unit vpngw-route-agent.service khong hop le"; exit 1; }
             if [ -n "${VPN_GW_ROUTES:-}" ]; then
               $SUDO systemctl enable --now vpngw-route-agent.timer
               echo "  route-agent BAT (routes=${VPN_GW_ROUTES})"
