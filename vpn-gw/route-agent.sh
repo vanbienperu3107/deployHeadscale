@@ -33,7 +33,7 @@ set -uo pipefail
 
 TS_CONTAINER="${TS_CONTAINER:-ts-vpngw}"
 GW_CONTAINER="${GW_CONTAINER:-vpn-gw}"
-ROUTES="${VPN_GW_ROUTES:-}"                       # rong = tinh nang TAT
+ROUTES="${VPN_GW_ROUTES:-}"                       # fallback khi khong goi duoc API
 PROBE_TARGET="${PROBE_TARGET:-10.121.124.155:3389}"
 PROBE_TIMEOUT="${PROBE_TIMEOUT:-4}"
 FAIL_THRESHOLD="${FAIL_THRESHOLD:-3}"             # 3 lan fail lien tiep -> rut
@@ -52,7 +52,38 @@ F_LOCK="$STATE_DIR/locked"                        # ton tai = khoa o trang thai 
 log() { echo "$(date -u +%FT%TZ) route-agent: $*"; }
 rd()  { cat "$1" 2>/dev/null || echo "${2:-0}"; }
 
-[ -n "$ROUTES" ] || { log "VPN_GW_ROUTES rong -> khong lam gi (tinh nang tat)"; exit 0; }
+# ── Nguon cau hinh: DASHBOARD truoc, env sau ────────────────────────────────
+# Admin bat/tat route ngay tren bang "TRANG DI QUA VPN" (bang vpn_domains): muc
+# nao la IP/CIDR thi server tra ve trong truong advertiseRoutes. Khong con phai
+# sua workflow deploy de doi mot dong route.
+# Server tu chan prefix rong hon /24 (bai hoc su co 2026-08-09), o day chan them
+# mot lan nua vi day la noi thuc su ghi vao tailnet.
+if [ -n "${DASHBOARD_URL:-}" ] && [ -n "${VPN_GW_NAME:-}" ] && [ -n "${VPN_GW_AGENT_TOKEN:-}" ]; then
+  CFG=$(curl -s --max-time 10 -H "Authorization: Bearer ${VPN_GW_AGENT_TOKEN}" \
+    "${DASHBOARD_URL}/api/vpn/agent/config?gateway=${VPN_GW_NAME}" 2>/dev/null || echo "")
+  FROM_API=$(printf '%s' "$CFG" | grep -o '"advertiseRoutes":"[^"]*"' | cut -d'"' -f4)
+  if printf '%s' "$CFG" | grep -q '"advertiseRoutes"'; then
+    ROUTES="$FROM_API"        # API tra ve (ke ca rong = admin tat het) thi nghe theo
+  else
+    log "API khong tra advertiseRoutes -> dung VPN_GW_ROUTES='${ROUTES}'"
+  fi
+fi
+
+# Loai prefix rong hon /24 truoc khi ghi vao tailnet.
+SAFE=""
+OLDIFS=$IFS; IFS=','
+for r in $ROUTES; do
+  r=$(printf '%s' "$r" | tr -d ' ')
+  [ -n "$r" ] || continue
+  bits=${r##*/}
+  case "$r" in
+    */*) [ "$bits" -ge 24 ] 2>/dev/null || { log "BO QUA '$r': rong hon /24"; continue; } ;;
+    *)   r="$r/32" ;;
+  esac
+  SAFE="${SAFE:+$SAFE,}$r"
+done
+IFS=$OLDIFS
+ROUTES="$SAFE"
 
 # ── probe: TCP toi dich, chay TRONG netns cua gateway (host khong co route 10.121.x)
 # KHONG dung `nc -z` (busybox alpine khong bao dam co co do). Dang duoi day chay
@@ -68,7 +99,15 @@ ok=$(rd "$F_OK"); fail=$(rd "$F_FAIL")
 if [ "$probe" = ok ]; then ok=$((ok+1)); fail=0; else fail=$((fail+1)); ok=0; fi
 echo "$ok" >"$F_OK"; echo "$fail" >"$F_FAIL"
 
-cur=$(rd "$F_STATE" 0)
+# ── Trang thai THAT tren node, khong tin file ───────────────────────────────
+# Bug 2026-08-09: agent doc F_STATE thay vi hoi node. Khi khac phuc su co toi rut
+# advertise bang tay, file van ghi "1" nen agent tuong xong viec va KHONG BAO GIO
+# ap lai route moi — im lang, khong loi nao. File chi con dung cho hysteresis.
+cur_routes=$(docker exec "$TS_CONTAINER" tailscale debug prefs 2>/dev/null \
+  | tr -d ' \t\n' | grep -o '"AdvertiseRoutes":\[[^]]*\]' \
+  | grep -o '[0-9][0-9.]*/[0-9]\+' | sort | tr '\n' ',' | sed 's/,$//')
+want_routes=$(printf '%s' "$ROUTES" | tr ',' '\n' | grep -v '^$' | sort | tr '\n' ',' | sed 's/,$//')
+[ "$cur_routes" = "$want_routes" ] && cur=1 || cur=0
 now=$(date +%s)
 last=$(rd "$F_LASTCHG" 0)
 
@@ -81,6 +120,17 @@ flaps=$(wc -l <"$F_FLAPS" 2>/dev/null || echo 0)
 apply() { # $1 = chuoi routes ("" de rut)
   docker exec "$TS_CONTAINER" tailscale set --advertise-routes="$1"
 }
+
+# ── Admin tat het tren dashboard -> RUT NGAY ───────────────────────────────
+# Khong doi probe, khong doi cooldown, khong quan tam dang khoa hay khong: day la
+# lenh tuong minh cua con nguoi. Cung la duong thoat khi can go route gap.
+if [ -z "$want_routes" ] && [ -n "$cur_routes" ]; then
+  apply "" && log "RUT advertise: danh sach tren dashboard dang trong" \
+           || log "LOI: khong rut duoc advertise"
+  echo 0 >"$F_STATE"; echo "$now" >"$F_LASTCHG"
+  exit 0
+fi
+[ -n "$want_routes" ] || { log "khong co route nao duoc bat tren dashboard"; exit 0; }
 
 if [ -f "$F_LOCK" ]; then
   log "DANG KHOA (lat qua $MAX_FLAPS_PER_HOUR lan/gio) — giu trang thai rut. Xoa $F_LOCK de mo."
@@ -115,4 +165,4 @@ if [ "$ok" -ge "$OK_THRESHOLD" ] && [ "$cur" != "1" ]; then
   exit 0
 fi
 
-log "probe=$probe ok=$ok fail=$fail advertised=$cur flaps1h=$flaps — khong doi gi"
+log "probe=$probe ok=$ok fail=$fail dang='${cur_routes}' muon='${want_routes}' khop=$cur flaps1h=$flaps — khong doi gi"
