@@ -75,7 +75,10 @@ jobs:
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_KEY }}
           port: ${{ secrets.SSH_PORT || '22' }}
-          envs: DEPLOY_PATH,REPO_URL,DEPLOY_REF,TS_AUTHKEY,GHCR_ACTOR,GHCR_TOKEN,OVPN_B64,OVPN_USER,OVPN_PASS,DASHBOARD_URL,VPN_GW_NAME,VPN_GW_AGENT_TOKEN
+          # ⚠️ CHI bien co ten trong danh sach nay moi duoc chuyen qua SSH. Khai
+          # bao o "env:" ben duoi la CHUA DU — deploy 31293752510 chay xanh nhung
+          # VPN_GW_ROUTES ve toi may van rong, nen route khong bao gio duoc bat.
+          envs: DEPLOY_PATH,REPO_URL,DEPLOY_REF,TS_AUTHKEY,GHCR_ACTOR,GHCR_TOKEN,OVPN_B64,OVPN_USER,OVPN_PASS,DASHBOARD_URL,VPN_GW_NAME,VPN_GW_AGENT_TOKEN,VPN_GW_ROUTES,PROBE_TARGET,REQUIRE_FORWARD
           script_stop: true
           command_timeout: 20m
           script: |
@@ -221,6 +224,12 @@ jobs:
             # (4) advertise phai KHOP y dinh: rong o Pha 1, dung VPN_GW_ROUTES khi bat.
             ADV=$($SUDO docker exec ts-vpngw tailscale debug prefs 2>/dev/null | grep -o '"AdvertiseRoutes":[^,]*' || echo '?')
             echo "  prefs $ADV (VPN_GW_ROUTES='${VPN_GW_ROUTES:-}')"
+            # (5) Neu nguoi chay DA yeu cau bat route thi timer phai enabled. Chan
+            #     dung lop loi cua deploy 31293752510: workflow xanh, moi assert
+            #     xanh, nhung bien khong toi duoc may nen route khong bao gio bat
+            #     — va khong ai biet cho toi luc itop chet that.
+            [ -z "${VPN_GW_ROUTES:-}" ] || $SUDO systemctl is-enabled vpngw-route-agent.timer >/dev/null 2>&1 || {
+              echo "::error::VPN_GW_ROUTES='${VPN_GW_ROUTES}' nhung timer route-agent KHONG enabled"; exit 1; }
             if [ -z "${VPN_GW_ROUTES:-}" ] && ! printf '%s' "$ADV" | grep -q 'null'; then
               echo "::error::VPN_GW_ROUTES rong nhung node VAN dang advertise — route-agent hoac containerboot ghi ngoai y muon"
               exit 1
