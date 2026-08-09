@@ -103,10 +103,10 @@ jobs:
             echo "  config da ghi ($(wc -c < config/client.ovpn) bytes ovpn)"
 
             echo "==> [3/6] Ghi .env (TS_AUTHKEY + telemetry + route/probe)"
-            # ⚠️ `>` cat cut file: MOI khoa can thiet phai co mat o day. Truoc
-            # 2026-08-09 VPN_GW_ROUTES/PROBE_TARGET chi ton tai neu go tay tren
-            # may -> mot lan chay workflow la bay mat, va dieu do khong bao gio
-            # duoc phat hien cho toi luc itop chet that.
+            # ⚠️ Dau chuyen huong ghi de cat cut file: MOI khoa can thiet phai co
+            # mat o day. Truoc 2026-08-09 VPN_GW_ROUTES/PROBE_TARGET chi ton tai
+            # neu go tay tren may -> mot lan chay workflow la bay mat, va dieu do
+            # khong bao gio duoc phat hien cho toi luc itop chet that.
             {
               printf 'TS_AUTHKEY=%s\n' "${TS_AUTHKEY:-}"
               printf 'DASHBOARD_URL=%s\n' "${DASHBOARD_URL:-}"
@@ -119,12 +119,12 @@ jobs:
             chmod 600 .env
 
             echo "==> [3b/6] Cai route-agent (advertise-on-healthy)"
-            # Agent chay tren HOST, khong trong container: no goi `tailscale set`
+            # Agent chay tren HOST, khong trong container: no goi "tailscale set"
             # tren socket LocalAPI, ma mount socket do vao container dang mo
             # tinyproxy cho ca tailnet la trao quyen dieu khien node cho be mat
             # tan cong do. Xem vpn-gw/route-agent.sh.
-            # `install -m 0755` chu KHONG phai cp+chmod: buoc [1/6] chay
-            # `git reset --hard` moi lan deploy, ma git chi luu mode 644/755 theo
+            # Dung "install -m 0755" chu KHONG phai cp roi doi mode: buoc [1/6]
+            # dong bo cung repo moi lan deploy, ma git chi luu mode 644/755 theo
             # index — file tao tren Windows vao repo voi mode 644 nen bit +x se
             # bien mat sau MOI lan reset. Cai ra /usr/local/bin voi mode tuong
             # minh thi khong phu thuoc mode trong repo nua.
@@ -139,12 +139,13 @@ jobs:
             echo "  da cai script + unit"
             $SUDO systemctl daemon-reload
             echo "  daemon-reload xong"
-            # KHONG goi `systemd-analyze verify` o day. Hai lan deploy lien tiep
-            # (31288946171, 31289161190) chet dung tai dong nay du moi thu da cai
-            # dung va du da bo `|| true`: trong moi truong drone-ssh no lam ca
-            # script dung han. Vai tro cua no (bat unit hong) da duoc buoc [6b/6]
-            # dam nhan bang cac assert cu the hon. Muon kiem tra tay:
-            #   systemd-analyze verify /etc/systemd/system/vpngw-route-agent.service
+            # LUU Y: TUYET DOI khong dung dau huyen (backtick) trong comment cua
+            # script nay. appleboy/ssh-action boc script qua mot lop quoting nen
+            # doan trong backtick BI THUC THI nhu command substitution, du no nam
+            # sau dau #. Ba lan deploy lien tiep (31288635570, 31288946171,
+            # 31289161190) chet dung tai comment co backtick, moi lan lai o mot
+            # cho khac — rat de doc nham thanh "lenh ke ben bi loi".
+            # Kiem tra unit bang tay: systemd-analyze verify /etc/systemd/system/vpngw-route-agent.service
             if [ -n "${VPN_GW_ROUTES:-}" ]; then
               $SUDO systemctl enable --now vpngw-route-agent.timer
               echo "  route-agent BAT (routes=${VPN_GW_ROUTES})"
@@ -192,7 +193,7 @@ jobs:
 
             echo "==> [6b/6] Assert mat phang forward (chan cac loi im lang)"
             # (1) ip_forward: neu 0 thi subnet route quang ba ma khong chuyen tiep
-            #     duoc goi nao — `headscale nodes list-routes` van xanh, khong ai biet.
+            #     duoc goi nao, ma "headscale nodes list-routes" van xanh nen khong ai biet.
             FWD=$($SUDO docker exec ts-vpngw cat /proc/sys/net/ipv4/ip_forward 2>/dev/null || echo 0)
             echo "  ip_forward=$FWD"
             if [ "$FWD" != "1" ]; then
@@ -239,7 +240,7 @@ jobs:
           # ── Subnet route du phong ──────────────────────────────────────────
           # RONG = tat (Pha 1: chi cai san mat phang forward + route-agent, KHONG
           # dong gi vao tailnet). Bat o Pha 2 bang cach dat inputs.routes khi chay
-          # workflow — KHONG sua tay .env tren may, vi `>` o buoc [3/6] cat cut
+          # workflow — KHONG sua tay .env tren may, vi buoc [3/6] ghi de cat cut
           # file moi lan deploy.
           VPN_GW_ROUTES: ${{ inputs.routes }}
           # Dich probe "duong con song that". Mac dinh RDP may IT OPS — dung dich
