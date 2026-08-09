@@ -1,0 +1,11 @@
+[Unit]
+Description=vpngw route agent (advertise-on-healthy)
+Documentation=https://github.com/vanbienperu3107/deployHeadscale/blob/main/vpn-gw/README.md
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/vpngw-route-agent.env
+ExecStart=/opt/deployHeadscale/vpn-gw/route-agent.sh
+# Khong Restart=: day la oneshot chay theo timer. Loi mot nhip thi nhip sau thu lai.
