@@ -139,11 +139,12 @@ jobs:
             echo "  da cai script + unit"
             $SUDO systemctl daemon-reload
             echo "  daemon-reload xong"
-            # Kiem tra cu phap unit. KHONG dung lam dieu kien chan: tuy phien ban,
-            # `systemd-analyze verify` tra non-zero chi vi CANH BAO (vd unit bi
-            # rang buoc vao unit inactive) — deploy 31288946171 chet o day du moi
-            # thu da cai dung. Chi in ra de nguoi doc.
-            $SUDO systemd-analyze verify /etc/systemd/system/vpngw-route-agent.service 2>&1 | head -5 || true
+            # KHONG goi `systemd-analyze verify` o day. Hai lan deploy lien tiep
+            # (31288946171, 31289161190) chet dung tai dong nay du moi thu da cai
+            # dung va du da bo `|| true`: trong moi truong drone-ssh no lam ca
+            # script dung han. Vai tro cua no (bat unit hong) da duoc buoc [6b/6]
+            # dam nhan bang cac assert cu the hon. Muon kiem tra tay:
+            #   systemd-analyze verify /etc/systemd/system/vpngw-route-agent.service
             if [ -n "${VPN_GW_ROUTES:-}" ]; then
               $SUDO systemctl enable --now vpngw-route-agent.timer
               echo "  route-agent BAT (routes=${VPN_GW_ROUTES})"
