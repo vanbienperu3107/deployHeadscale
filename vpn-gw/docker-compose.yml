@@ -34,7 +34,17 @@ services:
       # Thay vao do: route-agent tren HOST la nguoi ghi DUY NHAT, va chi
       # advertise SAU khi probe TCP toi dich that su thanh cong
       # (advertise-on-healthy). Xem vpn-gw/route-agent.sh.
-      - TS_EXTRA_ARGS=--login-server=https://vpn2.hangocthanh.io.vn --hostname=vpngw --accept-dns=false
+      # ⚠️ PHAI co "--advertise-routes=" (rong) o day. Tailscale tu choi lenh
+      # `up` neu prefs hien tai co advertise-routes ma lenh khong nhac toi:
+      #   Error: changing settings via 'tailscale up' requires mentioning all
+      # Ma route-agent thi CO dat advertise-routes len node. Thieu co nay =
+      # ts-vpngw CRASHLOOP moi lan restart, keo theo tinyproxy + tun0 chet cung
+      # (su co 2026-08-09, RestartCount len 13).
+      #
+      # De rong = moi lan container khoi dong lai, route bi xoa va agent phai
+      # probe thanh cong roi moi dat lai (~60s). Do la fail-safe dung huong:
+      # khong quang ba route khi chua chung minh duong con song.
+      - TS_EXTRA_ARGS=--login-server=https://vpn2.hangocthanh.io.vn --hostname=vpngw --accept-dns=false --advertise-routes=
       - TS_STATE_DIR=/var/lib/tailscale
       - TS_USERSPACE=false
       - TS_SOCKET=/var/run/tailscale/tailscaled.sock
