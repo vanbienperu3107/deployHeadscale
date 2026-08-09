@@ -136,16 +136,20 @@ jobs:
             $SUDO chmod 600 /etc/vpngw-route-agent.env
             $SUDO install -m 0644 "$DEPLOY_PATH/vpn-gw/vpngw-route-agent.service" /etc/systemd/system/vpngw-route-agent.service
             $SUDO install -m 0644 "$DEPLOY_PATH/vpn-gw/vpngw-route-agent.timer"   /etc/systemd/system/vpngw-route-agent.timer
+            echo "  da cai script + unit"
             $SUDO systemctl daemon-reload
-            # Bat loi cu phap unit ngay o deploy thay vi doi toi luc timer chay.
-            $SUDO systemd-analyze verify /etc/systemd/system/vpngw-route-agent.service || {
-              echo "::error::unit vpngw-route-agent.service khong hop le"; exit 1; }
+            echo "  daemon-reload xong"
+            # Kiem tra cu phap unit. KHONG dung lam dieu kien chan: tuy phien ban,
+            # `systemd-analyze verify` tra non-zero chi vi CANH BAO (vd unit bi
+            # rang buoc vao unit inactive) — deploy 31288946171 chet o day du moi
+            # thu da cai dung. Chi in ra de nguoi doc.
+            $SUDO systemd-analyze verify /etc/systemd/system/vpngw-route-agent.service 2>&1 | head -5 || true
             if [ -n "${VPN_GW_ROUTES:-}" ]; then
               $SUDO systemctl enable --now vpngw-route-agent.timer
               echo "  route-agent BAT (routes=${VPN_GW_ROUTES})"
             else
-              $SUDO systemctl disable --now vpngw-route-agent.timer 2>/dev/null || true
-              echo "  route-agent TAT (VPN_GW_ROUTES rong) — dung theo thiet ke Pha 1"
+              $SUDO systemctl disable --now vpngw-route-agent.timer >/dev/null 2>&1 || true
+              echo "  route-agent TAT (VPN_GW_ROUTES rong) - dung theo thiet ke Pha 1"
             fi
 
             echo "==> [4/6] Login GHCR + pull image"
