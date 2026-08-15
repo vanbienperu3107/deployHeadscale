@@ -117,10 +117,23 @@ def test_cong_callback_chi_loopback_hoac_tailnet():
         if len(parts) == 3:
             host_ip, host_port, _ = parts
             if host_port in callback_ports:
-                assert host_ip == "127.0.0.1" or host_ip.startswith("100.64."), (
-                    f"cong callback OAuth {host_port} chi duoc bind 127.0.0.1 hoac IP "
-                    f"tailnet 100.64.x.x, dang co: {p}"
+                # host_ip co the la bien ${CLIPROXY_TAILNET_IP:-127.0.0.2} — hop le,
+                # vi mac dinh cua no la loopback (xem ghi chu trong compose).
+                la_bien_tailnet = host_ip.startswith("${CLIPROXY_TAILNET_IP")
+                assert (
+                    host_ip == "127.0.0.1"
+                    or host_ip.startswith("100.64.")
+                    or la_bien_tailnet
+                ), (
+                    f"cong callback OAuth {host_port} chi duoc bind 127.0.0.1, IP "
+                    f"tailnet 100.64.x.x hoac bien CLIPROXY_TAILNET_IP; dang co: {p}"
                 )
+                if la_bien_tailnet:
+                    assert ":-127." in host_ip, (
+                        f"bien tailnet phai co mac dinh LOOPBACK (vd "
+                        f"${{CLIPROXY_TAILNET_IP:-127.0.0.2}}) de CI tren runner khong "
+                        f"co tailnet van up duoc; dang co: {p}"
+                    )
                 if host_ip == "127.0.0.1":
                     co_loopback[host_port] = True
         else:
@@ -137,10 +150,15 @@ def test_cong_callback_chi_loopback_hoac_tailnet():
 
 
 def test_cong_api_co_binding_tailnet():
-    """API 8317 phai bind them tren IP tailnet cua vpn4 (node native tren host)."""
+    """API 8317 phai bind them tren IP tailnet cua vpn4 (node native tren host).
+
+    Dung bien CLIPROXY_TAILNET_IP chu khong hardcode: runner CI chay chinh compose
+    nay va khong co IP 100.64.x.x (da lam do CI mot lan — "cannot assign requested
+    address"). Workflow deploy-cliproxy.yml ghi gia tri that vao .env.
+    """
     ports = " ".join(service()["ports"])
-    assert "100.64.0.4:8317:8317" in ports, (
-        "thieu binding 100.64.0.4:8317:8317 — node tailnet se khong goi duoc CLIProxyAPI"
+    assert "${CLIPROXY_TAILNET_IP:-127.0.0.2}:8317:8317" in ports, (
+        "thieu binding tailnet cho 8317 — node tailnet se khong goi duoc CLIProxyAPI"
     )
 
 

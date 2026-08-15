@@ -25,18 +25,24 @@ services:
       # API cho node tailnet: bind THEM tren IP tailnet cua vpn4 (node "vpn4" chay
       # native tren host, xem docs/plan-linux-node-vpn6-vpn4.md). Cong 28417 cong
       # khai o tren van giu nguyen.
-      - "100.64.0.4:8317:8317"
+      #
+      # ⚠️ PHAI la bien co mac dinh loopback, KHONG hardcode 100.64.0.4: runner CI
+      # chay chinh file compose nay (test/cliproxy_integration.sh) va runner KHONG
+      # co IP tailnet -> "cannot assign requested address" -> CI do, khong deploy
+      # duoc. Mac dinh 127.0.0.2 (van la loopback, khong dung 127.0.0.1 dang giu
+      # cac cong callback ben duoi). Workflow deploy ghi CLIPROXY_TAILNET_IP vao .env.
+      - "${CLIPROXY_TAILNET_IP:-127.0.0.2}:8317:8317"
       # Cac cong callback OAuth: bind loopback + IP tailnet. THEM chu KHONG THAY:
       # luong dang nhap qua SSH tunnel giu nguyen —
       #   ssh -N -L 54545:127.0.0.1:54545 -L 1455:127.0.0.1:1455 <user>@<vpn4>
       # — con node trong tailnet thi goi thang 100.64.0.4:<cong>.
       # TUYET DOI KHONG bind 0.0.0.0 cho 3 cong nay (test_cliproxy_config.py chan).
       - "127.0.0.1:54545:54545"      # Claude Code
-      - "100.64.0.4:54545:54545"
+      - "${CLIPROXY_TAILNET_IP:-127.0.0.2}:54545:54545"
       - "127.0.0.1:1455:1455"        # OpenAI Codex
-      - "100.64.0.4:1455:1455"
+      - "${CLIPROXY_TAILNET_IP:-127.0.0.2}:1455:1455"
       - "127.0.0.1:8085:8085"        # Gemini CLI (du phong, chua dung)
-      - "100.64.0.4:8085:8085"
+      - "${CLIPROXY_TAILNET_IP:-127.0.0.2}:8085:8085"
     networks:
       # Mang dung chung de Caddy cua stack edge-vpn4 goi toi cliproxy:8317 khi
       # phuc vu https://cliproxy.hangocthanh.io.vn (cong 443).
