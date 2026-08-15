@@ -34,34 +34,20 @@ services:
     volumes:
       - derper_certs:/data/derper-certs
 
-  # Tailscale sidecar: vpn6 join tailnet voi hostname=vpn6.
-  tailscale:
-    image: tailscale/tailscale:latest
-    container_name: ts-vpn6
-    hostname: vpn6
-    restart: unless-stopped
-    environment:
-      - TS_AUTHKEY=${TS_AUTHKEY:-}
-      - TS_EXTRA_ARGS=--login-server=https://vpn2.hangocthanh.io.vn --hostname=vpn6 --accept-dns=false
-      - TS_STATE_DIR=/var/lib/tailscale
-      - TS_USERSPACE=false
-      - TS_SOCKET=/var/run/tailscale/tailscaled.sock
-    volumes:
-      - tailscale_vpn6:/var/lib/tailscale
-      - ts_sock:/var/run/tailscale
-    devices:
-      - /dev/net/tun
-    cap_add:
-      - NET_ADMIN
+  # ⚠️ SIDECAR TAILSCALE DA BI GO (2026-08-15) — GIONG relay-vpn6/docker-compose.yml.
+  # Node "vpn6" chay NATIVE tren host qua systemd unit `tailscale-node`, UDP 41642
+  # (41641 da bi docker-proxy cua relay chiem). File NAY cung tung khai ts-vpn6:
+  # neu chi sua relay-vpn6 ma quen file nay thi ai chay deploy-derp-vpn6.yml sau do
+  # se dung LAI mot node trung hostname "vpn6" va tranh socket.
+  # Xem docs/plan-linux-node-vpn6-vpn4.md.
 
   # Ping-reporter: moi 30s ping tung peer, POST ket qua len collector voi src='vpn6'.
-  # network_mode service:tailscale -> co IP tailnet de POST toi collector
-  # (100.64.0.1:8090) qua WireGuard. Khong co cai nay thi POST timeout.
   ping-reporter:
     image: python:3.12-slim
     container_name: ping-reporter-vpn6
     restart: unless-stopped
-    network_mode: "service:tailscale"
+    # network_mode: host -> dung thang tailscale0 cua host.
+    network_mode: host
     command: ["python3", "/app/reporter.py"]
     environment:
       - REPORTER_NAME=vpn6
@@ -71,11 +57,10 @@ services:
       - PING_TIMEOUT=8
     volumes:
       - ../ping-reporter/reporter.py:/app/reporter.py:ro
-      - ts_sock:/var/run/tailscale
-    depends_on:
-      - tailscale
+      # BIND MOUNT THU MUC — xem ghi chu o relay-vpn6/docker-compose.yml.
+      - /var/run/tailscale:/var/run/tailscale
 
 volumes:
   derper_certs:
-  tailscale_vpn6:
-  ts_sock:
+  # tailscale_vpn6 / ts_sock da bo cung sidecar (giu volume cu tren may de con
+  # duong lui; don tay khi da chac chan).
