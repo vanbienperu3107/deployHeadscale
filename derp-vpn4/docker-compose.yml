@@ -35,34 +35,24 @@ services:
     volumes:
       - derper_certs:/data/derper-certs
 
-  # Tailscale sidecar: vpn4 join tailnet voi hostname=vpn4.
-  tailscale:
-    image: tailscale/tailscale:latest
-    container_name: ts-vpn4
-    hostname: vpn4
-    restart: unless-stopped
-    environment:
-      - TS_AUTHKEY=${TS_AUTHKEY:-}
-      - TS_EXTRA_ARGS=--login-server=https://vpn2.hangocthanh.io.vn --hostname=vpn4 --accept-dns=false
-      - TS_STATE_DIR=/var/lib/tailscale
-      - TS_USERSPACE=false
-      - TS_SOCKET=/var/run/tailscale/tailscaled.sock
-    volumes:
-      - tailscale_vpn4:/var/lib/tailscale
-      - ts_sock:/var/run/tailscale
-    devices:
-      - /dev/net/tun
-    cap_add:
-      - NET_ADMIN
+  # ⚠️ SIDECAR TAILSCALE DA BI GO (2026-08-15). Node "vpn4" gio chay NATIVE tren
+  # host qua systemd unit `tailscale-node` (binary tailscale_mod Linux). Ly do:
+  # node nam trong netns container thi peer tailnet KHONG cham duoc dich vu cua
+  # host — do chinh la muc dich cua plan. IP 100.64.0.4 duoc ghim qua CMS
+  # (device_identity.static_ipv4 -> /api/internal/reserved-ip) nen cutover khong
+  # lam troi IP. Xem docs/plan-linux-node-vpn6-vpn4.md.
+  #
+  # ⚠️ KHONG dung toi ts-vpngw/vpn-gw (stack vpn-gw/): do la netns rieng, giu
+  # phien OpenVPN Bitel + tinyproxy + subnet route du phong.
 
   # Ping-reporter: moi 30s ping tung peer, POST ket qua len collector voi src='vpn4'.
   ping-reporter:
     image: python:3.12-slim
     container_name: ping-reporter-vpn4
     restart: unless-stopped
-    # Cung netns voi sidecar -> co IP tailnet de POST ket qua toi collector
-    # (100.64.0.1:8090) qua WireGuard. Khong co cai nay thi POST timeout.
-    network_mode: "service:tailscale"
+    # network_mode: host -> dung thang tailscale0 cua host (truoc day la netns cua
+    # sidecar ts-vpn4, sidecar do khong con nua).
+    network_mode: host
     command: ["python3", "/app/reporter.py"]
     environment:
       - REPORTER_NAME=vpn4
@@ -72,9 +62,10 @@ services:
       - PING_TIMEOUT=8
     volumes:
       - ../ping-reporter/reporter.py:/app/reporter.py:ro
-      - ts_sock:/var/run/tailscale
-    depends_on:
-      - tailscale
+      # BIND MOUNT THU MUC (khong phai named volume): tailscaled chay native tren
+      # host. Mount thu muc de socket moi sau moi lan daemon restart duoc thay ngay;
+      # named volume/file .sock = "socket ma", reporter im lang mat ket noi.
+      - /var/run/tailscale:/var/run/tailscale
 
 networks:
   # Mang dung chung voi stack edge-vpn4 (nginx/caddy) va cliproxy. Tao san bang
@@ -85,5 +76,5 @@ networks:
 
 volumes:
   derper_certs:
-  tailscale_vpn4:
-  ts_sock:
+  # tailscale_vpn4 / ts_sock da bo cung sidecar. Volume cu KHONG bi xoa tu dong
+  # (giu lai de con duong lui trong cua so cutover); don tay khi da chac chan.

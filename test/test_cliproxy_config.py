@@ -99,22 +99,67 @@ def test_publish_cong_la_cong_it_dung_khong_phai_mac_dinh():
     )
 
 
-def test_cong_api_mo_cong_khai_con_callback_chi_loopback():
+def test_cong_callback_chi_loopback_hoac_tailnet():
+    """Callback OAuth chi duoc bind loopback HOAC IP tailnet — tuyet doi khong cong khai.
+
+    Truoc 2026-08-15 bat bien la "chi 127.0.0.1". Nay node vpn4 chay native tren host
+    nen cac node trong tailnet goi thang 100.64.0.4:<cong> duoc; bind THEM IP tailnet
+    la co y (xem docs/plan-linux-node-vpn6-vpn4.md §Pha 4). Nhung:
+      - van CAM bind 0.0.0.0 / bo trong host_ip (= mo ra Internet);
+      - va MOI cong callback VAN phai giu mot binding loopback, neu khong luong
+        dang nhap qua SSH tunnel (`ssh -L 54545:127.0.0.1:54545 ...`) se gay.
+    """
     ports = service()["ports"]
     callback_ports = {"54545", "1455", "8085"}
+    co_loopback = {p: False for p in callback_ports}
     for p in ports:
         parts = p.split(":")
         if len(parts) == 3:
             host_ip, host_port, _ = parts
             if host_port in callback_ports:
-                assert host_ip == "127.0.0.1", (
-                    f"cong callback OAuth {host_port} phai bind 127.0.0.1, dang co: {p}"
+                # host_ip co the la bien ${CLIPROXY_TAILNET_IP:-127.0.0.2} — hop le,
+                # vi mac dinh cua no la loopback (xem ghi chu trong compose).
+                la_bien_tailnet = host_ip.startswith("${CLIPROXY_TAILNET_IP")
+                assert (
+                    host_ip == "127.0.0.1"
+                    or host_ip.startswith("100.64.")
+                    or la_bien_tailnet
+                ), (
+                    f"cong callback OAuth {host_port} chi duoc bind 127.0.0.1, IP "
+                    f"tailnet 100.64.x.x hoac bien CLIPROXY_TAILNET_IP; dang co: {p}"
                 )
+                if la_bien_tailnet:
+                    assert ":-127." in host_ip, (
+                        f"bien tailnet phai co mac dinh LOOPBACK (vd "
+                        f"${{CLIPROXY_TAILNET_IP:-127.0.0.2}}) de CI tren runner khong "
+                        f"co tailnet van up duoc; dang co: {p}"
+                    )
+                if host_ip == "127.0.0.1":
+                    co_loopback[host_port] = True
         else:
             host_port = parts[0]
             assert host_port not in callback_ports, (
-                f"cong callback OAuth {host_port} dang mo cong khai ({p}) — phai bind 127.0.0.1"
+                f"cong callback OAuth {host_port} dang mo cong khai ({p}) — phai bind "
+                "127.0.0.1 va/hoac IP tailnet"
             )
+    thieu = [p for p, ok in co_loopback.items() if not ok]
+    assert not thieu, (
+        f"cac cong callback {thieu} mat binding 127.0.0.1 — luong dang nhap qua "
+        "SSH tunnel se gay. Bind IP tailnet la THEM, khong phai THAY."
+    )
+
+
+def test_cong_api_co_binding_tailnet():
+    """API 8317 phai bind them tren IP tailnet cua vpn4 (node native tren host).
+
+    Dung bien CLIPROXY_TAILNET_IP chu khong hardcode: runner CI chay chinh compose
+    nay va khong co IP 100.64.x.x (da lam do CI mot lan — "cannot assign requested
+    address"). Workflow deploy-cliproxy.yml ghi gia tri that vao .env.
+    """
+    ports = " ".join(service()["ports"])
+    assert "${CLIPROXY_TAILNET_IP:-127.0.0.2}:8317:8317" in ports, (
+        "thieu binding tailnet cho 8317 — node tailnet se khong goi duoc CLIProxyAPI"
+    )
 
 
 def test_callback_claude_va_codex_deu_co_mat():

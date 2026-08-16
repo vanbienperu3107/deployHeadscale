@@ -22,40 +22,34 @@ services:
       - "41641:41641/udp"         # WireGuard UDP (can mo ufw 41641/udp)
     volumes:
       - relay_data:/data
-      - ts_sock:/var/run/tailscale
+      # BIND MOUNT THU MUC (khong phai named volume, khong phai file .sock):
+      # tailscaled nay chay NATIVE tren host (systemd unit tailscale-node), khong
+      # con sidecar container. Mount THU MUC de duong dan duoc phan giai lai o moi
+      # connect() -> daemon restart tao socket inode moi thi relay thay ngay.
+      # Mount file .sock hoac named volume = "socket ma": relay giu inode cu, im
+      # lang mat ket noi, region 1003 chet ma `docker ps` van xanh.
+      - /var/run/tailscale:/var/run/tailscale
     networks:
       - memnet                    # chung mang voi memory-caddy
-    depends_on:
-      - tailscale
 
   # Tailscale sidecar: join tailnet voi hostname "vpn6".
-  tailscale:
-    image: tailscale/tailscale:latest
-    container_name: ts-vpn6
-    hostname: vpn6
-    restart: unless-stopped
-    environment:
-      - TS_AUTHKEY=${TS_AUTHKEY:-}
-      - TS_EXTRA_ARGS=--login-server=https://vpn2.hangocthanh.io.vn --hostname=vpn6 --accept-dns=false
-      - TS_STATE_DIR=/var/lib/tailscale
-      - TS_USERSPACE=false
-      - TS_SOCKET=/var/run/tailscale/tailscaled.sock
-    volumes:
-      - tailscale_vpn6:/var/lib/tailscale
-      - ts_sock:/var/run/tailscale
-    devices:
-      - /dev/net/tun
-    cap_add:
-      - NET_ADMIN
+  # ⚠️ SIDECAR TAILSCALE DA BI GO (2026-08-15). Node "vpn6" gio chay NATIVE tren
+  # host qua systemd unit `tailscale-node` (binary tailscale_mod Linux), vi:
+  #   - node trong netns container thi peer tailnet KHONG cham duoc dich vu cua
+  #     host (Postgres, SSH, derp-backend) — do la ca muc dich cua plan;
+  #   - IP 100.64.0.7 duoc ghim qua CMS (device_identity.static_ipv4) nen cutover
+  #     khong lam troi IP.
+  # Host dung UDP 41642 (KHONG phai 41641) vi 41641 da bi docker-proxy cua relay
+  # ben duoi chiem. Xem docs/plan-linux-node-vpn6-vpn4.md.
 
-  # Ping-reporter: bao cao latency relay->peer ve collector (vpn2).
-  # network_mode service:tailscale -> co IP tailnet de POST toi collector
-  # 100.64.0.1:8090 qua WireGuard (fix da chuan o vpn3/vpn4).
+  # Ping-reporter: bao cao latency relay->peer ve collector.
+  # network_mode: host -> dung thang tailscale0 cua host (truoc day la netns cua
+  # sidecar ts-vpn6, sidecar do khong con nua).
   ping-reporter:
     image: python:3.12-slim
     container_name: ping-reporter-vpn6
     restart: unless-stopped
-    network_mode: "service:tailscale"
+    network_mode: host
     command: ["python3", "/app/reporter.py"]
     environment:
       - REPORTER_NAME=vpn6
@@ -65,9 +59,7 @@ services:
       - PING_TIMEOUT=8
     volumes:
       - ../ping-reporter/reporter.py:/app/reporter.py:ro
-      - ts_sock:/var/run/tailscale
-    depends_on:
-      - tailscale
+      - /var/run/tailscale:/var/run/tailscale
 
 networks:
   memnet:
@@ -76,5 +68,3 @@ networks:
 
 volumes:
   relay_data:
-  tailscale_vpn6:
-  ts_sock:

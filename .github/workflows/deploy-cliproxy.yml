@@ -103,6 +103,10 @@ jobs:
             # dieu kien sai) -> script thoat 1 vo co. Rong thi ghi CLIPROXY_IMAGE=
             # cung duoc vi compose dung ${CLIPROXY_IMAGE:-<mac dinh>}.
             printf 'CLIPROXY_IMAGE=%s\n' "${CLIPROXY_IMAGE:-}" > .env
+            # IP tailnet cua vpn4 (node "vpn4" chay native tren host tu 2026-08-15).
+            # Compose dung ${CLIPROXY_TAILNET_IP:-127.0.0.2}: mac dinh loopback de CI
+            # tren runner (khong co tailnet) van up duoc; tren vpn4 thi ghi IP that.
+            printf 'CLIPROXY_TAILNET_IP=%s\n' "100.64.0.4" >> .env
             $SUDO docker compose pull
 
             # cliproxy nam tren mang 'edge' de Caddy (stack edge-vpn4, phuc vu
