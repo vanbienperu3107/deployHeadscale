@@ -107,14 +107,20 @@ jobs:
             printf 'TS_AUTHKEY=%s\n' "${TS_AUTHKEY:-}" > "$DEPLOY_PATH/relay-vpn6/.env"
             echo "  .env da ghi"
 
-            echo "==> [4/7] Mo ufw 41641/udp (WireGuard)"
+            echo "==> [4/7] Mo ufw: 41641/udp (relay) + 41642/udp (tailscaled native)"
+            # 41641 = cong UDP relay publish. 41642 = cong cua node "vpn6" chay NATIVE
+            # tren host (systemd tailscale-node) — PHAI khac 41641 vi cong do da bi
+            # docker-proxy cua relay chiem. Xem docs/plan-linux-node-vpn6-vpn4.md.
             $SUDO ufw allow 41641/udp >/dev/null 2>&1 || true
+            $SUDO ufw allow 41642/udp >/dev/null 2>&1 || true
 
-            echo "==> [5/7] Khoi dong relay-vpn6 + tailscale + ping-reporter"
+            echo "==> [5/7] Khoi dong relay-vpn6 + ping-reporter"
             cd "$DEPLOY_PATH/relay-vpn6"
-            $SUDO docker compose run --rm --no-deps --entrypoint sh tailscale \
-              -c 'rm -f /var/run/tailscale/tailscaled.sock' >/dev/null 2>&1 || true
-            $SUDO docker compose pull tailscale 2>/dev/null || true
+            # ⚠️ DA BO buoc 'docker compose run ... rm -f /var/run/tailscale/tailscaled.sock'.
+            # Truoc day socket nam trong named volume cua sidecar nen xoa la vo hai.
+            # Nay /var/run/tailscale la BIND MOUNT thu muc CUA HOST: cung lenh do se
+            # xoa socket cua tailscaled dang chay tren host -> relay + moi CLI mat
+            # ket noi, DERP region 1003 chet. Sidecar cung khong con de ma `run`.
             $SUDO docker compose up -d --build --force-recreate --remove-orphans
 
             echo "==> [6/7] Tich hop Caddy (idempotent, backup, validate, reload graceful)"
@@ -158,14 +164,24 @@ jobs:
               if [ "$CODE" = "200" ]; then echo "  Relay OK qua Caddy"; break; fi
               sleep 6
             done
-            echo "  Kiem tra ts-vpn6 join tailnet..."
+            # Node "vpn6" gio la tailscaled NATIVE tren host, khong con container
+            # ts-vpn6 de `docker exec`. Kiem thang tren host — va KHONG nuot loi
+            # bang '|| true' o buoc quyet dinh: khong co IP nghia la relay se khong
+            # co peer nao, phai bao do thay vi xanh gia.
+            echo "  Kiem tra node vpn6 (native) da join tailnet..."
+            IP=""
             for _ in $(seq 1 15); do
-              IP=$($SUDO docker exec ts-vpn6 tailscale ip -4 2>/dev/null || true)
+              IP=$($SUDO /usr/local/bin/tailscale-node ip -4 2>/dev/null | head -1 || true)
               if [ -n "$IP" ]; then echo "  vpn6 DA join tailnet: $IP"; break; fi
               echo "  Chua join, cho 4s..."; sleep 4
             done
+            if [ -z "$IP" ]; then
+              echo "::error::tailscaled native tren vpn6 khong tra ve IP — kiem 'systemctl status tailscale-node'"
+              $SUDO systemctl status tailscale-node --no-pager 2>&1 | tail -20 || true
+              exit 1
+            fi
             echo "  Log relay-vpn6 (20 dong cuoi):"; $SUDO docker logs --tail 20 relay-vpn6 2>&1 || true
-            echo "  Log ts-vpn6 (12 dong cuoi):"; $SUDO docker logs --tail 12 ts-vpn6 2>&1 || true
+            echo "  Log ping-reporter-vpn6 (8 dong cuoi):"; $SUDO docker logs --tail 8 ping-reporter-vpn6 2>&1 || true
         env:
           DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
           REPO_URL: https://github.com/vanbienperu3107/deployHeadscale.git

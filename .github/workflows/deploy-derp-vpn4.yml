@@ -122,13 +122,15 @@ jobs:
             $SUDO docker rm -f relay-vpn4 caddy-vpn4 ts-vpn4 ping-reporter-vpn4 2>/dev/null || true
             echo "  relay-vpn4 stack da don dep"
 
-            echo "==> [4/4] Khoi dong DERP relay + tailscale + ping-reporter"
+            echo "==> [4/4] Khoi dong DERP relay + ping-reporter"
             # derper nam tren mang 'edge' (dung chung voi nginx cua stack
             # edge-vpn4 dang giu cong 443). Thieu mang nay thi compose that bai.
             $SUDO docker network inspect edge >/dev/null 2>&1 || $SUDO docker network create edge
             cd "$DEPLOY_PATH/derp-vpn4"
-            $SUDO docker compose run --rm --no-deps --entrypoint sh tailscale \
-              -c 'rm -f /var/run/tailscale/tailscaled.sock' >/dev/null 2>&1 || true
+            # ⚠️ DA BO buoc 'docker compose run ... rm -f /var/run/tailscale/tailscaled.sock'
+            # (giong deploy-relay-vpn6.yml): /var/run/tailscale nay la BIND MOUNT thu
+            # muc CUA HOST, xoa socket o day la giet tailscaled native dang phuc vu
+            # node vpn4. Sidecar tailscale cung khong con trong compose de ma `run`.
             $SUDO docker compose pull 2>/dev/null || true
             # KHONG dung --force-recreate (chay tren MOI CI-success cua main
             # ke ca commit khong lien quan) - se ngat moi ket noi DERP dang
@@ -147,15 +149,23 @@ jobs:
               sleep 6
             done
 
-            echo "  Kiem tra tailscale vpn4 join tailnet..."
+            # Node "vpn4" gio la tailscaled NATIVE tren host (systemd tailscale-node),
+            # khong con container ts-vpn4 de `docker exec`.
+            echo "  Kiem tra node vpn4 (native) da join tailnet..."
+            IP=""
             for _ in $(seq 1 15); do
-              IP=$($SUDO docker exec ts-vpn4 tailscale ip -4 2>/dev/null || true)
+              IP=$($SUDO /usr/local/bin/tailscale-node ip -4 2>/dev/null | head -1 || true)
               if [ -n "$IP" ]; then
                 echo "  vpn4 DA join tailnet: $IP"; break
               fi
               echo "  Chua join, cho 4s..."
               sleep 4
             done
+            if [ -z "$IP" ]; then
+              echo "::error::tailscaled native tren vpn4 khong tra ve IP — kiem 'systemctl status tailscale-node'"
+              $SUDO systemctl status tailscale-node --no-pager 2>&1 | tail -20 || true
+              exit 1
+            fi
 
             echo "  Log ping-reporter-vpn4 (30 dong cuoi):"
             sleep 5
