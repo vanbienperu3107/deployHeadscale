@@ -17,6 +17,7 @@ RUN apk add --no-cache \
       dnsmasq \
       iptables \
       curl \
+      jq \
       bind-tools \
       bash \
       tzdata \

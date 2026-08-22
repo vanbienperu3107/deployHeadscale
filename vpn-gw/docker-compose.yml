@@ -87,6 +87,10 @@ services:
       - VPN_GW_AGENT_TOKEN=${VPN_GW_AGENT_TOKEN:-}
       - REPORT_INTERVAL=${REPORT_INTERVAL:-30}
     volumes:
+      # Fallback: entrypoint uu tien lay authUsername/ovpnPass/ovpnConfig tu
+      # dashboard (DASHBOARD_URL/VPN_GW_NAME/VPN_GW_AGENT_TOKEN o duoi). File o
+      # day chi duoc dung khi khong goi duoc dashboard hoac gateway chua duoc
+      # cau hinh credential qua CMS.
       - ./config:/config:ro
     devices:
       - /dev/net/tun
