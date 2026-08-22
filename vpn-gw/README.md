@@ -18,12 +18,27 @@ Image **không** chứa tailscale. Nó chạy chung network namespace với mộ
 tailscale chính thức (compose `network_mode: service:ts-vpngw`) để proxy nằm trên
 IP `100.x` của node — client trỏ PAC `PROXY <100.x>:8888`.
 
+## Credential VPN Bitel — nạp từ CMS (dashboard)
+
+Từ bản này, `entrypoint.sh` **ưu tiên lấy `authUsername`/`ovpnPass`/`ovpnConfig`
+từ dashboard** (`GET /api/vpn/agent/config`, cùng cơ chế đã dùng cho telemetry)
+mỗi khi container khởi động, ghi vào `/run/vpn-gw/auth.txt` +
+`/run/vpn-gw/client.ovpn`. Admin sửa username/password trên trang **Cổng VPN**
+của dashboard → backend tự tăng `configVersion` → container tự phát hiện thay
+đổi trong `report_loop()` (poll mỗi `REPORT_INTERVAL`s) và tự thoát để
+`restart: unless-stopped` khởi động lại, nạp credential mới — **không cần SSH
+vào vpn4 sửa tay**.
+
+`/config/auth.txt` + `/config/client.ovpn` (mount `:ro`) chỉ còn là **fallback**:
+dùng khi không gọi được dashboard, hoặc gateway chưa được cấu hình credential
+qua CMS.
+
 ## Biến môi trường
 
 | Env | Mặc định | Ý nghĩa |
 |---|---|---|
-| `OVPN_CONFIG` | `/config/client.ovpn` | File .ovpn (mount vào) |
-| `OVPN_AUTH` | `/config/auth.txt` | 2 dòng: username / password |
+| `OVPN_CONFIG` | `/config/client.ovpn` | File .ovpn fallback khi dashboard không có `ovpnConfig` |
+| `OVPN_AUTH` | `/config/auth.txt` | 2 dòng username/password, fallback khi dashboard không có credential |
 | `PROXY_PORT` | `8888` | Cổng proxy |
 | `BITEL_DOMAIN` | `bitel.com.pe` | Domain đẩy qua DNS nội bộ |
 | `BITEL_DNS1/2` | `10.121.127.193/194` | DNS nội bộ Bitel (đã kiểm chứng) |

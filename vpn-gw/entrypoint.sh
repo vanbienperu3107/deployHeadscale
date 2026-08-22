@@ -24,6 +24,55 @@ REQUIRE_FORWARD="${REQUIRE_FORWARD:-0}"
 
 log() { echo "$(date -u +%H:%M:%S) vpn-gw: $*"; }
 
+STATE_DIR="/run/vpn-gw"
+mkdir -p "$STATE_DIR"
+
+# ---------------------------------------------------------------------------
+# fetch_agent_config: lay credential + client.ovpn tu dashboard (CMS) truoc khi
+# khoi dong openvpn. Fallback ve file tinh mount vao ($OVPN_AUTH/$OVPN_CONFIG)
+# neu khong goi duoc API hoac gateway chua duoc cau hinh qua CMS -- KHONG lam
+# hong hanh vi cu. Ghi configVersion da ap dung de report_loop() phat hien thay
+# doi va tu restart container (muc "tu nap lai khi doi" trong ke hoach).
+# ---------------------------------------------------------------------------
+fetch_agent_config() {
+  if [ -z "${DASHBOARD_URL:-}" ] || [ -z "${VPN_GW_NAME:-}" ] || [ -z "${VPN_GW_AGENT_TOKEN:-}" ]; then
+    log "config: thieu DASHBOARD_URL/VPN_GW_NAME/VPN_GW_AGENT_TOKEN -> dung file tinh ($OVPN_AUTH, $OVPN_CONFIG)"
+    return
+  fi
+  local cfg
+  cfg=$(curl -s --max-time 10 -H "Authorization: Bearer ${VPN_GW_AGENT_TOKEN}" \
+    "${DASHBOARD_URL}/api/vpn/agent/config?gateway=${VPN_GW_NAME}" 2>/dev/null || echo "")
+  if [ -z "$cfg" ] || ! printf '%s' "$cfg" | jq -e . >/dev/null 2>&1; then
+    log "config: khong goi duoc dashboard hoac JSON loi -> dung file tinh"
+    return
+  fi
+
+  local ver user pass ovpn
+  ver=$(printf '%s' "$cfg" | jq -r '.configVersion // empty')
+  user=$(printf '%s' "$cfg" | jq -r '.authUsername // empty')
+  pass=$(printf '%s' "$cfg" | jq -r '.ovpnPass // empty')
+  ovpn=$(printf '%s' "$cfg" | jq -r '.ovpnConfig // empty')
+
+  if [ -n "$user" ] && [ -n "$pass" ]; then
+    printf '%s\n%s\n' "$user" "$pass" >"$STATE_DIR/auth.txt"
+    chmod 600 "$STATE_DIR/auth.txt"
+    OVPN_AUTH="$STATE_DIR/auth.txt"
+    log "config: da lay auth tu dashboard (username=${user})"
+  else
+    log "config: dashboard chua co authUsername/ovpnPass -> dung file tinh $OVPN_AUTH"
+  fi
+
+  if [ -n "$ovpn" ]; then
+    printf '%s' "$ovpn" >"$STATE_DIR/client.ovpn"
+    OVPN_CONFIG="$STATE_DIR/client.ovpn"
+    log "config: da lay client.ovpn tu dashboard"
+  else
+    log "config: dashboard chua co ovpnConfig -> dung file tinh $OVPN_CONFIG"
+  fi
+
+  [ -n "$ver" ] && echo "$ver" >"$STATE_DIR/config_version"
+}
+
 # probe_ok: TCP connect toi PROBE_TARGET qua tun0.
 #
 # Vi sao KHONG dung `ip link show tun0 up` hay `ping`: da do tren prod
@@ -60,6 +109,9 @@ if [ "${1:-run}" = "healthcheck" ]; then
   fi
   exit 0
 fi
+
+# ---- 0. lay credential/ovpn tu dashboard (CMS), fallback file tinh ----
+fetch_agent_config
 
 # ---- 1. dnsmasq: split-DNS ----
 # glibc (tinyproxy) -> 127.0.0.1 (dnsmasq) -> *.bitel.com.pe di DNS noi bo,
@@ -226,6 +278,17 @@ report_loop() {
       "${DASHBOARD_URL}/api/vpn/agent/config?gateway=${VPN_GW_NAME}" 2>/dev/null || echo "")
     pport=$(printf '%s' "$cfg" | grep -o '"proxyPort":[0-9]*' | grep -o '[0-9]*' | head -1)
     [ -n "$pport" ] || pport="${PROXY_PORT:-8888}"
+
+    # configVersion doi (vd admin sua username/password/ovpn tren CMS) -> thoat
+    # de docker restart:unless-stopped khoi dong lai container, fetch_agent_config
+    # o lan boot moi se ap credential/ovpn moi nhat. Chi so sanh khi ca hai deu co.
+    newver=$(printf '%s' "$cfg" | grep -o '"configVersion":[0-9]*' | grep -o '[0-9]*' | head -1)
+    curver=$(cat "$STATE_DIR/config_version" 2>/dev/null || echo "")
+    if [ -n "$newver" ] && [ -n "$curver" ] && [ "$newver" != "$curver" ]; then
+      log "cau hinh tren dashboard da doi (config_version ${curver} -> ${newver}) -> thoat de restart va nap lai"
+      kill -TERM 1 2>/dev/null || true
+      exit 0
+    fi
     egress=$(curl -s --max-time 12 -x "http://127.0.0.1:${pport}" https://api.ipify.org 2>/dev/null || echo "")
     curl -s --max-time 12 -X POST \
       -H "Authorization: Bearer ${VPN_GW_AGENT_TOKEN}" \
