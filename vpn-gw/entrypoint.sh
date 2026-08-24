@@ -110,9 +110,6 @@ if [ "${1:-run}" = "healthcheck" ]; then
   exit 0
 fi
 
-# ---- 0. lay credential/ovpn tu dashboard (CMS), fallback file tinh ----
-fetch_agent_config
-
 # ---- 1. dnsmasq: split-DNS ----
 # glibc (tinyproxy) -> 127.0.0.1 (dnsmasq) -> *.bitel.com.pe di DNS noi bo,
 # con lai di DNS public. dnsmasq forward query khong EDNS khi client khong gui
@@ -133,6 +130,14 @@ EOF
 dnsmasq --conf-file=/etc/dnsmasq.conf
 echo "nameserver 127.0.0.1" >/etc/resolv.conf
 log "dnsmasq len, resolv.conf -> 127.0.0.1"
+
+# ---- 1b. lay credential/ovpn tu dashboard (CMS), fallback file tinh ----
+# PHAI chay SAU dnsmasq (khong phai truoc): resolv.conf mac dinh cua container
+# (thua huong tu netns cua sidecar tailscale, accept-dns=false) khong chac
+# phan giai duoc domain dashboard cong khai — do that 2026-08-24: fetch chay
+# truoc dnsmasq luon fail am tham "khong goi duoc dashboard", roi ap credential
+# TINH DA CU ma khong ai biet cho toi luc OpenVPN AUTH_FAILED that.
+fetch_agent_config
 
 # ---- 2. tinyproxy ----
 export PROXY_PORT
@@ -282,11 +287,18 @@ report_loop() {
     # configVersion doi (vd admin sua username/password/ovpn tren CMS) -> thoat
     # de docker restart:unless-stopped khoi dong lai container, fetch_agent_config
     # o lan boot moi se ap credential/ovpn moi nhat. Chi so sanh khi ca hai deu co.
+    #
+    # PHAI dung SIGKILL, KHONG phai SIGTERM: bash chay lam PID 1 trong container
+    # thi kernel KHONG ap dung signal disposition mac dinh cho cac tin hieu
+    # "catchable" (TERM, INT...) neu khong co trap dang ky rieng — kill -TERM 1
+    # bi "nuot" im lang, container khong bao gio restart du log da bao doi
+    # config_version (do that 2026-08-24: log bao doi tu 12->13 nhung
+    # RestartCount van = 0). SIGKILL luon luon giet duoc, kha ca PID 1.
     newver=$(printf '%s' "$cfg" | grep -o '"configVersion":[0-9]*' | grep -o '[0-9]*' | head -1)
     curver=$(cat "$STATE_DIR/config_version" 2>/dev/null || echo "")
     if [ -n "$newver" ] && [ -n "$curver" ] && [ "$newver" != "$curver" ]; then
-      log "cau hinh tren dashboard da doi (config_version ${curver} -> ${newver}) -> thoat de restart va nap lai"
-      kill -TERM 1 2>/dev/null || true
+      log "cau hinh tren dashboard da doi (config_version ${curver} -> ${newver}) -> KILL de restart va nap lai"
+      kill -KILL 1 2>/dev/null || true
       exit 0
     fi
     egress=$(curl -s --max-time 12 -x "http://127.0.0.1:${pport}" https://api.ipify.org 2>/dev/null || echo "")
