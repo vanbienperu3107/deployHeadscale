@@ -27,6 +27,7 @@ CLIPROXY_COMPOSE = ROOT / "cliproxy" / "docker-compose.yml"
 WORKFLOW = ROOT / ".github" / "workflows" / "deploy-edge-vpn4.yml"
 
 CLIPROXY_HOST = "cliproxy.hangocthanh.io.vn"
+OPENCODE_HOST = "opencode.hangocthanh.io.vn"
 
 
 def load(path):
@@ -125,6 +126,22 @@ def test_ten_mien_cliproxy_duoc_dinh_tuyen():
     assert CLIPROXY_HOST in conf, f"thieu route cho {CLIPROXY_HOST}"
 
 
+def test_ten_mien_opencode_duoc_dinh_tuyen():
+    conf = NGINX_CONF.read_text(encoding="utf-8")
+    assert OPENCODE_HOST in conf, f"thieu route cho {OPENCODE_HOST}"
+
+
+def test_opencode_va_cliproxy_khong_dung_chung_cong_caddy():
+    """Hai site Caddy phai khac cong noi bo — chung cong la mot site se ghi de site kia."""
+    conf = NGINX_CONF.read_text(encoding="utf-8")
+    m_cliproxy = re.search(rf"{re.escape(CLIPROXY_HOST)}\s+caddy-edge:(\d+);", conf)
+    m_opencode = re.search(rf"{re.escape(OPENCODE_HOST)}\s+caddy-edge:(\d+);", conf)
+    assert m_cliproxy and m_opencode, "thieu route caddy-edge cho mot trong hai ten mien"
+    assert m_cliproxy.group(1) != m_opencode.group(1), (
+        "cliproxy va opencode dang tro chung mot cong caddy-edge — phai khac cong"
+    )
+
+
 def test_proxy_timeout_du_dai_cho_derp():
     """Mac dinh 10 phut se cat nham ket noi DERP dang im lang giua cac keepalive."""
     conf = NGINX_CONF.read_text(encoding="utf-8")
@@ -156,6 +173,8 @@ def test_caddy_tro_dung_backend():
     body = CADDYFILE.read_text(encoding="utf-8")
     assert "reverse_proxy cliproxy:8317" in body
     assert CLIPROXY_HOST in body
+    assert "reverse_proxy opencode-server:4096" in body
+    assert OPENCODE_HOST in body
 
 
 # ---------- workflow ----------
@@ -176,6 +195,11 @@ def test_workflow_verify_derp_con_song():
     body = WORKFLOW.read_text(encoding="utf-8")
     assert "/derp/probe" in body, "phai verify DERP con song sau khi doi cong"
     assert "rollback" in body.lower(), "thong bao loi phai chi duong rollback"
+
+
+def test_workflow_kiem_tra_dns_opencode():
+    body = WORKFLOW.read_text(encoding="utf-8")
+    assert OPENCODE_HOST in body, f"thieu buoc kiem tra DNS cho {OPENCODE_HOST}"
 
 
 def test_workflow_giu_duong_cu_28417():

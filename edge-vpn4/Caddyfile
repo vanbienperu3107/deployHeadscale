@@ -36,3 +36,32 @@ https://cliproxy.hangocthanh.io.vn:8444 {
 		format console
 	}
 }
+
+# opencode-server da tu xac thuc bang HTTP Basic (OPENCODE_SERVER_PASSWORD) va tra
+# 401 cho MOI duong dan ke ca /global/health, /doc — xem memory opencode-api-do-duoc.
+# Caddy o day CHI chuyen tiep, khong lam lop xac thuc thu hai.
+#
+# CANH BAO: opencode-server duoc phep chay `bash` va sua file trong workspace. Lo no
+# ra Internet la trao ca duong tan cong brute-force mat khau Basic. Domain rieng nay
+# KHONG dung chung port 8444 voi cliproxy de mot site loi khong keo site kia sap.
+https://opencode.hangocthanh.io.vn:8445 {
+	tls {
+		issuer acme {
+			disable_http_challenge
+		}
+	}
+
+	reverse_proxy opencode-server:4096 {
+		# /event la SSE dai han (long-lived), khong duoc dem.
+		flush_interval -1
+
+		transport http {
+			dial_timeout 10s
+		}
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}
