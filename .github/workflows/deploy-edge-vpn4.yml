@@ -33,6 +33,21 @@ jobs:
           fi
           echo "DNS OK: cliproxy.hangocthanh.io.vn -> vpn4"
 
+      - name: Kiem tra DNS opencode.hangocthanh.io.vn (truoc khi dung toi derper)
+        env:
+          HOST: ${{ secrets.SSH_HOST_VPN4 }}
+        run: |
+          RESOLVED=$(python3 -c "import socket;print(socket.gethostbyname('opencode.hangocthanh.io.vn'))" 2>/dev/null || echo "")
+          if [ -z "$RESOLVED" ]; then
+            echo "::error::opencode.hangocthanh.io.vn chua phan giai duoc. Them ban ghi A tro toi vpn4 roi chay lai."
+            exit 1
+          fi
+          if [ "$RESOLVED" != "$HOST" ]; then
+            echo "::error::opencode.hangocthanh.io.vn tro sai dich (khong phai vpn4). Kiem tra lai ban ghi A."
+            exit 1
+          fi
+          echo "DNS OK: opencode.hangocthanh.io.vn -> vpn4"
+
       - name: Kiem tra secrets bat buoc
         env:
           API_KEY: ${{ secrets.CLIPROXY_API_KEY }}
@@ -154,6 +169,21 @@ jobs:
           if [ "${OLD:-000}" != "200" ]; then
             echo "::error::Duong cu 28417 da hong"
             exit 1
+          fi
+
+      - name: Verify tu Internet — opencode qua 443 (khong duoc chan CLIProxy/DERP)
+        run: |
+          # opencode-server co the chua chay lan dau (do la stack rieng, deploy o
+          # repo TelegramAgent) — chi CANH BAO, khong duoc lam that bai ca job nay,
+          # vi CLIProxyAPI va DERP da xac nhan song o cac buoc truoc.
+          CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 https://opencode.hangocthanh.io.vn/global/health || true)
+          echo "https://opencode.hangocthanh.io.vn/global/health -> ${CODE:-000} (mong doi 401, tuc la routing+TLS OK, xac thuc do opencode-server tu lam)"
+          if [ "${CODE:-000}" = "200" ]; then
+            echo "::error::opencode.hangocthanh.io.vn tra 200 KHONG kem xac thuc — kiem tra bien OPENCODE_SERVER_PASSWORD tren opencode-server ngay lap tuc"
+            exit 1
+          fi
+          if [ "${CODE:-000}" != "401" ]; then
+            echo "::warning::opencode.hangocthanh.io.vn chua tra 401 nhu mong doi (co the opencode-server chua chay hoac Caddy chua xin duoc chung chi) — khong chan deploy nay, kiem tra rieng"
           fi
 
       - name: Smoke test completion qua 443 (tieng Viet, kiem tra UTF-8 + SSE)
