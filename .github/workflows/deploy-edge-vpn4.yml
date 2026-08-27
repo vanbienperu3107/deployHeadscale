@@ -98,7 +98,12 @@ jobs:
             echo "==> [6/7] Bat nginx + caddy (gianh cong 443)"
             cd "$DEPLOY_PATH/edge-vpn4"
             $SUDO docker compose pull
-            $SUDO docker compose up -d --remove-orphans
+            # --force-recreate BAT BUOC: nginx.conf va Caddyfile la bind mount, doc
+            # NGAY LUC TIEN TRINH KHOI DONG. `up -d` khong tu nhan dien noi dung file
+            # mount doi (chi so sanh hash dinh nghia service/image/env) nen sua xong
+            # ma khong force thi container van chay cau hinh CU vo thoi han — chinh
+            # la ly do route opencode tra HTTP 000 sau hai lan deploy lien tiep.
+            $SUDO docker compose up -d --remove-orphans --force-recreate
             sleep 5
             $SUDO docker compose ps
 
