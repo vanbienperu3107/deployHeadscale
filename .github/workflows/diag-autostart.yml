@@ -1,0 +1,36 @@
+name: Diag auto-start vpn4 (read-only)
+
+# Kiem tra xem toan bo stack co tu khoi dong lai sau khi reboot khong: Docker
+# daemon co bat theo he thong (systemd) khong, va restart policy cua tung
+# container co dam bao song lai sau reboot khong. CHI DOC, khong sua gi.
+on:
+  workflow_dispatch:
+
+jobs:
+  diag:
+    name: Kiem tra Docker + restart policy tren vpn4
+    runs-on: ubuntu-latest
+    steps:
+      - uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SSH_HOST_VPN4 }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT || '22' }}
+          command_timeout: 5m
+          script: |
+            if [ "$(id -u)" -ne 0 ]; then SUDO="sudo"; else SUDO=""; fi
+
+            echo "==> Docker daemon co tu khoi dong cung he thong khong (systemd)"
+            systemctl is-enabled docker 2>&1 || true
+
+            echo ""
+            echo "==> restart policy cua TUNG container dang chay"
+            $SUDO docker ps -a --format '{{.Names}}' | while read -r n; do
+              pol=$($SUDO docker inspect -f '{{.HostConfig.RestartPolicy.Name}}' "$n" 2>/dev/null || echo "?")
+              echo "$n -> $pol"
+            done
+
+            echo ""
+            echo "==> cac docker-compose stack co dang chay (de biet thu muc can vao neu phai len tay)"
+            $SUDO docker ps --format '{{.Label "com.docker.compose.project"}}' | sort -u || true
