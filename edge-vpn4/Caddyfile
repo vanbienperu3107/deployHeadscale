@@ -9,6 +9,20 @@
 	# dung http challenge. TLS-ALPN chay ngay tren cong 8444 nay, va nginx da
 	# chuyen tiep dung SNI toi day nen Let's Encrypt van bat tay duoc.
 	auto_https disable_redirects
+
+	# CHI cong 8445 (opencode) nhan PROXY protocol tu chang 2 cua nginx — de log
+	# ra IP THAT cua client cho fail2ban. 8444 (cliproxy) giu nguyen khong PROXY
+	# protocol; bat nham o day thi moi ket noi cu (khong gui header) se hong.
+	servers :8445 {
+		listener_wrappers {
+			proxy_protocol {
+				timeout 5s
+				# Chi tin header PROXY tu nginx trong mang docker edge (172.x)
+				allow 172.16.0.0/12
+			}
+			tls
+		}
+	}
 }
 
 https://cliproxy.hangocthanh.io.vn:8444 {
@@ -60,8 +74,14 @@ https://opencode.hangocthanh.io.vn:8445 {
 		}
 	}
 
+	# Ghi RA FILE (khong chi stdout) de container fail2ban doc duoc qua volume
+	# chung — fail2ban khong doc duoc docker stdout cua container khac. File nay
+	# CHI chua log cua site opencode nen moi dong 401 trong do deu la ung vien ban.
 	log {
-		output stdout
-		format console
+		output file /var/log/caddy/opencode-access.log {
+			roll_size 10MiB
+			roll_keep 3
+		}
+		format json
 	}
 }

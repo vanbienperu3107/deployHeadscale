@@ -42,9 +42,35 @@ services:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_edge_data:/data     # chung chi Let's Encrypt — mat la phai xin lai
       - caddy_edge_config:/config
+      - caddy_edge_logs:/var/log/caddy   # log opencode ra file cho fail2ban doc
     networks:
       - edge
     mem_limit: 256m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Ban IP brute-force Basic Auth cua opencode (2026-08-30). Doc file log JSON
+  # cua Caddy (volume chung), ban tai iptables HOST — vi the can network_mode
+  # host + NET_ADMIN/NET_RAW. Khong dung toi log/duong di cua derper/cliproxy.
+  fail2ban:
+    image: lscr.io/linuxserver/fail2ban:1.1.0
+    container_name: edge-fail2ban
+    restart: unless-stopped
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    environment:
+      - TZ=Etc/UTC
+    volumes:
+      - ./fail2ban/jail.d:/config/fail2ban/jail.d:ro
+      - ./fail2ban/filter.d:/config/fail2ban/filter.d:ro
+      - fail2ban_config:/config
+      - caddy_edge_logs:/remotelogs:ro
+    mem_limit: 128m
     logging:
       driver: json-file
       options:
@@ -59,3 +85,5 @@ networks:
 volumes:
   caddy_edge_data:
   caddy_edge_config:
+  caddy_edge_logs:
+  fail2ban_config:
