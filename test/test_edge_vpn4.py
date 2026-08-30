@@ -131,15 +131,70 @@ def test_ten_mien_opencode_duoc_dinh_tuyen():
     assert OPENCODE_HOST in conf, f"thieu route cho {OPENCODE_HOST}"
 
 
-def test_opencode_va_cliproxy_khong_dung_chung_cong_caddy():
-    """Hai site Caddy phai khac cong noi bo — chung cong la mot site se ghi de site kia."""
+def test_opencode_di_qua_chang_proxy_protocol():
+    """opencode phai VONG qua listener noi bo (127.0.0.1:8446) co proxy_protocol
+    de Caddy log IP THAT cho fail2ban — tro thang caddy-edge thi chi thay IP noi
+    bo cua nginx, ban vo nghia. cliproxy giu nguyen duong thang (khong PROXY
+    protocol, khong fail2ban)."""
     conf = NGINX_CONF.read_text(encoding="utf-8")
     m_cliproxy = re.search(rf"{re.escape(CLIPROXY_HOST)}\s+caddy-edge:(\d+);", conf)
-    m_opencode = re.search(rf"{re.escape(OPENCODE_HOST)}\s+caddy-edge:(\d+);", conf)
-    assert m_cliproxy and m_opencode, "thieu route caddy-edge cho mot trong hai ten mien"
-    assert m_cliproxy.group(1) != m_opencode.group(1), (
-        "cliproxy va opencode dang tro chung mot cong caddy-edge — phai khac cong"
+    assert m_cliproxy, "cliproxy phai tro thang caddy-edge"
+    m_opencode = re.search(rf"{re.escape(OPENCODE_HOST)}\s+127\.0\.0\.1:(\d+);", conf)
+    assert m_opencode, "opencode phai tro ve listener noi bo 127.0.0.1 (chang proxy_protocol)"
+    cong_noi_bo = m_opencode.group(1)
+    khoi_chang2 = re.search(
+        rf"listen 127\.0\.0\.1:{cong_noi_bo};(.*?)}}", conf, re.DOTALL
     )
+    assert khoi_chang2, f"thieu server block listen 127.0.0.1:{cong_noi_bo}"
+    assert "proxy_protocol on" in khoi_chang2.group(1), (
+        "chang 2 phai bat proxy_protocol — thieu no la fail2ban khong co IP that de ban"
+    )
+    m_dich = re.search(r"caddy-edge:(\d+)", khoi_chang2.group(1))
+    assert m_dich, "chang 2 phai noi toi caddy-edge"
+    assert m_dich.group(1) != m_cliproxy.group(1), (
+        "opencode va cliproxy phai khac cong caddy-edge — chung cong la ghi de site"
+    )
+
+
+def test_caddy_8445_nhan_proxy_protocol_con_8444_thi_khong():
+    """Chi cong opencode nhan PROXY protocol. Bat nham cho 8444 (cliproxy —
+    nginx noi thang KHONG gui header) la moi ket noi cliproxy hong ngay."""
+    body = CADDYFILE.read_text(encoding="utf-8")
+    vi_tri = body.find("servers :8445")
+    assert vi_tri >= 0, "Caddyfile phai co global option `servers :8445`"
+    # proxy_protocol phai xuat hien ngay sau khai bao servers :8445 (trong ~200
+    # ky tu — du cho khoi listener_wrappers, khong voi sang site khac).
+    assert "proxy_protocol" in body[vi_tri:vi_tri + 200], (
+        "khoi servers :8445 phai bat listener_wrappers proxy_protocol"
+    )
+    assert not re.search(r"servers :8444", body), (
+        "KHONG duoc bat listener_wrappers cho 8444 — nginx khong gui PROXY header toi do"
+    )
+
+
+def test_fail2ban_cau_hinh_day_du():
+    """fail2ban chi co tac dung khi du 3 manh: doc dung file log Caddy ghi ra,
+    filter bat dung dang JSON cua Caddy, va compose noi dung volume."""
+    jail = (EDGE / "fail2ban" / "jail.d" / "opencode.conf").read_text(encoding="utf-8")
+    filt = (EDGE / "fail2ban" / "filter.d" / "opencode-401.conf").read_text(encoding="utf-8")
+    caddy = CADDYFILE.read_text(encoding="utf-8")
+    compose = load(EDGE_COMPOSE)
+
+    m_log = re.search(r"output file (\S+opencode[^\s{]+)", caddy)
+    assert m_log, "Caddyfile phai ghi log site opencode ra file"
+    ten_file = m_log.group(1).rsplit("/", 1)[-1]
+    assert ten_file in jail, f"jail phai tro toi dung file log {ten_file}"
+
+    assert '"client_ip":"<HOST>"' in filt, "filter phai bat client_ip (IP that qua PROXY protocol)"
+    assert "401" in filt, "filter phai loc theo status 401"
+
+    f2b = compose["services"]["fail2ban"]
+    assert f2b.get("network_mode") == "host", "fail2ban phai o host network moi ban duoc iptables host"
+    assert "NET_ADMIN" in f2b.get("cap_add", []), "thieu NET_ADMIN thi khong sua duoc iptables"
+    vols = [str(v) for v in f2b.get("volumes", [])]
+    assert any("caddy_edge_logs" in v for v in vols), "fail2ban phai mount volume log cua caddy"
+    caddy_vols = [str(v) for v in compose["services"]["caddy-edge"].get("volumes", [])]
+    assert any("caddy_edge_logs" in v for v in caddy_vols), "caddy-edge phai ghi log vao volume chung"
 
 
 def test_proxy_timeout_du_dai_cho_derp():

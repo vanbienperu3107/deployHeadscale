@@ -25,6 +25,18 @@ Cổng 3478/udp → derper (STUN, nginx không proxy UDP)
 Cổng 28417 → cliproxy (đường cũ, giữ nguyên cho máy đã cấu hình)
 ```
 
+**fail2ban cho opencode (2026-08-30):** log Caddy ghi nhận scanner Internet quét
+`opencode.hangocthanh.io.vn` liên tục (401 hàng loạt, UA giả). Đã thêm:
+nginx tách nhánh opencode qua chặng nội bộ `127.0.0.1:8446` gắn **PROXY
+protocol** (bắt buộc — không có nó Caddy chỉ thấy IP nội bộ của nginx, ban vô
+nghĩa; stream module chỉ bật proxy_protocol theo từng server{} nên phải tách
+chặng, không bật per-backend trong map được) → Caddy `:8445` nhận PROXY
+protocol, ghi log JSON có `client_ip` thật ra file riêng → container
+`edge-fail2ban` (host network + NET_ADMIN) đọc file đó, **5 lần 401 trong 10
+phút → ban IP 1 giờ** tại iptables host. DERP/cliproxy không đổi đường đi.
+Xem jail/filter trong `fail2ban/`. Kiểm tra IP đang bị ban:
+`docker exec edge-fail2ban fail2ban-client status opencode-401`.
+
 **Cảnh báo bảo mật riêng cho `opencode-server`:** tiến trình này được phép chạy `bash`
 và sửa file trong workspace (xem [[opencode-api-do-duoc]]). Route này lộ nó ra Internet —
 lớp bảo vệ DUY NHẤT là HTTP Basic Auth (`OPENCODE_SERVER_PASSWORD`) mà chính
