@@ -1,0 +1,87 @@
+name: Auto-update CLIProxyAPI
+
+# Tu dong nang CLIProxyAPI tren vpn4 theo tag moi nhat cua eceasy/cli-proxy-api.
+#
+# Vi sao can: ban proxy cu tu nhan dien la Claude Code doi cu — Anthropic tu
+# choi model moi (su co 2026-09-03: claude-fable-5 bao "version 2.1.251 or
+# newer is required" vi image v7.2.112 khai la Claude Code 2.1.63). Cap nhat
+# dinh ky thi khong bao gio bi ket model moi nua.
+#
+# Cach chay: moi tuan (va bam tay duoc) —
+#   1. Hoi Docker Hub tag vX.Y.Z moi nhat.
+#   2. So voi repo variable CLIPROXY_DEPLOYED_TAG (tag da deploy lan truoc).
+#   3. Khac nhau -> dispatch workflow "Deploy CLIProxyAPI (vpn4)" voi tag moi
+#      (deploy da co san verify 401/200 + smoke test completion tieng Viet;
+#      auths/ giu nguyen nen KHONG mat dang nhap Claude/Codex).
+#   4. Deploy xanh -> ghi lai variable. Deploy do -> variable giu nguyen, tuan
+#      sau thu lai; rollback thu cong: bam deploy voi tag cu.
+#
+# Luu y: viec restart container lam rot request dang chay do — nen cron dat
+# 10:00 UTC Chu nhat (05:00 sang gio Peru, it nguoi dung).
+on:
+  schedule:
+    - cron: "0 10 * * 0"
+  workflow_dispatch: {}
+
+permissions:
+  actions: write
+
+concurrency:
+  group: deploy-vpn4-host-autoupdate
+  cancel-in-progress: false
+
+jobs:
+  check-and-update:
+    name: Kiem tra tag moi va deploy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Lay tag moi nhat tu Docker Hub
+        id: hub
+        run: |
+          LATEST=$(curl -sf --max-time 30 \
+            "https://hub.docker.com/v2/repositories/eceasy/cli-proxy-api/tags?page_size=25&ordering=last_updated" \
+            | python3 -c "import json,sys,re;d=json.load(sys.stdin);print(next(t['name'] for t in d['results'] if re.fullmatch(r'v\d+\.\d+\.\d+', t['name'])))")
+          if [ -z "$LATEST" ]; then echo "::error::Khong lay duoc tag tu Docker Hub"; exit 1; fi
+          echo "latest=$LATEST" >> "$GITHUB_OUTPUT"
+          echo "Tag moi nhat: $LATEST"
+
+      - name: So voi tag da deploy
+        id: cmp
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          LATEST: ${{ steps.hub.outputs.latest }}
+        run: |
+          CURRENT=$(gh api "repos/${GITHUB_REPOSITORY}/actions/variables/CLIPROXY_DEPLOYED_TAG" --jq .value 2>/dev/null || echo "")
+          echo "Da deploy: ${CURRENT:-<chua ghi>} | Moi nhat: $LATEST"
+          if [ "$CURRENT" = "$LATEST" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "Khong co ban moi — bo qua."
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Dispatch deploy voi tag moi va cho ket qua
+        if: steps.cmp.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          LATEST: ${{ steps.hub.outputs.latest }}
+        run: |
+          gh workflow run deploy-cliproxy.yml --repo "$GITHUB_REPOSITORY" --ref main -f image_tag="$LATEST"
+          # gh workflow run khong tra run id -> doi run moi nhat cua workflow do xuat hien roi watch.
+          sleep 20
+          RUN_ID=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow deploy-cliproxy.yml --limit 1 --json databaseId --jq '.[0].databaseId')
+          echo "Theo doi run $RUN_ID"
+          gh run watch "$RUN_ID" --repo "$GITHUB_REPOSITORY" --exit-status --interval 30
+
+      - name: Ghi lai tag da deploy
+        if: steps.cmp.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          LATEST: ${{ steps.hub.outputs.latest }}
+        run: |
+          if gh api "repos/${GITHUB_REPOSITORY}/actions/variables/CLIPROXY_DEPLOYED_TAG" >/dev/null 2>&1; then
+            gh api -X PATCH "repos/${GITHUB_REPOSITORY}/actions/variables/CLIPROXY_DEPLOYED_TAG" -f name=CLIPROXY_DEPLOYED_TAG -f value="$LATEST"
+          else
+            gh api -X POST "repos/${GITHUB_REPOSITORY}/actions/variables" -f name=CLIPROXY_DEPLOYED_TAG -f value="$LATEST"
+          fi
+          echo "CLIPROXY_DEPLOYED_TAG = $LATEST"
