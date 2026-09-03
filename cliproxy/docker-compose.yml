@@ -7,7 +7,10 @@ services:
   cliproxy:
     # Pin tag de deploy tai lap duoc; doi tag bang bien CLIPROXY_IMAGE trong .env
     # hoac secret CLIPROXY_IMAGE cua workflow (khong dung :latest troi noi).
-    image: ${CLIPROXY_IMAGE:-eceasy/cli-proxy-api:v7.2.112}
+    # v7.2.149 (2026-09-03): ban v7.2.112 tu nhan dien la Claude Code 2.1.63 —
+    # qua cu, Anthropic tu choi model claude-fable-5* ("version 2.1.251 or newer
+    # is required"). Nang tag de dung duoc Fable 5 qua proxy.
+    image: ${CLIPROXY_IMAGE:-eceasy/cli-proxy-api:v7.2.149}
     pull_policy: always
     container_name: cliproxy
     restart: unless-stopped
