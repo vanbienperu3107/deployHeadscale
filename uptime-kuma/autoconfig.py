@@ -21,10 +21,13 @@ PASS = os.environ["KUMA_PASS"]
 TG_TOKEN = os.environ["TG_TOKEN"]
 TG_CHAT = os.environ["TG_CHAT"]
 
-api = UptimeKumaApi(URL, timeout=60, wait_events=1.0)
+# wait_events cao hon binh thuong: duong den Kuma di qua sslh + Caddy,
+# socket.io co the roi ve long-polling nen event ve cham.
+api = UptimeKumaApi(URL, timeout=90, wait_events=3.0)
+print("Da ket noi socket.io")
 
-info = api.info()
-print(f"Kuma version: {info.get('version')}")
+# KHONG goi api.info(): tren duong proxy nay event INFO hay bi nuot -> Timeout
+# (kiem chung run 33782246954); info chi de in version, bo duoc.
 
 if api.need_setup():
     print("Chua co admin -> setup")
