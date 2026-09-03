@@ -11,10 +11,13 @@
 # Upstream: Caddy bridge-network khong voi duoc 127.0.0.1:3001 cua host, nen
 # noi uptime-kuma vao network Caddy va proxy toi uptime-kuma:3001. Neu Caddy
 # chay network_mode=host thi dung 127.0.0.1:3001 truc tiep.
+# Tong quat hoa: DOMAIN/SVC_CT/SVC_PORT override duoc qua env de tai dung cho
+# dich vu khac sau Caddy (vd Portainer). Mac dinh = Uptime Kuma.
 set -eu
 
-DOMAIN="status.hangocthanh.io.vn"
-KUMA_CT="uptime-kuma"
+DOMAIN="${DOMAIN:-status.hangocthanh.io.vn}"
+KUMA_CT="${SVC_CT:-uptime-kuma}"
+SVC_PORT="${SVC_PORT:-3001}"
 
 # 1) Tim container Caddy dang chay (memory-stack).
 CADDY_CT=$(docker ps --format '{{.Names}} {{.Image}}' | awk 'tolower($0) ~ /caddy/ {print $1; exit}')
@@ -27,7 +30,7 @@ echo "Caddy container: $CADDY_CT"
 # 2) Xac dinh upstream theo network mode cua Caddy.
 NETMODE=$(docker inspect "$CADDY_CT" --format '{{.HostConfig.NetworkMode}}')
 if [ "$NETMODE" = "host" ]; then
-  UPSTREAM="127.0.0.1:3001"
+  UPSTREAM="127.0.0.1:$SVC_PORT"
 else
   CADDY_NET=$(docker inspect "$CADDY_CT" \
     --format '{{range $k,$v := .NetworkSettings.Networks}}{{$k}}{{"\n"}}{{end}}' | head -n1)
@@ -37,7 +40,7 @@ else
   fi
   echo "Noi $KUMA_CT vao network $CADDY_NET (idempotent)"
   docker network connect "$CADDY_NET" "$KUMA_CT" 2>/dev/null || true
-  UPSTREAM="$KUMA_CT:3001"
+  UPSTREAM="$KUMA_CT:$SVC_PORT"
 fi
 echo "Upstream: $UPSTREAM"
 

@@ -1,0 +1,32 @@
+# Diun — bao Telegram khi image dang chay co ban moi tren registry.
+# CHI THONG BAO, KHONG tu update (nguyen tac: build -> CI xanh -> moi len prod).
+# Chay tren CA vpn4 va vpn6, phan biet bang DIUN_HOSTNAME (workflow set).
+# Env (.env do workflow ghi): TG_TOKEN, TG_CHAT, HOST_LABEL.
+services:
+  diun:
+    image: crazymax/diun:4
+    container_name: diun
+    restart: unless-stopped
+    hostname: ${HOST_LABEL}
+    volumes:
+      - diun_data:/data
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - TZ=Asia/Ho_Chi_Minh
+      - LOG_LEVEL=info
+      # Quet 6h sang moi ngay (gio VN); lan dau chay se ghi baseline, khong spam.
+      - DIUN_WATCH_SCHEDULE=0 0 6 * * *
+      - DIUN_WATCH_FIRSTCHECKNOTIF=false
+      - DIUN_PROVIDERS_DOCKER=true
+      # Theo doi TOAN BO container dang chay, khong can label tung cai.
+      - DIUN_PROVIDERS_DOCKER_WATCHBYDEFAULT=true
+      - DIUN_NOTIF_TELEGRAM_TOKEN=${TG_TOKEN}
+      - DIUN_NOTIF_TELEGRAM_CHATIDS=${TG_CHAT}
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  diun_data:

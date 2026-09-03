@@ -1,0 +1,26 @@
+# Portainer CE tren vpn6 — web xem container/image/log cua CA 2 host:
+#   - vpn6: qua docker.sock local
+#   - vpn4: qua Portainer Agent (monitoring/portainer-agent-vpn4), ket noi
+#     149.104.66.174:9001, bao ve bang AGENT_SECRET + ufw chi mo cho IP vpn6.
+# UI: https://portainer.hangocthanh.io.vn (Caddy memory-stack -> portainer:9000,
+# block do setup-caddy.sh ghep, giong uptime-kuma).
+# Lan dau mo UI phai tao admin trong 5 phut (qua han Portainer tu khoa, can
+# docker restart portainer roi vao lai).
+services:
+  portainer:
+    image: portainer/portainer-ce:lts
+    container_name: portainer
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:9002:9000"   # chi de debug local; duong chinh la Caddy -> portainer:9000
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - portainer_data:/data
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  portainer_data:

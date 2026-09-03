@@ -29,6 +29,7 @@ IGNORE="${IGNORE:-}"
 
 DEAD=""
 TOTAL=0
+IMAGES=""
 
 # docker ps -a: duyet MOI container (ke ca exited) de bat ca truong hop
 # container 24/7 bi stop/creash ma docker khong keo len duoc.
@@ -43,12 +44,22 @@ for NAME in $(docker ps -a --format '{{.Names}}'); do
   HEALTH=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$NAME" 2>/dev/null || echo none)
 
   if [ "$RUNNING" != "true" ] || { [ "$HEALTH" != "none" ] && [ "$HEALTH" != "healthy" ]; }; then
-    DEAD="$DEAD $NAME($RUNNING/$HEALTH)"
+    IMG=$(docker inspect -f '{{.Config.Image}}' "$NAME" 2>/dev/null || echo '?')
+    DEAD="$DEAD $NAME[$IMG]($RUNNING/$HEALTH)"
+  else
+    IMG=$(docker inspect -f '{{.Config.Image}}' "$NAME" 2>/dev/null || echo '?')
+    IMAGES="$IMAGES $NAME=$IMG"
   fi
 done
 
 if [ -z "$DEAD" ]; then
-  STATUS="up"; MSG="$TOTAL containers ok"
+  STATUS="up"
+  # Nhung ten image dang chay vao msg (xem duoc o lich su heartbeat tren Kuma).
+  # Kuma cat msg dai -> tu gioi han ~230 ky tu.
+  MSG="$TOTAL ok |$IMAGES"
+  if [ ${#MSG} -gt 230 ]; then
+    MSG="$(printf '%s' "$MSG" | cut -c1-227)..."
+  fi
 else
   STATUS="down"; MSG="DEAD:$DEAD"
   echo "CANH BAO:$DEAD"

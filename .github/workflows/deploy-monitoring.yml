@@ -1,0 +1,129 @@
+name: Deploy monitoring lop 2 (Portainer + Diun)
+
+# Portainer (web xem image/container/log 2 host) + Diun (bao Telegram khi image
+# co ban moi — CHI bao, khong tu update). Xem monitoring/*/docker-compose.yml.
+#
+# DIEU KIEN: DNS A portainer.hangocthanh.io.vn -> vpn6 (45.119.87.220).
+# Secrets: PORTAINER_AGENT_SECRET, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID + SSH_*.
+on:
+  workflow_dispatch:
+    inputs:
+      git_ref:
+        description: "Branch/ref de deploy"
+        required: false
+        default: "main"
+
+concurrency:
+  group: deploy-monitoring
+  cancel-in-progress: false
+
+jobs:
+  vpn6:
+    name: vpn6 — Portainer server + Diun + Caddy block
+    runs-on: ubuntu-latest
+    steps:
+      - name: Kiem tra DNS portainer.hangocthanh.io.vn
+        env:
+          HOST: ${{ secrets.SSH_HOST_VPN6 }}
+        run: |
+          RESOLVED=$(python3 -c "import socket;print(socket.gethostbyname('portainer.hangocthanh.io.vn'))" 2>/dev/null || echo "")
+          if [ -z "$RESOLVED" ]; then
+            echo "::error::portainer.hangocthanh.io.vn chua phan giai. Them ban ghi A -> vpn6 roi chay lai."
+            exit 1
+          fi
+          if [ "$RESOLVED" != "$HOST" ]; then
+            echo "::error::portainer.hangocthanh.io.vn tro sai dich (khong phai vpn6)."
+            exit 1
+          fi
+          echo "DNS OK"
+
+      - name: SSH vpn6 — Portainer + Diun
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SSH_HOST_VPN6 }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT || '22' }}
+          envs: DEPLOY_PATH,GIT_REF,TG_TOKEN,TG_CHAT
+          script_stop: true
+          command_timeout: 20m
+          script: |
+            set -e
+            if [ "$(id -u)" -ne 0 ]; then SUDO="sudo"; else SUDO=""; fi
+            cd "$DEPLOY_PATH"
+            git fetch --all --prune
+            git reset --hard "origin/$GIT_REF"
+
+            echo "==> [1/3] Portainer server"
+            cd "$DEPLOY_PATH/monitoring/portainer-vpn6"
+            $SUDO docker compose pull -q
+            $SUDO docker compose up -d --remove-orphans
+
+            echo "==> [2/3] Ghep block Caddy portainer.hangocthanh.io.vn"
+            DOMAIN=portainer.hangocthanh.io.vn SVC_CT=portainer SVC_PORT=9000 \
+              $SUDO -E sh "$DEPLOY_PATH/uptime-kuma/setup-caddy.sh"
+
+            echo "==> [3/3] Diun"
+            cd "$DEPLOY_PATH/monitoring/diun"
+            umask 077
+            printf 'TG_TOKEN=%s\nTG_CHAT=%s\nHOST_LABEL=vpn6\n' "$TG_TOKEN" "$TG_CHAT" > .env
+            $SUDO docker compose pull -q
+            $SUDO docker compose up -d --remove-orphans
+
+            sleep 5
+            $SUDO docker ps --format '{{.Names}} {{.Status}}' | grep -E 'portainer|diun'
+            echo "vpn6 XONG"
+        env:
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          GIT_REF: ${{ github.event.inputs.git_ref }}
+          TG_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TG_CHAT: ${{ secrets.TELEGRAM_CHAT_ID }}
+
+  vpn4:
+    name: vpn4 — Portainer agent + Diun
+    runs-on: ubuntu-latest
+    steps:
+      - name: SSH vpn4 — agent + Diun + ufw
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SSH_HOST_VPN4 }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT || '22' }}
+          envs: DEPLOY_PATH,GIT_REF,TG_TOKEN,TG_CHAT,AGENT_SECRET,VPN6_IP
+          script_stop: true
+          command_timeout: 20m
+          script: |
+            set -e
+            if [ "$(id -u)" -ne 0 ]; then SUDO="sudo"; else SUDO=""; fi
+            cd "$DEPLOY_PATH"
+            git fetch --all --prune
+            git reset --hard "origin/$GIT_REF"
+
+            echo "==> [1/3] ufw: 9001 CHI cho vpn6"
+            $SUDO ufw allow from "$VPN6_IP" to any port 9001 proto tcp >/dev/null 2>&1 || true
+
+            echo "==> [2/3] Portainer agent"
+            cd "$DEPLOY_PATH/monitoring/portainer-agent-vpn4"
+            umask 077
+            printf 'AGENT_SECRET=%s\n' "$AGENT_SECRET" > .env
+            $SUDO docker compose pull -q
+            $SUDO docker compose up -d --remove-orphans
+
+            echo "==> [3/3] Diun"
+            cd "$DEPLOY_PATH/monitoring/diun"
+            umask 077
+            printf 'TG_TOKEN=%s\nTG_CHAT=%s\nHOST_LABEL=vpn4\n' "$TG_TOKEN" "$TG_CHAT" > .env
+            $SUDO docker compose pull -q
+            $SUDO docker compose up -d --remove-orphans
+
+            sleep 5
+            $SUDO docker ps --format '{{.Names}} {{.Status}}' | grep -E 'portainer|diun'
+            echo "vpn4 XONG"
+        env:
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          GIT_REF: ${{ github.event.inputs.git_ref }}
+          TG_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TG_CHAT: ${{ secrets.TELEGRAM_CHAT_ID }}
+          AGENT_SECRET: ${{ secrets.PORTAINER_AGENT_SECRET }}
+          VPN6_IP: ${{ secrets.SSH_HOST_VPN6 }}
