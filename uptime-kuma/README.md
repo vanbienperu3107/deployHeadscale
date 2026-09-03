@@ -24,16 +24,19 @@
    | CLIProxy | HTTP(s) | https://cliproxy.hangocthanh.io.vn (accept 401/404 — chỉ cần TLS sống) |
    | OpenCode | HTTP(s) | https://opencode.hangocthanh.io.vn (accept 401 — Basic auth trả 401 cho mọi path) |
 
-   **Push heartbeat per-service từ vpn4** (dịch vụ nội bộ không lộ cổng, đường
-   VN→vpn4 hay bị Bitel chặn nên không check chủ động được từ ngoài):
-   tạo mỗi dòng 1 monitor kiểu **Push**, heartbeat interval **120s**:
-   `vpn4-host`, `derper@vpn4`, `cliproxy`, `edge-nginx`, `caddy-edge`,
-   `edge-fail2ban`, `vpn-gw`, `ts-vpngw`, `ping-reporter-vpn4`
-   (+ container TelegramAgent/opencode-server nếu muốn — thêm dòng conf là xong).
-4. Heartbeat vpn4: chạy workflow `deploy-kuma-heartbeat-vpn4.yml`, dán input `conf`
-   dạng `"<container|host> <push_token>"` mỗi dòng (token lấy từ URL của từng Push
-   monitor). Script `/usr/local/bin/kuma-heartbeat.sh` chạy cron mỗi phút: container
-   nào Running(+healthy) thì push, chết thì im lặng → Kuma báo Telegram sau ~2 phút.
+   **Docker heartbeat — giám sát TOÀN BỘ container mỗi host** (auto-discover,
+   không liệt kê tay; dịch vụ nội bộ không lộ cổng vẫn được cover, đường
+   VN→vpn4 bị Bitel chặn cũng không sao vì là push từ trong ra):
+   tạo đúng **2 monitor kiểu Push**, heartbeat interval **120s**:
+   `docker-vpn4` và `docker-vpn6`.
+4. Cài heartbeat: chạy workflow `deploy-kuma-heartbeat.yml` 2 lần (host=vpn4 rồi
+   host=vpn6), dán push token tương ứng. Script `docker-heartbeat.sh` chạy cron
+   mỗi phút: quét `docker ps -a`, container nào có restart policy
+   always/unless-stopped mà chết hoặc unhealthy → push `status=down` kèm TÊN
+   container → Telegram báo đích danh; tất cả ok → push up "N containers ok";
+   host sập/mất đường ra → không push gì → Kuma báo theo ngưỡng heartbeat.
+   Container mới thêm sau này TỰ ĐỘNG được giám sát. Container cố tình stop tay
+   (policy `no`) không tính; bỏ qua thêm bằng input `ignore` (phẩy phân cách).
 5. (Tuỳ chọn) Status Page: Kuma có sẵn trang public — Settings → Status Pages, gắn
    các monitor theo nhóm vpn4/vpn6, xem tại https://status.hangocthanh.io.vn/status/<slug>.
 
