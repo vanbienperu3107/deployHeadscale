@@ -1,0 +1,97 @@
+name: Kuma autoconfig (admin + Telegram + monitors + heartbeat)
+
+# Tu dong cau hinh Uptime Kuma o https://status.hangocthanh.io.vn:
+#   1. Runner chay uptime-kuma/autoconfig.py qua API cong khai (socket.io):
+#      setup admin (neu chua), notification Telegram, 6 monitor chu dong,
+#      2 Push monitor docker-vpn4/docker-vpn6 -> lay push token (masked).
+#   2. SSH vpn6 roi vpn4: cai docker-heartbeat.sh + conf (token tuong ung) + cron.
+# Idempotent — chay lai an toan.
+#
+# Secrets: KUMA_ADMIN_USER, KUMA_ADMIN_PASS, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID,
+#          SSH_HOST_VPN4/VPN6, SSH_USER, SSH_KEY, SSH_PORT, DEPLOY_PATH.
+on:
+  workflow_dispatch:
+    inputs:
+      git_ref:
+        description: "Branch/ref"
+        required: false
+        default: "main"
+
+concurrency:
+  group: kuma-autoconfig
+  cancel-in-progress: false
+
+jobs:
+  configure:
+    name: Cau hinh Kuma + cai heartbeat 2 host
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.git_ref }}
+
+      - name: Cai uptime-kuma-api
+        run: pip install --quiet uptime-kuma-api==1.2.1
+
+      - name: Autoconfig qua API
+        id: kuma
+        env:
+          KUMA_URL: https://status.hangocthanh.io.vn
+          KUMA_USER: ${{ secrets.KUMA_ADMIN_USER }}
+          KUMA_PASS: ${{ secrets.KUMA_ADMIN_PASS }}
+          TG_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TG_CHAT: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python uptime-kuma/autoconfig.py
+
+      - name: Cai heartbeat len vpn6
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SSH_HOST_VPN6 }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT || '22' }}
+          envs: DEPLOY_PATH,GIT_REF,HB_TOKEN
+          script_stop: true
+          command_timeout: 10m
+          script: |
+            set -e
+            if [ "$(id -u)" -ne 0 ]; then SUDO="sudo"; else SUDO=""; fi
+            cd "$DEPLOY_PATH" && git fetch --all --prune && git reset --hard "origin/$GIT_REF"
+            $SUDO install -m 0755 "$DEPLOY_PATH/uptime-kuma/docker-heartbeat.sh" /usr/local/bin/kuma-heartbeat.sh
+            printf 'TOKEN=%s\n' "$HB_TOKEN" | $SUDO tee /etc/kuma-heartbeat.conf >/dev/null
+            $SUDO chmod 600 /etc/kuma-heartbeat.conf
+            printf '* * * * * root /usr/local/bin/kuma-heartbeat.sh >/dev/null 2>&1\n' | $SUDO tee /etc/cron.d/kuma-heartbeat >/dev/null
+            $SUDO chmod 644 /etc/cron.d/kuma-heartbeat
+            $SUDO /usr/local/bin/kuma-heartbeat.sh || true
+            echo "vpn6 heartbeat OK"
+        env:
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          GIT_REF: ${{ github.event.inputs.git_ref }}
+          HB_TOKEN: ${{ steps.kuma.outputs.push_vpn6 }}
+
+      - name: Cai heartbeat len vpn4
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SSH_HOST_VPN4 }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT || '22' }}
+          envs: DEPLOY_PATH,GIT_REF,HB_TOKEN
+          script_stop: true
+          command_timeout: 10m
+          script: |
+            set -e
+            if [ "$(id -u)" -ne 0 ]; then SUDO="sudo"; else SUDO=""; fi
+            cd "$DEPLOY_PATH" && git fetch --all --prune && git reset --hard "origin/$GIT_REF"
+            $SUDO install -m 0755 "$DEPLOY_PATH/uptime-kuma/docker-heartbeat.sh" /usr/local/bin/kuma-heartbeat.sh
+            printf 'TOKEN=%s\n' "$HB_TOKEN" | $SUDO tee /etc/kuma-heartbeat.conf >/dev/null
+            $SUDO chmod 600 /etc/kuma-heartbeat.conf
+            printf '* * * * * root /usr/local/bin/kuma-heartbeat.sh >/dev/null 2>&1\n' | $SUDO tee /etc/cron.d/kuma-heartbeat >/dev/null
+            $SUDO chmod 644 /etc/cron.d/kuma-heartbeat
+            $SUDO /usr/local/bin/kuma-heartbeat.sh || true
+            echo "vpn4 heartbeat OK"
+        env:
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          GIT_REF: ${{ github.event.inputs.git_ref }}
+          HB_TOKEN: ${{ steps.kuma.outputs.push_vpn4 }}
