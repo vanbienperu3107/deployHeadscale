@@ -34,10 +34,29 @@ jobs:
       - name: Cai uptime-kuma-api
         run: pip install --quiet uptime-kuma-api==1.2.1
 
+      # Duong cong khai di qua sslh + Caddy lam socket.io that thuong (login
+      # timeout — run 33783613551). Tunnel SSH thang vao 127.0.0.1:3001 cua vpn6
+      # de API sach, khong dinh proxy nao.
+      - name: Mo SSH tunnel toi Kuma (vpn6)
+        env:
+          SSH_KEY: ${{ secrets.SSH_KEY }}
+          SSH_HOST: ${{ secrets.SSH_HOST_VPN6 }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_PORT: ${{ secrets.SSH_PORT || '22' }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/kuma_tunnel
+          chmod 600 ~/.ssh/kuma_tunnel
+          ssh -o StrictHostKeyChecking=no -o ExitOnForwardFailure=yes \
+            -i ~/.ssh/kuma_tunnel -p "$SSH_PORT" \
+            -N -L 3001:127.0.0.1:3001 "$SSH_USER@$SSH_HOST" &
+          sleep 4
+          curl -sf -o /dev/null http://127.0.0.1:3001 && echo "Tunnel OK" || { echo "::error::Tunnel toi Kuma fail"; exit 1; }
+
       - name: Autoconfig qua API
         id: kuma
         env:
-          KUMA_URL: https://status.hangocthanh.io.vn
+          KUMA_URL: http://127.0.0.1:3001
           KUMA_USER: ${{ secrets.KUMA_ADMIN_USER }}
           KUMA_PASS: ${{ secrets.KUMA_ADMIN_PASS }}
           TG_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
