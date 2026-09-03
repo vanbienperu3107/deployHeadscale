@@ -1,0 +1,90 @@
+name: Deploy Kuma docker-heartbeat (vpn4/vpn6)
+
+# Cai giam sat TOAN BO container Docker cua 1 host -> 1 Push monitor Uptime Kuma.
+# Script auto-discover (uptime-kuma/docker-heartbeat.sh): container co restart
+# policy always/unless-stopped ma chet/unhealthy -> push status=down kem ten
+# -> Telegram bao dich danh. Container moi tu dong duoc giam sat.
+#
+# CHAY SAU khi Kuma da song va da tao 1 Push monitor cho host nay trong UI
+# (goi y ten: docker-vpn4 / docker-vpn6, heartbeat interval 120s).
+on:
+  workflow_dispatch:
+    inputs:
+      host:
+        description: "Host de cai"
+        required: true
+        type: choice
+        options: [vpn4, vpn6]
+      token:
+        description: "Push token cua monitor (de trong = giu conf cu, chi cap nhat script)"
+        required: false
+        default: ""
+      ignore:
+        description: "Container bo qua, phan cach dau phay (tuy chon)"
+        required: false
+        default: ""
+      git_ref:
+        description: "Branch/ref de lay script"
+        required: false
+        default: "main"
+
+concurrency:
+  group: deploy-kuma-heartbeat-${{ github.event.inputs.host }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Cai docker-heartbeat len ${{ github.event.inputs.host }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: SSH — cai script + conf + cron
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ github.event.inputs.host == 'vpn4' && secrets.SSH_HOST_VPN4 || secrets.SSH_HOST_VPN6 }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT || '22' }}
+          envs: DEPLOY_PATH,REPO_URL,GIT_REF,HB_TOKEN,HB_IGNORE
+          script_stop: true
+          command_timeout: 10m
+          script: |
+            set -e
+            if [ "$(id -u)" -ne 0 ]; then SUDO="sudo"; else SUDO=""; fi
+
+            echo "==> [1/4] Cap nhat repo (ref=$GIT_REF)"
+            if [ ! -d "$DEPLOY_PATH/.git" ]; then
+              $SUDO mkdir -p "$DEPLOY_PATH"
+              $SUDO git clone "$REPO_URL" "$DEPLOY_PATH"
+              $SUDO chown -R "$(id -un):$(id -gn)" "$DEPLOY_PATH"
+            fi
+            cd "$DEPLOY_PATH"
+            git config --global --add safe.directory "$DEPLOY_PATH" || true
+            git fetch --all --prune
+            git reset --hard "origin/$GIT_REF"
+
+            echo "==> [2/4] Cai script"
+            $SUDO install -m 0755 "$DEPLOY_PATH/uptime-kuma/docker-heartbeat.sh" /usr/local/bin/kuma-heartbeat.sh
+
+            echo "==> [3/4] Ghi conf (neu input token co)"
+            if [ -n "${HB_TOKEN:-}" ]; then
+              printf 'TOKEN=%s\nIGNORE=%s\n' "$HB_TOKEN" "${HB_IGNORE:-}" | $SUDO tee /etc/kuma-heartbeat.conf >/dev/null
+              $SUDO chmod 600 /etc/kuma-heartbeat.conf
+              echo "  Da ghi conf moi"
+            else
+              if [ -f /etc/kuma-heartbeat.conf ]; then echo "  Giu conf hien co"; else echo "::warning::Chua co /etc/kuma-heartbeat.conf — chay lai voi input token"; fi
+            fi
+
+            echo "==> [4/4] Cai cron moi phut + chay thu"
+            printf '* * * * * root /usr/local/bin/kuma-heartbeat.sh >/dev/null 2>&1\n' | $SUDO tee /etc/cron.d/kuma-heartbeat >/dev/null
+            $SUDO chmod 644 /etc/cron.d/kuma-heartbeat
+            if [ -f /etc/kuma-heartbeat.conf ]; then
+              echo "  Chay thu:"
+              $SUDO /usr/local/bin/kuma-heartbeat.sh || true
+            fi
+            echo "XONG. Kuma nhan heartbeat trong <=60s; monitor Push nen dat nguong 120s."
+        env:
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          REPO_URL: https://github.com/vanbienperu3107/deployHeadscale.git
+          GIT_REF: ${{ github.event.inputs.git_ref }}
+          HB_TOKEN: ${{ github.event.inputs.token }}
+          HB_IGNORE: ${{ github.event.inputs.ignore }}

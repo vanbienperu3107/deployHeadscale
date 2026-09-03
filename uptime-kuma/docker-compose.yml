@@ -1,0 +1,27 @@
+# Uptime Kuma — giam sat vpn4/vpn6 + canh bao Telegram (@VotamAIbot).
+# Chay tren vpn6, listen CHI localhost:3001; Caddy memory-stack (8443, sau sslh)
+# reverse_proxy status.hangocthanh.io.vn -> 127.0.0.1:3001 (Caddy tu lo WebSocket).
+# KHONG dung toi sslh — SNI khong khop vpn6.* deu roi ve Caddy san roi.
+#
+# Cau hinh monitor/notification lam TAY trong UI sau lan deploy dau
+# (admin account, Telegram token + chat id, cac monitor theo docs/plan-uptime-kuma.md).
+# Du lieu nam trong volume uptime-kuma_data — redeploy KHONG mat cau hinh.
+services:
+  uptime-kuma:
+    image: louislam/uptime-kuma:1
+    container_name: uptime-kuma
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3001:3001"
+    volumes:
+      - uptime-kuma_data:/app/data
+    # vpn6 tung bi log docker khong rotate lam day dia + treo dashboard
+    # (memory vpn6-docker-log-khong-rotate) — moi container moi PHAI khai logging.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  uptime-kuma_data:
