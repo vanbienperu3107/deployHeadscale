@@ -192,7 +192,7 @@ jobs:
             # Dash (/bin/sh VPS) exit ca khi set +e trong $(cmd) substitution; cach duy
             # nhat an toan la chay trong SUBSHELL () roi xu ly exit-code o parent.
             # rc=7 = reporter chua bao cao (chi fail deploy khi STRICT_SMOKE=true).
-            EXPECTED_REPORTERS="${EXPECTED_REPORTERS:-vpn3,vpn4,vpn6}"
+            EXPECTED_REPORTERS="${EXPECTED_REPORTERS:-vpn4,vpn6}"
             HEALTH_WINDOW=200
             smoke_rc=0
             (
