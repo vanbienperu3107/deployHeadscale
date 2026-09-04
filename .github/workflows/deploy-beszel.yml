@@ -1,0 +1,182 @@
+name: Deploy Beszel monitoring (vpn6 hub + agents vpn6/vpn4)
+
+# Giam sat tai nguyen 2 VPS tren 1 giao dien: https://status.hangocthanh.io.vn
+#   - Hub Beszel (PocketBase) chay tai /opt/beszel tren vpn6, join network memory-stack_memnet
+#     de memory-caddy reverse_proxy toi container name "beszel".
+#   - Agent vpn6: network_mode host + docker.sock ro, hub goi qua host.docker.internal:45876.
+#   - Agent vpn4: docker run --network host, hub goi qua IP public vpn4:45876
+#     (duong vpn6->vpn4 da kiem chung thong; ufw chi mo 45876 cho IP vpn6).
+#   - Keypair ed25519 sinh moi lan chay tren runner, dat vao /beszel_data truoc khi hub start
+#     (hub tai su dung key co san) va phat pubkey cho ca 2 agent.
+#   - Tao superuser + user admin + 2 system record qua PocketBase API (khong can UI).
+#     Mat khau admin ghi vao /root/beszel-admin.txt tren vpn6 (KHONG in ra log).
+# Idempotent: chay lai an toan (upsert superuser, user/system da co thi bo qua).
+# Bai hoc ap dung: log rotate json-file (vpn6-docker-log-khong-rotate), script phang
+# han che if/else long nhau (drone-ssh), Caddy validate truoc reload + backup.
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-beszel
+  cancel-in-progress: false
+
+jobs:
+  keygen:
+    name: Sinh keypair ed25519 cho hub/agent
+    runs-on: ubuntu-latest
+    outputs:
+      priv_b64: ${{ steps.gen.outputs.priv_b64 }}
+      pub: ${{ steps.gen.outputs.pub }}
+    steps:
+      - name: ssh-keygen
+        id: gen
+        run: |
+          ssh-keygen -t ed25519 -N "" -f ./beszel_key -C beszel-hub -q
+          echo "priv_b64=$(base64 -w0 ./beszel_key)" >> "$GITHUB_OUTPUT"
+          echo "pub=$(cut -d' ' -f1-2 ./beszel_key.pub)" >> "$GITHUB_OUTPUT"
+
+  vpn6:
+    name: Hub + agent + Caddy + API bootstrap (vpn6)
+    needs: keygen
+    runs-on: ubuntu-latest
+    steps:
+      - name: SSH vpn6
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SSH_HOST_VPN6 }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT || '22' }}
+          script_stop: true
+          command_timeout: 15m
+          envs: BESZEL_PRIV_B64,BESZEL_PUB
+          script: |
+            set -e
+            if [ "$(id -u)" -ne 0 ]; then SUDO="sudo"; else SUDO=""; fi
+
+            echo "==> [1/6] Chuan bi /opt/beszel + keypair hub"
+            $SUDO mkdir -p /opt/beszel/beszel_data
+            echo "$BESZEL_PRIV_B64" | base64 -d | $SUDO tee /opt/beszel/beszel_data/id_ed25519 >/dev/null
+            echo "$BESZEL_PUB" | $SUDO tee /opt/beszel/beszel_data/id_ed25519.pub >/dev/null
+            $SUDO chmod 600 /opt/beszel/beszel_data/id_ed25519
+
+            echo "==> [2/6] Ghi docker-compose.yml"
+            $SUDO tee /opt/beszel/docker-compose.yml >/dev/null <<'EOF'
+            services:
+              beszel:
+                image: henrygd/beszel:latest
+                container_name: beszel
+                restart: unless-stopped
+                networks: [memnet]
+                ports:
+                  - "127.0.0.1:8090:8090"
+                extra_hosts:
+                  - "host.docker.internal:host-gateway"
+                volumes:
+                  - ./beszel_data:/beszel_data
+                logging:
+                  driver: json-file
+                  options: { max-size: "10m", max-file: "3" }
+              beszel-agent:
+                image: henrygd/beszel-agent:latest
+                container_name: beszel-agent
+                restart: unless-stopped
+                network_mode: host
+                environment:
+                  LISTEN: "45876"
+                  KEY: "__BESZEL_PUB__"
+                volumes:
+                  - /var/run/docker.sock:/var/run/docker.sock:ro
+                logging:
+                  driver: json-file
+                  options: { max-size: "10m", max-file: "3" }
+            networks:
+              memnet:
+                external: true
+                name: memory-stack_memnet
+            EOF
+            $SUDO sed -i "s|__BESZEL_PUB__|$BESZEL_PUB|" /opt/beszel/docker-compose.yml
+
+            echo "==> [3/6] ufw: cho docker subnet goi agent 45876"
+            $SUDO ufw allow from 172.16.0.0/12 to any port 45876 proto tcp comment 'beszel hub->agent' || true
+
+            echo "==> [4/6] docker compose up"
+            cd /opt/beszel && $SUDO docker compose up -d
+            for i in $(seq 1 30); do curl -fsS http://127.0.0.1:8090/api/health >/dev/null 2>&1 && break; sleep 2; done
+            curl -fsS http://127.0.0.1:8090/api/health >/dev/null
+
+            echo "==> [5/6] Bootstrap superuser + user admin + systems qua API"
+            CRED=/root/beszel-admin.txt
+            if [ ! -f "$CRED" ]; then PASS=$(openssl rand -base64 18 | tr -d '=+/'); echo "email: admin@hangocthanh.io.vn" | $SUDO tee "$CRED" >/dev/null; echo "password: $PASS" | $SUDO tee -a "$CRED" >/dev/null; $SUDO chmod 600 "$CRED"; fi
+            PASS=$(grep '^password:' "$CRED" | awk '{print $2}')
+            $SUDO docker exec beszel /beszel superuser upsert admin@hangocthanh.io.vn "$PASS"
+            TOKEN=$(curl -fsS -X POST http://127.0.0.1:8090/api/collections/_superusers/auth-with-password -H 'Content-Type: application/json' -d "{\"identity\":\"admin@hangocthanh.io.vn\",\"password\":\"$PASS\"}" | python3 -c 'import sys,json;print(json.load(sys.stdin)["token"])')
+            export TOKEN PASS
+            python3 - <<'PYEOF'
+            import json, os, urllib.request
+            base = "http://127.0.0.1:8090/api/collections"
+            tok = os.environ["TOKEN"]
+            def req(method, path, data=None):
+                r = urllib.request.Request(base + path, method=method, headers={"Authorization": tok, "Content-Type": "application/json"}, data=json.dumps(data).encode() if data else None)
+                try:
+                    return json.load(urllib.request.urlopen(r))
+                except urllib.error.HTTPError as e:
+                    return {"_err": e.read().decode()}
+            users = req("GET", "/users/records?filter=" + urllib.request.quote("email='admin@hangocthanh.io.vn'"))
+            if users.get("items"):
+                uid = users["items"][0]["id"]
+            else:
+                u = req("POST", "/users/records", {"email": "admin@hangocthanh.io.vn", "password": os.environ["PASS"], "passwordConfirm": os.environ["PASS"], "role": "admin", "verified": True})
+                uid = u.get("id") or (_ for _ in ()).throw(SystemExit("tao user fail: " + str(u)))
+            have = {s["name"] for s in req("GET", "/systems/records?perPage=100").get("items", [])}
+            for name, host in [("vpn6", "host.docker.internal"), ("vpn4", "149.104.66.174")]:
+                if name in have:
+                    print(name, "da ton tai"); continue
+                s = req("POST", "/systems/records", {"name": name, "host": host, "port": "45876", "users": [uid], "status": "pending"})
+                print(name, "->", "OK" if s.get("id") else s)
+            PYEOF
+
+            echo "==> [6/6] Caddy block status.hangocthanh.io.vn"
+            CADDY_CT=$($SUDO docker ps --format '{{.Names}} {{.Image}}' | awk 'tolower($0) ~ /caddy/ {print $1; exit}')
+            CADDYFILE=$($SUDO docker inspect "$CADDY_CT" --format '{{range .Mounts}}{{.Source}} {{.Destination}}{{"\n"}}{{end}}' | awk '$2=="/etc/caddy/Caddyfile"{print $1; exit}')
+            echo "Caddyfile: $CADDYFILE"
+            if grep -q 'status.hangocthanh.io.vn' "$CADDYFILE"; then echo "Block da co - bo qua"; else
+              BACKUP="${CADDYFILE}.bak-beszel-$(date +%Y%m%d-%H%M%S)"
+              $SUDO cp "$CADDYFILE" "$BACKUP"
+              printf '\n# Beszel (deployHeadscale/beszel)\nstatus.hangocthanh.io.vn {\n\treverse_proxy beszel:8090\n}\n' | $SUDO tee -a "$CADDYFILE" >/dev/null
+              if $SUDO docker exec "$CADDY_CT" caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile; then $SUDO docker exec "$CADDY_CT" caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile; echo "Caddy reload OK"; else echo "validate FAIL -> restore"; $SUDO cp "$BACKUP" "$CADDYFILE"; exit 1; fi
+            fi
+            echo "XONG vpn6. Cred: /root/beszel-admin.txt"
+        env:
+          BESZEL_PRIV_B64: ${{ needs.keygen.outputs.priv_b64 }}
+          BESZEL_PUB: ${{ needs.keygen.outputs.pub }}
+
+  vpn4:
+    name: Agent (vpn4)
+    needs: [keygen, vpn6]
+    runs-on: ubuntu-latest
+    steps:
+      - name: SSH vpn4
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SSH_HOST_VPN4 }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT || '22' }}
+          script_stop: true
+          command_timeout: 10m
+          envs: BESZEL_PUB
+          script: |
+            set -e
+            if [ "$(id -u)" -ne 0 ]; then SUDO="sudo"; else SUDO=""; fi
+            echo "==> ufw: mo 45876 chi cho vpn6"
+            $SUDO ufw allow from 45.119.87.220 to any port 45876 proto tcp comment 'beszel hub vpn6' || true
+            echo "==> beszel-agent container"
+            $SUDO docker rm -f beszel-agent 2>/dev/null || true
+            $SUDO docker run -d --name beszel-agent --network host --restart unless-stopped -e LISTEN=45876 -e KEY="$BESZEL_PUB" -v /var/run/docker.sock:/var/run/docker.sock:ro --log-opt max-size=10m --log-opt max-file=3 henrygd/beszel-agent:latest
+            sleep 3
+            $SUDO docker ps --filter name=beszel-agent --format '{{.Names}} {{.Status}}'
+            echo "XONG vpn4"
+        env:
+          BESZEL_PUB: ${{ needs.keygen.outputs.pub }}
