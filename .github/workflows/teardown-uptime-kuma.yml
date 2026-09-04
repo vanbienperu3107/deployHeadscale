@@ -1,0 +1,84 @@
+name: Teardown Uptime Kuma (vpn6 + vpn4)
+
+# Go SACH stack Uptime Kuma (rollback 2026-09-03 theo yeu cau user):
+#   vpn6: container + volume + block Caddy status.hangocthanh.io.vn + cron heartbeat
+#   vpn4: cron heartbeat
+# Dung lenh docker tho (khong compose) vi thu muc uptime-kuma/ da bi xoa khoi repo.
+# Sua Caddyfile: xoa dung block da duoc setup-caddy.sh ghep (theo comment marker),
+# backup truoc, validate truoc reload — validate fail thi restore, KHONG reload.
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: teardown-uptime-kuma
+  cancel-in-progress: false
+
+jobs:
+  vpn6:
+    name: Go Kuma + Caddy block + heartbeat (vpn6)
+    runs-on: ubuntu-latest
+    steps:
+      - name: SSH vpn6
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SSH_HOST_VPN6 }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT || '22' }}
+          script_stop: true
+          command_timeout: 15m
+          script: |
+            set -e
+            if [ "$(id -u)" -ne 0 ]; then SUDO="sudo"; else SUDO=""; fi
+
+            echo "==> [1/4] Go container + volume Kuma"
+            $SUDO docker rm -f uptime-kuma 2>/dev/null || true
+            $SUDO docker volume rm uptime-kuma_uptime-kuma_data 2>/dev/null || true
+
+            echo "==> [2/4] Xoa block Caddy status.hangocthanh.io.vn"
+            CADDY_CT=$($SUDO docker ps --format '{{.Names}} {{.Image}}' | awk 'tolower($0) ~ /caddy/ {print $1; exit}')
+            CADDYFILE=$($SUDO docker inspect "$CADDY_CT" --format '{{range .Mounts}}{{.Source}} {{.Destination}}{{"\n"}}{{end}}' | awk '$2=="/etc/caddy/Caddyfile"{print $1; exit}')
+            echo "Caddyfile: $CADDYFILE"
+            if grep -q 'status.hangocthanh.io.vn' "$CADDYFILE"; then
+              BACKUP="${CADDYFILE}.bak-teardown-$(date +%Y%m%d-%H%M%S)"
+              $SUDO cp "$CADDYFILE" "$BACKUP"
+              $SUDO sed -i '/# Uptime Kuma (deployHeadscale\/uptime-kuma)/,/^}/d' "$CADDYFILE"
+              if $SUDO docker exec "$CADDY_CT" caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile; then
+                $SUDO docker exec "$CADDY_CT" caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
+                echo "Da xoa block + reload OK (backup: $BACKUP)"
+              else
+                echo "validate FAIL -> restore, KHONG reload"
+                $SUDO cp "$BACKUP" "$CADDYFILE"
+                exit 1
+              fi
+            else
+              echo "Block khong ton tai — bo qua"
+            fi
+
+            echo "==> [3/4] Go heartbeat cron"
+            $SUDO rm -f /etc/cron.d/kuma-heartbeat /etc/kuma-heartbeat.conf /usr/local/bin/kuma-heartbeat.sh
+
+            echo "==> [4/4] Kiem tra"
+            $SUDO docker ps --format '{{.Names}}' | grep -q uptime-kuma && echo "CON uptime-kuma!" || echo "uptime-kuma da go"
+            grep -q 'status.hangocthanh.io.vn' "$CADDYFILE" && echo "CON block Caddy!" || echo "block Caddy da xoa"
+            echo "vpn6 XONG"
+
+  vpn4:
+    name: Go heartbeat (vpn4)
+    runs-on: ubuntu-latest
+    steps:
+      - name: SSH vpn4
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SSH_HOST_VPN4 }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT || '22' }}
+          script_stop: true
+          command_timeout: 10m
+          script: |
+            set -e
+            if [ "$(id -u)" -ne 0 ]; then SUDO="sudo"; else SUDO=""; fi
+            $SUDO rm -f /etc/cron.d/kuma-heartbeat /etc/kuma-heartbeat.conf /usr/local/bin/kuma-heartbeat.sh
+            ls /etc/cron.d/kuma-heartbeat 2>/dev/null && echo "CON cron!" || echo "heartbeat da go"
+            echo "vpn4 XONG"
