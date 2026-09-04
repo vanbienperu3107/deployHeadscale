@@ -1,0 +1,3 @@
+- [2026-09-04] CONFIG: Caddyfile bind-mount FILE bi doi inode (sed -i/cp) -> container van doc file cu, reload bao unchanged -> phai docker restart caddy (hoac mount ca thu muc)
+- [2026-09-04] INTEGRATION: drone-ssh 1.8 script_stop chen exit-check TUNG DONG, pha heredoc -> file cau hinh de trong repo + scp-action, script SSH chi dong don
+- [2026-09-04] CONFIG: Caddyfile bind-mount file doi inode -> restart caddy
