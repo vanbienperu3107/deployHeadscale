@@ -17,11 +17,20 @@ services:
     build:
       context: ../derp-vpn3   # dung Dockerfile.derper cua vpn3 (giong vpn4/vpn5)
       dockerfile: Dockerfile.derper
+      # Cung phien ban voi vpn4 (v1.100.0 chay on tu 2026-07-03) de hai relay
+      # hanh xu giong nhau; v1.100.0 can Go >= 1.26.
+      args:
+        GO_VERSION: "1.26"
+        TAILSCALE_VERSION: v1.100.0
     container_name: derper
     restart: unless-stopped
     command:
       - --hostname=vpn6.hangocthanh.io.vn
-      - --a=:8444            # TLS listener noi bo (sslh route SNI vpn6 vao; 8443 = Caddy)
+      # PHAI la :443 BEN TRONG container: derper chi bat TLS (autocert) khi dia chi
+      # nghe la cong 443 (tsweb.IsProd443) — nghe :8444 thi no phuc vu PLAINTEXT
+      # va sslh forward TLS vao se loi "wrong version number" (da dinh 2026-09-05).
+      # Cong 8444 chi ton tai o phia host (xem ports), sslh route SNI vpn6 vao do.
+      - --a=:443
       - --http-port=-1       # tat HTTP -> cert qua TLS-ALPN-01, khong dung cong 80
       - --certmode=letsencrypt
       - --certdir=/data/derper-certs
@@ -29,7 +38,7 @@ services:
       - --stun-port=3478
       - --verify-clients=false
     ports:
-      - "127.0.0.1:8444:8444"   # CHI localhost: chi sslh (tren host) goi toi
+      - "127.0.0.1:8444:443"    # host 8444 (chi localhost, cho sslh) -> container 443 (TLS)
       - "3478:3478/udp"         # STUN cong cong (can ufw allow 3478/udp)
     volumes:
       - derper_certs:/data/derper-certs
