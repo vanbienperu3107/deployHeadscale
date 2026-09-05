@@ -386,17 +386,25 @@ def test_derp_vpn6_co_derper_service():
 
 
 def test_derp_vpn6_nghe_noi_bo_8444():
-    """derper vpn6 nghe :8444 va CHI bind localhost (8443 = Caddy; sslh route SNI vao)."""
+    """Host chi publish 127.0.0.1:8444 (sslh route SNI vao); BEN TRONG container
+    derper PHAI nghe :443 vi derper chi bat TLS/autocert khi dia chi nghe la cong
+    443 (tsweb.IsProd443). Cau hinh --a=:8444 truoc day lam derper phuc vu
+    plaintext, sslh forward TLS vao bi 'wrong version number' (2026-09-05)."""
     compose = ROOT / "derp-vpn6" / "docker-compose.yml"
     data = yaml.safe_load(compose.read_text())
     cmd_str = " ".join(str(c) for c in data["services"]["derper"].get("command", []))
-    assert "--a=:8444" in cmd_str, "derper vpn6 phai nghe :8444 (8443 da la Caddy)"
-    ports_str = " ".join(str(p) for p in data["services"]["derper"].get("ports", []))
-    assert "127.0.0.1:8444:8444" in ports_str, (
-        "derper vpn6 phai bind 127.0.0.1:8444 (chi sslh tren host goi toi)"
+    assert "--a=:443" in cmd_str, (
+        "derper vpn6 phai nghe :443 TRONG container, neu khong derper khong bat TLS"
     )
-    assert "443:443" not in ports_str, (
-        "derper vpn6 KHONG duoc chiem cong 443 (sslh dang giu)"
+    assert "--a=:8444" not in cmd_str, (
+        "derper nghe :8444 se phuc vu plaintext (khong TLS) — sslh forward TLS vao se hong"
+    )
+    ports_str = " ".join(str(p) for p in data["services"]["derper"].get("ports", []))
+    assert "127.0.0.1:8444:443" in ports_str, (
+        "host phai publish 127.0.0.1:8444 -> container 443 (chi sslh tren host goi toi)"
+    )
+    assert "443:443" not in ports_str and " 443:" not in (" " + ports_str), (
+        "derper vpn6 KHONG duoc chiem cong 443 cua host (sslh dang giu)"
     )
     assert "8443" not in ports_str, (
         "derper vpn6 KHONG duoc dung 8443 (Caddy memory-stack dang giu)"
