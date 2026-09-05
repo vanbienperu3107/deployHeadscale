@@ -1,8 +1,22 @@
 # vpn6 — DERP chuẩn (derper) dùng chung cổng 443 qua sslh
 
-> Nhánh `vpn6-derper-sslh`. **Chưa deploy prod.** Mục tiêu: vpn6 chạy **derper chuẩn
-> giống vpn4** (tự lo TLS + STUN, handshake DERP trả `101`), thay cho custom relay
+> **ĐÃ DEPLOY PROD 2026-09-05** (PR #79, #80). vpn6 chạy **derper chuẩn giống vpn4**
+> (derper v1.100.0, tự lo TLS + STUN, handshake DERP trả `101`), thay cho custom relay
 > tcp/udp (relay-vpn6) vốn không hoạt động như DERP thật (trả `426` qua Caddy).
+>
+> **Trạng thái thật trên box:** sslh-mux.service chạy `-F /etc/sslh/sslh.cfg` (rule SNI
+> vpn6 → 127.0.0.1:8444, còn lại → 8443 Caddy, ssh → 22); backup unit cũ ở
+> `/root/backup-sslh-20260905/`. Cert Let's Encrypt cấp qua TLS-ALPN-01 sau ~30s.
+>
+> **Bẫy đã dính khi cutover:** derper chỉ bật TLS/autocert khi địa chỉ nghe là `:443`
+> (`tsweb.IsProd443`). Cấu hình đầu `--a=:8444` làm nó phục vụ plaintext, sslh forward
+> TLS vào bị `wrong version number`. Fix: container nghe `:443`, host publish
+> `127.0.0.1:8444:443`. Test `test_derp_vpn6_nghe_noi_bo_8444` khoá hợp đồng này.
+>
+> **Điều kiện để client thấy region 1003:** node có cờ `exclusive` (khóa cứng 1 DERP)
+> trong dashboard sẽ nhận map CHỈ có region được gán — dựng derper xong vẫn vô hình.
+> 2026-09-05 đã tắt exclusive cho VOTAM-PC và ITOP-THANHHN5 (map union: 1001 home,
+> 1003 dự phòng bị phạt điểm).
 
 ## Bối cảnh cổng trên vpn6 (box memory-stack)
 - **80** = Caddy memory-caddy (HTTP/ACME) — **không đụng**.
