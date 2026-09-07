@@ -1,0 +1,51 @@
+name: DERP handshake baseline
+
+# Do THOI GIAN BAT TAY DERP toi mot derper. Chay TRUOC va SAU khi bat
+# --verify-client-url de biet co do them bao nhieu latency.
+#
+# Vi sao can: verify chay BEN TRONG duong bat tay
+# (derp/derpserver/derpserver.go:1532) voi timeout 5s. Relay o Peru (vpn4) se
+# phai goi ve headscale o VN moi ket noi moi -> day la rui ro R1 trong
+# docs/plan-derp-verify-clients.md.
+#
+# CHI DOC. Khong SSH, khong sua container, khong doi config.
+#
+# Doc so the nao:
+#   - Truoc khi bat co: relay mo -> nodekey ngau nhien bat tay THANH CONG.
+#   - Sau khi bat co:   nodekey ngau nhien BI TU CHOI. Do la ket qua DUNG,
+#     no chung minh cong dang chay. Thoi gian toi luc bi tu choi da bao gom
+#     mot vong verify ve headscale.
+#   - Hieu hai so = chi phi verify ma MOI client hop le cung phai tra.
+
+on:
+  workflow_dispatch:
+    inputs:
+      host:
+        description: "Hostname derper can do"
+        required: false
+        default: "vpn4.hangocthanh.io.vn"
+      n:
+        description: "So lan do"
+        required: false
+        default: "10"
+
+jobs:
+  baseline:
+    name: Do bat tay DERP
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+
+      - name: Build derpdial
+        working-directory: scripts/derpdial
+        run: |
+          go mod tidy
+          go build -o derpdial .
+
+      - name: Do
+        working-directory: scripts/derpdial
+        run: ./derpdial -host "${{ inputs.host }}" -n "${{ inputs.n }}"
