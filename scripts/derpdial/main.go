@@ -9,6 +9,13 @@
 //
 //	derpdial -host vpn4.hangocthanh.io.vn -n 10
 //
+// ⚠️ Do gi moi dung: Connect() THANH CONG khong co nghia la server chap nhan.
+// derper tu choi bang cach dong connection SAU khi da nhan clientInfo
+// (derpserver.go:999), nen Connect() van tra ve nil. Cong cu nay vi vay doc
+// THEM mot frame — server chap nhan thi gui ServerInfo ngay, tu choi thi
+// Recv() bao loi. Do bang Connect() khong thi moi ket noi deu "OK" ke ca khi
+// cong dang chan sach.
+//
 // Luu y ve cach doc so:
 //   - TRUOC khi bat co: relay dang mo -> nodekey ngau nhien bat tay THANH CONG.
 //     So do duoc = TLS + bat tay DERP thuan.
@@ -69,8 +76,31 @@ func main() {
 		ctx, cancel := context.WithTimeout(context.Background(), *timeout)
 		start := time.Now()
 		err = c.Connect(ctx)
-		d := time.Since(start)
 		cancel()
+
+		// ⚠️ Connect() THANH CONG KHONG co nghia la server chap nhan.
+		// derper tu choi client bang cach tra loi tu accept() va DONG connection
+		// (derpserver.go:999) — sau khi client da gui xong clientInfo. Vi vay
+		// Connect() van tra ve nil. Doi bang Connect() thi 100% ket noi deu
+		// "OK" ke ca khi cong dang chan sach.
+		//
+		// Phai doc THEM mot frame: server chap nhan thi gui ServerInfo ngay;
+		// server tu choi thi conn da dong -> Recv() bao loi.
+		if err == nil {
+			type res struct{ err error }
+			ch := make(chan res, 1)
+			go func() {
+				_, e := c.Recv()
+				ch <- res{e}
+			}()
+			select {
+			case r := <-ch:
+				err = r.err
+			case <-time.After(*timeout):
+				err = fmt.Errorf("het gio doi frame dau tien")
+			}
+		}
+		d := time.Since(start)
 		c.Close()
 
 		if err != nil {
@@ -79,7 +109,7 @@ func main() {
 			fmt.Printf("  %2d  %7.1f ms  TU CHOI/LOI  %v\n", i, ms(d), err)
 		} else {
 			okDur = append(okDur, d)
-			fmt.Printf("  %2d  %7.1f ms  OK\n", i, ms(d))
+			fmt.Printf("  %2d  %7.1f ms  OK (nhan duoc frame dau)\n", i, ms(d))
 		}
 		time.Sleep(300 * time.Millisecond)
 	}
