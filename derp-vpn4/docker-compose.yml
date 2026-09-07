@@ -21,7 +21,28 @@ services:
       - --certdir=/data/derper-certs
       - --stun
       - --stun-port=3478
+      # --- KIEM SOAT TRUY CAP (bat 2026-09-07, xem docs/plan-derp-verify-clients.md
+      # trong repo 03.Taile) -----------------------------------------------------
+      # verify-clients=false: KHONG hoi tailscaled cuc bo. Co do can socket
+      # tailscaled nhin thay duoc tu container; tailscaled o day chay NATIVE tren
+      # host nen se phai bind-mount them - bo mat hong khong can thiet.
       - --verify-clients=false
+      # Thay vao do hoi headscale qua admission controller: derper POST nodekey
+      # cua client toi /verify, headscale tra Allow true/false
+      # (hscontrol/handlers.go:97-110). Khong can gi tren host.
+      - --verify-client-url=https://vpn2.hangocthanh.io.vn/verify
+      # PHANH. fail-open=true: headscale khong with toi duoc thi VAN CHO client
+      # qua, kem log "admission controller unreachable"
+      # (derp/derpserver/derpserver.go:1573).
+      #
+      # ⚠️ KHONG doi thanh false ma khong co plan rieng. vpn4 o Peru phai goi ve
+      # headscale o VN; duong Bitel da co tien le rot route toi vpn4. fail-closed
+      # nghia la headscale khong voi toi = relay tu choi SACH toan bo client.
+      #
+      # ⚠️ Verify chay BEN TRONG duong bat tay voi timeout 5s
+      # (derpserver.go:1557). Duong xau = moi ket noi DERP moi stall toi 5s roi
+      # moi duoc fail-open cho qua. Do bang workflow derp-handshake-baseline.yml.
+      - --verify-client-url-fail-open=true
     ports:
       # 80: ACME HTTP-01 cua chinh derper (autocert) — GIU NGUYEN tren host.
       - "80:80"
