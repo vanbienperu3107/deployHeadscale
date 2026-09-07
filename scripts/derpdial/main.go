@@ -44,12 +44,10 @@ func main() {
 		os.Exit(2)
 	}
 
-	netMon, err := netmon.New(func(string, ...any) {})
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "netmon: %v\n", err)
-		os.Exit(1)
-	}
-	defer netMon.Close()
+	// NewStatic: anh chup mot lan trang thai mang, khong theo doi thay doi.
+	// Dung cho CLI ngan han dung nhu doc netmon khuyen (netmon.go:403) —
+	// netmon.New() doi mot eventbus, thua cho viec nay.
+	netMon := netmon.NewStatic()
 
 	url := "https://" + *host + "/derp"
 	fmt.Printf("derper : %s\n", url)
