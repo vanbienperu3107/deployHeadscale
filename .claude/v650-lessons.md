@@ -1,3 +1,6 @@
 - [2026-09-04] CONFIG: Caddyfile bind-mount FILE bi doi inode (sed -i/cp) -> container van doc file cu, reload bao unchanged -> phai docker restart caddy (hoac mount ca thu muc)
 - [2026-09-04] INTEGRATION: drone-ssh 1.8 script_stop chen exit-check TUNG DONG, pha heredoc -> file cau hinh de trong repo + scp-action, script SSH chi dong don
 - [2026-09-04] CONFIG: Caddyfile bind-mount file doi inode -> restart caddy
+- [2026-09-07] CONFIG: derper co HAI co xac thuc doc lap, khong phai mot: --verify-clients (hoi tailscaled cuc bo, fail-closed cung) vs --verify-client-url (hoi admission controller qua HTTP, co --verify-client-url-fail-open). Ten co la CLIENT so it; docs cu ghi --verify-clients-url -> derper chet luc khoi dong
+- [2026-09-07] LOGIC: derphttp Connect() thanh cong KHONG co nghia server chap nhan. derper tu choi bang cach dong conn SAU khi nhan clientInfo (derpserver.go:999) -> Connect() van tra nil. Cong cu do bang Connect() bao 12/12 "OK" ke ca khi cong chan sach. Phai doc them mot frame (Recv) moi phan biet duoc
+- [2026-09-07] LOGIC: doi cong cu do giua lan "truoc" va lan "sau" thi hieu so VO NGHIA. Muon so sanh phai giu nguyen cong cu, hoac lay doi chung tu mot host chua doi
