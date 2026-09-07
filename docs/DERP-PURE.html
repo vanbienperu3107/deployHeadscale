@@ -149,15 +149,25 @@
   </div>
   <div class="note warn">Cần: DNS <code>--hostname</code> trỏ đúng IP VPS, <b>cổng 80 và 443 mở</b> ra Internet. Cert ở volume <code>derper_certs</code> → sống qua restart.</div>
 
-  <h3>F4 — Kiểm soát truy cập (<code>--verify-clients</code>)</h3>
+  <h3>F4 — Kiểm soát truy cập</h3>
+  <div class="note warn">derper có <b>HAI</b> cơ chế xác thực <b>độc lập</b>, không phải một — nhầm chúng là lỗi hay gặp nhất ở mục này (bản docs cũ từng ghi sai tên cờ).</div>
   <table>
-    <thead><tr><th>Giá trị</th><th>Hành vi</th><th>Khi nào dùng</th></tr></thead>
+    <thead><tr><th>Cờ</th><th>Hỏi ai</th><th>Cần gì trên host</th></tr></thead>
     <tbody>
-      <tr><td><code>false</code> <span class="tag t-amber">hiện tại</span></td><td>DERP <b>mở</b> — client nào cũng relay được. Dữ liệu vẫn an toàn (WireGuard E2E).</td><td>đơn giản, hiệu năng, không lộ nội dung</td></tr>
-      <tr><td><code>true</code> + <code>--verify-clients-url=https://vpn2…</code></td><td>derper hỏi headscale: client có thuộc tailnet không → chỉ phục vụ node hợp lệ</td><td>chống lạm dụng băng thông relay bởi node lạ</td></tr>
+      <tr><td><code>--verify-clients</code></td><td><b>tailscaled cục bộ</b> trên chính máy chạy derper</td><td>phải có tailscaled + socket derper nhìn thấy được</td></tr>
+      <tr><td><code>--verify-client-url</code></td><td><b>HTTP admission controller</b> — với headscale là <code>POST /verify</code></td><td>không cần gì</td></tr>
     </tbody>
   </table>
-  <p style="color:var(--muted);font-size:13px">vpn3/vpn4 hiện đặt <code>false</code>. Bật <code>true</code> là <b>thay đổi hành vi</b> → cần plan/duyệt riêng.</p>
+  <p>Tên cờ chính xác là <code>--verify-client-url</code> (<b>số ít</b> <code>client</code>). Ghi <code>--verify-clients-url</code> thì derper <b>chết ngay lúc khởi động</b> (<code>flag provided but not defined</code>).</p>
+  <p>Cờ thứ ba đi kèm: <code>--verify-client-url-fail-open</code> (mặc định <code>true</code>) — không với tới headscale thì <b>vẫn cho client qua</b>, kèm log <code>admission controller unreachable</code>. Đây là cái phanh để rollout an toàn; đặt <code>false</code> là fail-closed tuyệt đối (headscale chết ⇒ relay từ chối sạch).</p>
+  <table>
+    <thead><tr><th>Cấu hình</th><th>Hành vi</th><th>Khi nào dùng</th></tr></thead>
+    <tbody>
+      <tr><td><code>--verify-clients=false</code>, không URL <span class="tag t-amber">hiện tại</span></td><td>DERP <b>mở</b> — client nào cũng relay được. Dữ liệu vẫn an toàn (WireGuard E2E).</td><td>đơn giản, hiệu năng, không lộ nội dung</td></tr>
+      <tr><td><code>--verify-client-url=…/verify</code> + <code>--verify-client-url-fail-open=true</code></td><td>derper hỏi headscale: nodekey này có trong tailnet không → chỉ phục vụ node hợp lệ; headscale không với tới thì cho qua</td><td>chống lạm dụng băng thông relay bởi node lạ, mà không tự bắn vào chân</td></tr>
+    </tbody>
+  </table>
+  <p style="color:var(--muted);font-size:13px"><b>Mọi</b> relay (vpn3/vpn4/vpn5/vpn6) hiện đặt <code>--verify-clients=false</code> và không có <code>--verify-client-url</code> → tất cả đang là relay mở. Muốn siết: xem <code>docs/plan-derp-verify-clients.md</code> (repo 03.Taile), có sẵn workflow <code>verify-preflight.yml</code> để kiểm trước xem node nào sẽ bị chặn. Lưu ý verify chạy <b>trong đường bắt tay</b>, timeout 5s — relay ở Peru (vpn4) phải gọi về headscale ở VN mỗi kết nối mới.</p>
 
   <h3>F5 — Đăng ký vào headscale DERPMap (client học được relay này)</h3>
   <ul>

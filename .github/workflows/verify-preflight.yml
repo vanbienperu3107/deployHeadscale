@@ -1,0 +1,30 @@
+name: DERP verify-clients preflight
+
+# Giai doan 0 + buoc 1.2 cua docs/plan-derp-verify-clients.md.
+#
+# CHI DOC. Khong SSH vao server nao, khong sua container nao, khong doi config.
+# Chi goi HTTP toi headscale de tra loi: bat --verify-client-url co lam node nao
+# mat relay khong.
+#
+# Chay tay. KHONG gan vao CI/deploy - day la buoc kiem chung co chu dich.
+
+on:
+  workflow_dispatch:
+    inputs:
+      hs_url:
+        description: "Base URL cua headscale"
+        required: false
+        default: "https://vpn2.hangocthanh.io.vn"
+
+jobs:
+  preflight:
+    name: Preflight /verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Chay preflight
+        env:
+          HS_URL: ${{ inputs.hs_url }}
+          HS_API_KEY: ${{ secrets.HEADPLANE_HS_API_KEY }}
+        run: python3 scripts/verify-preflight.py
