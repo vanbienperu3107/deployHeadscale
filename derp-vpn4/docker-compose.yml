@@ -21,28 +21,22 @@ services:
       - --certdir=/data/derper-certs
       - --stun
       - --stun-port=3478
-      # --- KIEM SOAT TRUY CAP (bat 2026-09-07, xem docs/plan-derp-verify-clients.md
-      # trong repo 03.Taile) -----------------------------------------------------
-      # verify-clients=false: KHONG hoi tailscaled cuc bo. Co do can socket
-      # tailscaled nhin thay duoc tu container; tailscaled o day chay NATIVE tren
-      # host nen se phai bind-mount them - bo mat hong khong can thiet.
+      # --- KIEM SOAT TRUY CAP: DA TAT LAI 2026-09-08 ---------------------
+      # Bat --verify-client-url ngay 2026-09-07 -> ROLLBACK sau ~10 tieng.
+      #
+      # Trieu chung: MOI client bao region 1001 (vpn4) ok=false du mang thong
+      # (2-38ms), va roi het sang region 1003 (vpn6 Vietnam). votam-pc tu ~35ms
+      # nhay len 731-850ms.
+      #
+      # Nguyen nhan: log derper cho thay ~92 lan tu choi / 400 dong, MOI LAN MOT
+      # NODEKEY KHAC NHAU, cach nhau 3-5s. Do la tham do suc khoe DERP cua client
+      # dung khoa ephemeral, khong phai nodekey that -> headscale /verify tra
+      # Allow=false -> client tuong vpn4 chet -> tu chuyen sang VN.
+      #
+      # ⚠️ KHONG bat lai cho toi khi hieu ro tham do dung khoa gi. Preflight
+      # (verify-preflight.yml) chi kiem nodekey THAT trong headscale nen no PASS
+      # 10/10 va KHONG BAT DUOC loi nay. Xem docs/plan-derp-verify-clients.md.
       - --verify-clients=false
-      # Thay vao do hoi headscale qua admission controller: derper POST nodekey
-      # cua client toi /verify, headscale tra Allow true/false
-      # (hscontrol/handlers.go:97-110). Khong can gi tren host.
-      - --verify-client-url=https://vpn2.hangocthanh.io.vn/verify
-      # PHANH. fail-open=true: headscale khong with toi duoc thi VAN CHO client
-      # qua, kem log "admission controller unreachable"
-      # (derp/derpserver/derpserver.go:1573).
-      #
-      # ⚠️ KHONG doi thanh false ma khong co plan rieng. vpn4 o Peru phai goi ve
-      # headscale o VN; duong Bitel da co tien le rot route toi vpn4. fail-closed
-      # nghia la headscale khong voi toi = relay tu choi SACH toan bo client.
-      #
-      # ⚠️ Verify chay BEN TRONG duong bat tay voi timeout 5s
-      # (derpserver.go:1557). Duong xau = moi ket noi DERP moi stall toi 5s roi
-      # moi duoc fail-open cho qua. Do bang workflow derp-handshake-baseline.yml.
-      - --verify-client-url-fail-open=true
     ports:
       # 80: ACME HTTP-01 cua chinh derper (autocert) — GIU NGUYEN tren host.
       - "80:80"
