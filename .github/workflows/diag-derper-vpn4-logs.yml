@@ -1,0 +1,72 @@
+name: Diag derper vpn4 logs
+
+# CHI DOC. Doc log container derper tren vpn4 de xem co client nao bi tu choi
+# khong, va admission controller (headscale /verify) co with toi duoc khong.
+#
+# Dung khi nghi verify-client-url dang chan nham client that.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tail:
+        description: "So dong log cuoi can doc"
+        required: false
+        default: "400"
+
+jobs:
+  diag:
+    name: Log derper vpn4
+    runs-on: ubuntu-latest
+    steps:
+      - name: SSH vpn4 va doc log
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SSH_HOST_VPN4 }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT || '22' }}
+          command_timeout: 10m
+          envs: TAILN
+          script_stop: true
+          script: |
+            set -e
+            if [ "$(id -u)" -ne 0 ]; then SUDO="sudo"; else SUDO=""; fi
+
+            echo "===================================================="
+            echo "1. CO DANG CHAY VOI CO VERIFY KHONG"
+            echo "===================================================="
+            $SUDO docker inspect derper --format '{{join .Config.Cmd " "}}' || true
+
+            echo ""
+            echo "===================================================="
+            echo "2. DEM SU KIEN TRONG ${TAILN} DONG LOG CUOI"
+            echo "===================================================="
+            $SUDO docker logs --tail "${TAILN}" derper 2>&1 | grep -c "rejected" || echo "0 dong 'rejected'"
+            $SUDO docker logs --tail "${TAILN}" derper 2>&1 | grep -c "admission controller unreachable" || echo "0 dong 'unreachable'"
+
+            echo ""
+            echo "===================================================="
+            echo "3. CAC DONG 'rejected' (toi da 40)"
+            echo "===================================================="
+            $SUDO docker logs --tail "${TAILN}" derper 2>&1 | grep "rejected" | tail -40 || echo "(khong co)"
+
+            echo ""
+            echo "===================================================="
+            echo "4. CAC DONG 'admission controller' (toi da 20)"
+            echo "===================================================="
+            $SUDO docker logs --tail "${TAILN}" derper 2>&1 | grep "admission controller" | tail -20 || echo "(khong co)"
+
+            echo ""
+            echo "===================================================="
+            echo "5. 60 DONG LOG CUOI (nguyen van)"
+            echo "===================================================="
+            $SUDO docker logs --tail 60 derper 2>&1 || true
+
+            echo ""
+            echo "===================================================="
+            echo "6. TU VPN4 CO GOI DUOC headscale /verify KHONG"
+            echo "   (dung tu trong container derper - dung netns cua no)"
+            echo "===================================================="
+            $SUDO docker exec derper sh -c 'wget -qO- --timeout=10 --post-data="{\"NodePublic\":\"nodekey:0000000000000000000000000000000000000000000000000000000000000000\",\"Source\":\"1.2.3.4\"}" --header="Content-Type: application/json" https://vpn2.hangocthanh.io.vn/verify' 2>&1 || echo "GOI THAT BAI tu trong container derper"
+        env:
+          TAILN: ${{ inputs.tail }}
