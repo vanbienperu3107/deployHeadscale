@@ -9,12 +9,25 @@ name: Auto-update CLIProxyAPI
 #
 # Cach chay: moi tuan (va bam tay duoc) —
 #   1. Hoi Docker Hub tag vX.Y.Z moi nhat.
-#   2. So voi repo variable CLIPROXY_DEPLOYED_TAG (tag da deploy lan truoc).
+#   2. So voi tag ANH DANG CHAY tren vpn4 (`docker inspect` container cliproxy).
 #   3. Khac nhau -> dispatch workflow "Deploy CLIProxyAPI (vpn4)" voi tag moi
 #      (deploy da co san verify 401/200 + smoke test completion tieng Viet;
 #      auths/ giu nguyen nen KHONG mat dang nhap Claude/Codex).
-#   4. Deploy xanh -> ghi lai variable. Deploy do -> variable giu nguyen, tuan
-#      sau thu lai; rollback thu cong: bam deploy voi tag cu.
+#   4. Deploy do -> tuan sau thu lai; rollback thu cong: bam deploy voi tag cu.
+#
+# VI SAO KHONG CON DUNG repo variable CLIPROXY_DEPLOYED_TAG (sua 2026-09-09):
+#
+# GITHUB_TOKEN khong doc va khong ghi duoc Actions variables — `permissions:
+# actions: write` KHONG cap quyen do. Ca hai loi goi deu tra 403 "Resource not
+# accessible by integration". Buoc ghi thi bao do ro rang, nhung buoc DOC thi
+# hong AM THAM: `gh api ... --jq .value` in nguyen cuc JSON loi ra stdout, nen
+# CURRENT thanh chuoi JSON do va KHONG BAO GIO bang $LATEST -> changed=true moi
+# tuan -> deploy lai cliproxy du khong co ban moi, restart container va lam rot
+# request dang chay. Do duoc o run 34372896469.
+#
+# Bien do cung la mot BAN SAO cua trang thai that, va no da lech that: variable
+# ghi v7.2.149 trong khi vpn4 dang chay v7.2.152. Nguon su that duy nhat la anh
+# dang chay tren may. Hoi thang may thi khong can quyen gi them, va khong the lech.
 #
 # Luu y: viec restart container lam rot request dang chay do — nen cron dat
 # 10:00 UTC Chu nhat (05:00 sang gio Peru, it nguoi dung).
@@ -24,7 +37,7 @@ on:
   workflow_dispatch: {}
 
 permissions:
-  actions: write
+  contents: read
 
 concurrency:
   group: deploy-vpn4-host-autoupdate
@@ -45,14 +58,34 @@ jobs:
           echo "latest=$LATEST" >> "$GITHUB_OUTPUT"
           echo "Tag moi nhat: $LATEST"
 
-      - name: So voi tag da deploy
+      # Hoi thang vpn4 xem no DANG chay anh nao. Khong dung repo variable nua —
+      # xem chu thich dau file. `script_stop: true` de loi SSH la do that, khong
+      # phai chuoi rong roi bi hieu nham thanh "co ban moi".
+      - name: Lay tag dang chay tren vpn4
+        id: running
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SSH_HOST_VPN4 }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT || '22' }}
+          script_stop: true
+          capture_stdout: true
+          script: |
+            docker inspect -f '{{.Config.Image}}' cliproxy
+
+      - name: So voi tag dang chay
         id: cmp
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           LATEST: ${{ steps.hub.outputs.latest }}
+          RUNNING_IMAGE: ${{ steps.running.outputs.stdout }}
         run: |
-          CURRENT=$(gh api "repos/${GITHUB_REPOSITORY}/actions/variables/CLIPROXY_DEPLOYED_TAG" --jq .value 2>/dev/null || echo "")
-          echo "Da deploy: ${CURRENT:-<chua ghi>} | Moi nhat: $LATEST"
+          # Boc lay ENG tag tu stdout cua ssh-action: no co the kem dong phu
+          # (banner, dong ket thuc), nen cat theo mau vX.Y.Z chu khong cat theo
+          # dau ':' cua ca chuoi.
+          CURRENT=$(printf '%s' "$RUNNING_IMAGE" | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | tail -1)
+          echo "Dang chay: ${CURRENT:-<khong doc duoc>} | Moi nhat: $LATEST"
+          test -n "$CURRENT"
           if [ "$CURRENT" = "$LATEST" ]; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
             echo "Khong co ban moi — bo qua."
@@ -73,15 +106,23 @@ jobs:
           echo "Theo doi run $RUN_ID"
           gh run watch "$RUN_ID" --repo "$GITHUB_REPOSITORY" --exit-status --interval 30
 
-      - name: Ghi lai tag da deploy
+      # Thay cho buoc "ghi lai variable" cu: doc lai tu may that.
+      #
+      # Ghi mot con so vao variable chi noi rang ta TIN la da deploy xong; doc lai
+      # anh dang chay noi rang no DA chay that. Va vi lan sau cung so bang chinh
+      # phep doc nay, khong con cho nao de hai ban ghi lech nhau.
+      - name: Xac minh vpn4 da chay tag moi
         if: steps.cmp.outputs.changed == 'true'
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SSH_HOST_VPN4 }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT || '22' }}
+          script_stop: true
+          envs: LATEST
+          script: |
+            docker inspect -f '{{.Config.Image}}' cliproxy
+            docker inspect -f '{{.Config.Image}}' cliproxy | grep -q ":$LATEST$"
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           LATEST: ${{ steps.hub.outputs.latest }}
-        run: |
-          if gh api "repos/${GITHUB_REPOSITORY}/actions/variables/CLIPROXY_DEPLOYED_TAG" >/dev/null 2>&1; then
-            gh api -X PATCH "repos/${GITHUB_REPOSITORY}/actions/variables/CLIPROXY_DEPLOYED_TAG" -f name=CLIPROXY_DEPLOYED_TAG -f value="$LATEST"
-          else
-            gh api -X POST "repos/${GITHUB_REPOSITORY}/actions/variables" -f name=CLIPROXY_DEPLOYED_TAG -f value="$LATEST"
-          fi
-          echo "CLIPROXY_DEPLOYED_TAG = $LATEST"
