@@ -58,11 +58,22 @@ jobs:
           echo "latest=$LATEST" >> "$GITHUB_OUTPUT"
           echo "Tag moi nhat: $LATEST"
 
-      # Hoi thang vpn4 xem no DANG chay anh nao. Khong dung repo variable nua —
-      # xem chu thich dau file. `script_stop: true` de loi SSH la do that, khong
-      # phai chuoi rong roi bi hieu nham thanh "co ban moi".
-      - name: Lay tag dang chay tren vpn4
-        id: running
+      # HAI step, va su phan cong giua chung la co y.
+      #
+      # appleboy/ssh-action@v1.2.0 KHONG co `capture_stdout` — input do chi ton
+      # tai o ban moi hon (README tren nhanh master mo ta no, nhung ban duoc pin
+      # o day thi khong; runner chi keu mot dong ##[warning] "Unexpected input"
+      # roi chay tiep, output rong, va buoc sau chet vi ly do trong khong lien
+      # quan). Do duoc o run 34382779241.
+      #
+      # Nen ta khong mang chuoi ve runner nua, ma de vpn4 TU SO SANH va tra loi
+      # bang exit code. Kenh dan ket qua ve la `steps.cmp.outcome`.
+      #
+      # Step 1 khong `continue-on-error`: SSH hong, container chet, docker loi —
+      # tat ca deu phai la DO THAT o day, va deu dung workflow. Nho vay khi sang
+      # step 2 thi ta da BIET la SSH thong va `docker inspect` chay duoc, nen
+      # `failure` cua no chi con MOT nghia duy nhat: tag khac nhau.
+      - name: Doc anh cliproxy dang chay tren vpn4
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.SSH_HOST_VPN4 }}
@@ -70,31 +81,32 @@ jobs:
           key: ${{ secrets.SSH_KEY }}
           port: ${{ secrets.SSH_PORT || '22' }}
           script_stop: true
-          capture_stdout: true
           script: |
             docker inspect -f '{{.Config.Image}}' cliproxy
 
-      - name: So voi tag dang chay
+      - name: So voi tag moi nhat
         id: cmp
+        continue-on-error: true
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SSH_HOST_VPN4 }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT || '22' }}
+          script_stop: true
+          envs: LATEST
+          script: |
+            docker inspect -f '{{.Config.Image}}' cliproxy | grep -q ":$LATEST$"
         env:
           LATEST: ${{ steps.hub.outputs.latest }}
-          RUNNING_IMAGE: ${{ steps.running.outputs.stdout }}
+
+      - name: Ket luan
         run: |
-          # Boc lay ENG tag tu stdout cua ssh-action: no co the kem dong phu
-          # (banner, dong ket thuc), nen cat theo mau vX.Y.Z chu khong cat theo
-          # dau ':' cua ca chuoi.
-          CURRENT=$(printf '%s' "$RUNNING_IMAGE" | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | tail -1)
-          echo "Dang chay: ${CURRENT:-<khong doc duoc>} | Moi nhat: $LATEST"
-          test -n "$CURRENT"
-          if [ "$CURRENT" = "$LATEST" ]; then
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-            echo "Khong co ban moi — bo qua."
-          else
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-          fi
+          echo "So sanh tren vpn4: ${{ steps.cmp.outcome }} (success = dang chay dung tag moi nhat)"
+          test "${{ steps.cmp.outcome }}" != "success" || echo "Khong co ban moi — bo qua."
 
       - name: Dispatch deploy voi tag moi va cho ket qua
-        if: steps.cmp.outputs.changed == 'true'
+        if: steps.cmp.outcome == 'failure'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           LATEST: ${{ steps.hub.outputs.latest }}
@@ -112,7 +124,7 @@ jobs:
       # anh dang chay noi rang no DA chay that. Va vi lan sau cung so bang chinh
       # phep doc nay, khong con cho nao de hai ban ghi lech nhau.
       - name: Xac minh vpn4 da chay tag moi
-        if: steps.cmp.outputs.changed == 'true'
+        if: steps.cmp.outcome == 'failure'
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.SSH_HOST_VPN4 }}
