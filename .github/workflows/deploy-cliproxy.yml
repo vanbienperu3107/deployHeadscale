@@ -51,7 +51,7 @@ jobs:
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_KEY }}
           port: ${{ secrets.SSH_PORT || '22' }}
-          envs: DEPLOY_PATH,REPO_URL,DEPLOY_REF,CLIPROXY_API_KEY,CLIPROXY_MGMT_KEY,CLIPROXY_IMAGE,DEBUG_LOGGING
+          envs: DEPLOY_PATH,REPO_URL,DEPLOY_REF,CLIPROXY_API_KEY,CLIPROXY_MGMT_KEY,CLIPROXY_IMAGE,DEBUG_LOGGING,CHAT_HISTORY_DSN,PG_REMOTE_HOST,SSH_HOST_VPN6,GHCR_PAT
           script_stop: true
           command_timeout: 15m
           script: |
@@ -86,8 +86,8 @@ jobs:
             # do se roi thang vao than heredoc va lam python bao SyntaxError.
             # Moi lenh phai gon trong dung MOT dong. (test_cliproxy_config.py chan
             # heredoc quay lai file nay.)
-            python3 -c "import os,pathlib;t=pathlib.Path('config.template.yaml').read_text();p=pathlib.Path('config.yaml');p.write_text(t.replace('__API_KEY__',os.environ['CLIPROXY_API_KEY']).replace('__MANAGEMENT_KEY__',os.environ['CLIPROXY_MGMT_KEY']));p.chmod(0o600);print('  config.yaml da ghi:',p.stat().st_size,'bytes')"
-            if grep -q '__API_KEY__\|__MANAGEMENT_KEY__' config.yaml; then
+            python3 -c "import os,pathlib;t=pathlib.Path('config.template.yaml').read_text();p=pathlib.Path('config.yaml');p.write_text(t.replace('__API_KEY__',os.environ['CLIPROXY_API_KEY']).replace('__MANAGEMENT_KEY__',os.environ['CLIPROXY_MGMT_KEY']).replace('__CHAT_HISTORY_DSN__',os.environ.get('CHAT_HISTORY_DSN','')));p.chmod(0o600);print('  config.yaml da ghi:',p.stat().st_size,'bytes')"
+            if grep -q '__API_KEY__\|__MANAGEMENT_KEY__\|__CHAT_HISTORY_DSN__' config.yaml; then
               echo "::error::config.yaml van con placeholder — secret rong?"
               exit 1
             fi
@@ -107,6 +107,23 @@ jobs:
             # Compose dung ${CLIPROXY_TAILNET_IP:-127.0.0.2}: mac dinh loopback de CI
             # tren runner (khong co tailnet) van up duoc; tren vpn4 thi ghi IP that.
             printf 'CLIPROXY_TAILNET_IP=%s\n' "100.64.0.4" >> .env
+            # Duong ham Postgres cho lich su chat: IP container derp-postgres tren
+            # vpn6 (user pgtunnel chi permitopen dung IP nay) + host vpn6.
+            printf 'PG_REMOTE_HOST=%s\n' "${PG_REMOTE_HOST:-172.21.0.2}" >> .env
+            printf 'SSH_HOST_VPN6=%s\n' "${SSH_HOST_VPN6:-45.119.87.220}" >> .env
+
+            # Khoa duong ham: dung LAI khoa pgtunnel da co tren may (stack opencode).
+            # Khong dua them mot ban sao khoa rieng qua GitHub secrets - moi ban sao
+            # la mot cho co the ro ri. Chi copy khi ben nay chua co.
+            mkdir -p keys
+            chmod 700 keys
+            test -s keys/pg_tunnel_key || cp /opt/opencode/keys/pg_tunnel_key keys/pg_tunnel_key 2>/dev/null || true
+            test -s keys/known_hosts || cp /opt/opencode/keys/known_hosts keys/known_hosts 2>/dev/null || true
+            chmod 600 keys/pg_tunnel_key 2>/dev/null || true
+            echo "  khoa duong ham: $(test -s keys/pg_tunnel_key && echo 'da co' || echo 'THIEU -> lich su chat khong ghi duoc')"
+            # Anh cua fork nam tren GHCR (private) - phai dang nhap truoc khi keo.
+            # Anh cu cua upstream o Docker Hub la public nen buoc nay truoc day khong can.
+            echo "$GHCR_PAT" | $SUDO docker login ghcr.io -u vanbienperu3107 --password-stdin
             $SUDO docker compose pull
 
             # cliproxy nam tren mang 'edge' de Caddy (stack edge-vpn4, phuc vu
@@ -144,8 +161,15 @@ jobs:
           DEPLOY_REF: ${{ github.ref_name }}
           CLIPROXY_API_KEY: ${{ secrets.CLIPROXY_API_KEY }}
           CLIPROXY_MGMT_KEY: ${{ secrets.CLIPROXY_MGMT_KEY }}
-          CLIPROXY_IMAGE: ${{ github.event.inputs.image_tag && format('eceasy/cli-proxy-api:{0}', github.event.inputs.image_tag) || '' }}
+          CLIPROXY_IMAGE: ${{ github.event.inputs.image_tag && format('ghcr.io/vanbienperu3107/cliproxy_mod:{0}', github.event.inputs.image_tag) || '' }}
           DEBUG_LOGGING: ${{ github.event.inputs.debug_logging || 'false' }}
+          # Lich su chat. DSN rong => tinh nang tu tat, deploy van chay binh thuong.
+          CHAT_HISTORY_DSN: ${{ secrets.CHAT_HISTORY_DSN }}
+          # IP container derp-postgres tren vpn6: user pgtunnel chi duoc
+          # permitopen dung IP nay, doi IP thi duong ham gay.
+          PG_REMOTE_HOST: ${{ vars.PG_REMOTE_HOST || '172.21.0.2' }}
+          SSH_HOST_VPN6: ${{ secrets.SSH_HOST_VPN6 }}
+          GHCR_PAT: ${{ secrets.GHCR_PAT }}
 
       - name: Verify tu Internet (runner goi vao 28417 cua vpn4)
         env:

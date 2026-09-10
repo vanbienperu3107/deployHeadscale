@@ -50,6 +50,9 @@ services:
       # Mang dung chung de Caddy cua stack edge-vpn4 goi toi cliproxy:8317 khi
       # phuc vu https://cliproxy.hangocthanh.io.vn (cong 443).
       - edge
+      # Mang rieng de noi toi duong ham Postgres (lich su chat). Tach khoi `edge`
+      # de Caddy va derper khong nhin thay duong ham nay.
+      - chatdb
     volumes:
       # config.yaml do workflow sinh tu secrets (khong commit vao repo).
       - ./config.yaml:/CLIProxyAPI/config.yaml
@@ -76,7 +79,52 @@ services:
         max-size: "10m"
         max-file: "3"
 
+  # Duong ham SSH toi Postgres tren vpn6, cho tinh nang lich su chat.
+  #
+  # Vi sao khong noi thang: derp-postgres chi lang nghe trong mang docker cua vpn6,
+  # khong phoi ra Internet — va dung vay. Khuon nay sao lai y het
+  # `opencode-pg-tunnel` da chay on dinh tren chinh may nay.
+  #
+  # Rang buoc da biet: user `pgtunnel` tren vpn6 co
+  # `permitopen="172.21.0.2:5432"`, tuc IP CONTAINER cua derp-postgres. Neu vpn6
+  # tao lai container do va IP doi, duong ham nay (va ca cua opencode) se gay —
+  # trieu chung la ket noi bi tu choi ngay tu vpn6, khong phai loi cau hinh ben nay.
+  cliproxy-pg-tunnel:
+    image: ${PG_TUNNEL_IMAGE:-ghcr.io/vanbienperu3107/pg-tunnel:3bfbbdbacd678b599b04fff2d45ac7cfd164f94c}
+    container_name: cliproxy-pg-tunnel
+    restart: unless-stopped
+    command: >
+      autossh -M 0 -N
+      -o ServerAliveInterval=15
+      -o ServerAliveCountMax=3
+      -o ExitOnForwardFailure=yes
+      -o StrictHostKeyChecking=yes
+      -o UserKnownHostsFile=/keys/known_hosts
+      -i /keys/pg_tunnel_key
+      -L 0.0.0.0:5432:${PG_REMOTE_HOST:-172.21.0.2}:5432
+      pgtunnel@${SSH_HOST_VPN6:-45.119.87.220}
+    volumes:
+      # Khoa rieng cua stack nay. Workflow deploy bootstrap tu /opt/opencode/keys
+      # neu chua co, de khong phai dua them mot ban sao khoa rieng qua GitHub secrets.
+      - ./keys:/keys:ro
+    networks:
+      - chatdb
+    mem_limit: 64m
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 5432 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "2"
+
 networks:
   edge:
     name: edge
     external: true
+  chatdb:
+    name: cliproxy_chatdb
