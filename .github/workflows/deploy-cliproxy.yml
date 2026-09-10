@@ -51,7 +51,7 @@ jobs:
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_KEY }}
           port: ${{ secrets.SSH_PORT || '22' }}
-          envs: DEPLOY_PATH,REPO_URL,DEPLOY_REF,CLIPROXY_API_KEY,CLIPROXY_MGMT_KEY,CLIPROXY_IMAGE,DEBUG_LOGGING,CHAT_HISTORY_DSN,PG_REMOTE_HOST,SSH_HOST_VPN6,GHCR_PAT
+          envs: DEPLOY_PATH,REPO_URL,DEPLOY_REF,CLIPROXY_API_KEY,CLIPROXY_MGMT_KEY,CLIPROXY_IMAGE,DEBUG_LOGGING,CHAT_HISTORY_DSN,PG_REMOTE_HOST,SSH_HOST_VPN6
           script_stop: true
           command_timeout: 15m
           script: |
@@ -121,9 +121,8 @@ jobs:
             test -s keys/known_hosts || cp /opt/opencode/keys/known_hosts keys/known_hosts 2>/dev/null || true
             chmod 600 keys/pg_tunnel_key 2>/dev/null || true
             echo "  khoa duong ham: $(test -s keys/pg_tunnel_key && echo 'da co' || echo 'THIEU -> lich su chat khong ghi duoc')"
-            # Anh cua fork nam tren GHCR (private) - phai dang nhap truoc khi keo.
-            # Anh cu cua upstream o Docker Hub la public nen buoc nay truoc day khong can.
-            echo "$GHCR_PAT" | $SUDO docker login ghcr.io -u vanbienperu3107 --password-stdin
+            # Package ghcr.io/vanbienperu3107/cliproxy_mod da dat PUBLIC (2026-09-10):
+            # khong can dang nhap. Secret GHCR_PAT cu da bi registry tu choi.
             $SUDO docker compose pull
 
             # cliproxy nam tren mang 'edge' de Caddy (stack edge-vpn4, phuc vu
@@ -169,7 +168,6 @@ jobs:
           # permitopen dung IP nay, doi IP thi duong ham gay.
           PG_REMOTE_HOST: ${{ vars.PG_REMOTE_HOST || '172.21.0.2' }}
           SSH_HOST_VPN6: ${{ secrets.SSH_HOST_VPN6 }}
-          GHCR_PAT: ${{ secrets.GHCR_PAT }}
 
       - name: Verify tu Internet (runner goi vao 28417 cua vpn4)
         env:
