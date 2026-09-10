@@ -42,6 +42,38 @@ commercial-mode: true
 logging-to-file: false
 error-logs-max-files: 10
 
+# Lich su chat, ghi vao Postgres tren vpn6 (schema chat_history trong DB derp).
+#
+# Tinh nang RIENG cua fork vanbienperu3107/cliproxy_mod, khong co o ban upstream.
+#
+# Doc ky quan he voi commercial-mode o tren: co nay CO Y khong tat commercial-mode.
+# Upstream chan ca duong ghi log khi commercial-mode bat; fork noi dung mot cong do
+# cho lich su chat, nen cac middleware nang khac VAN TAT nhu tu sau su co 02/08.
+#
+# max-capture-bytes la thu giu cho su co do khong lap lai: khi mot RequestLogger
+# duoc bat, upstream capture than request KHONG CO TRAN (shouldCaptureRequestBody
+# tra true vo dieu kien, captureRequestInfo doc het vao RAM) — cac hang 1MiB/32MiB
+# va co che spool ra dia cua no chi ap dung khi logger TAT. Fork ap tran ngay o
+# middleware: doc toi da tran+1 byte cho log roi noi phan con lai vao than that,
+# nen mot request 57MB chi ton bang tran chu khong phai 57MB.
+#
+# dsn tro toi container duong ham (cliproxy-pg-tunnel), khong phai vpn6 truc tiep.
+chat-history:
+  enabled: true
+  dsn: "__CHAT_HISTORY_DSN__"
+  max-capture-bytes: 1048576
+  queue-size: 512
+  retention-days: 90
+  # Chi ghi cac endpoint hoi thoai. Neu de trong, upstream se dua MOI route (tru
+  # /v0/management) vao logger kem toan bo header.
+  paths:
+    - /v1/chat/completions
+    - /v1/messages
+    - /v1/responses
+  # Ghi them request/response THAT gui len provider (sau khi dich giao thuc, moi
+  # lan retry). Tat di neu muon giam bo nho moi request.
+  capture-upstream: true
+
 # Thong ke dung luong cho Management API.
 usage-statistics-enabled: true
 

@@ -1,0 +1,83 @@
+name: Migrate chat-history (vpn6)
+
+# Tao schema chat_history trong database `derp` tren vpn6, va dat mat khau cho
+# role cliproxy_chat.
+#
+# Vi sao TACH khoi deploy-cliproxy.yml: day la thay doi luoc do tren mot database
+# dang phuc vu dashboard + headscale. No phai duoc bam tay, doc log, roi moi
+# deploy proxy - khong dinh kem vao mot workflow chay thuong xuyen.
+#
+# Migration viet idempotent nen chay lai nhieu lan khong hong.
+on:
+  workflow_dispatch:
+    inputs:
+      run_retention:
+        description: "Chay luon buoc don du lieu qua 90 ngay"
+        required: false
+        default: "false"
+        type: choice
+        options: ["false", "true"]
+
+concurrency:
+  group: migrate-chat-history
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  migrate:
+    name: Ap dung migration tren derp-postgres
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Kiem secret bat buoc
+        env:
+          PGPASS: ${{ secrets.CHAT_HISTORY_PG_PASSWORD }}
+        run: |
+          if [ -z "$PGPASS" ]; then
+            echo "::error::Thieu secret CHAT_HISTORY_PG_PASSWORD (mat khau role cliproxy_chat)"; exit 1
+          fi
+          echo "OK"
+
+      # Copy file SQL len vpn6 truoc: ssh-action chen mot dong kiem exit code sau
+      # MOI dong script, nen khong the dua noi dung SQL qua heredoc.
+      - name: Copy SQL len vpn6
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SSH_HOST_VPN6 }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY_VPN6 || secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT || '22' }}
+          source: "cliproxy/sql/*.sql"
+          target: "/tmp/chat-history-${{ github.run_id }}"
+          strip_components: 2
+
+      - name: Ap dung luoc do
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SSH_HOST_VPN6 }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY_VPN6 || secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT || '22' }}
+          script_stop: true
+          envs: PGPASS,RUN_RETENTION,GITHUB_RUN_ID
+          script: |
+            set -x
+            exec 9>/var/lock/vpn6-chat-history
+            flock -w 300 9 || exit 1
+            test -s /tmp/chat-history-$GITHUB_RUN_ID/001_chat_history.sql
+            docker cp /tmp/chat-history-$GITHUB_RUN_ID/001_chat_history.sql derp-postgres:/tmp/001_chat_history.sql
+            docker exec derp-postgres psql -U derp -d derp -v ON_ERROR_STOP=1 -f /tmp/001_chat_history.sql
+            docker exec -e PGPASS="$PGPASS" derp-postgres psql -U derp -d derp -v ON_ERROR_STOP=1 -c "ALTER ROLE cliproxy_chat WITH LOGIN PASSWORD '$PGPASS'"
+            docker exec derp-postgres psql -U derp -d derp -tAc "SELECT 'bang: ' || table_name FROM information_schema.tables WHERE table_schema = 'chat_history' ORDER BY table_name"
+            docker exec derp-postgres psql -U derp -d derp -tAc "SELECT 'so luot da luu: ' || count(*) FROM chat_history.chat_turns"
+            test "${RUN_RETENTION:-false}" = "true" && docker cp /tmp/chat-history-$GITHUB_RUN_ID/002_chat_history_retention.sql derp-postgres:/tmp/002_chat_history_retention.sql || true
+            test "${RUN_RETENTION:-false}" = "true" && docker exec derp-postgres psql -U derp -d derp -v ON_ERROR_STOP=1 -f /tmp/002_chat_history_retention.sql || true
+            rm -rf /tmp/chat-history-$GITHUB_RUN_ID
+        env:
+          PGPASS: ${{ secrets.CHAT_HISTORY_PG_PASSWORD }}
+          RUN_RETENTION: ${{ github.event.inputs.run_retention || 'false' }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
