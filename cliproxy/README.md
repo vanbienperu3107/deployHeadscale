@@ -57,7 +57,7 @@ Secrets cần có trong repo:
 | Secret | Ý nghĩa |
 |---|---|
 | `CLIPROXY_API_KEY` | Key client phải gửi kèm khi gọi 28417 |
-| `CLIPROXY_MGMT_KEY` | Key của Management API (`/v0/management`, chỉ localhost) |
+| `CLIPROXY_MGMT_KEY` | Key của Management API (`/v0/management`) và mật khẩu đăng nhập trang quản trị `/management.html` |
 | `SSH_HOST_VPN4`, `SSH_USER`, `SSH_KEY`, `SSH_PORT`, `DEPLOY_PATH` | đã có sẵn, dùng chung với các stack vpn4 khác |
 
 ```bash
@@ -153,9 +153,12 @@ Theo thứ tự đáng làm:
 3. **Bật TLS**: đặt cert/key vào `cliproxy/` rồi sửa `tls.enable: true` trong
    `config.template.yaml`. Không dùng chung cert của derper được vì derper giữ
    autocert cache riêng và tự gia hạn.
-4. **Management API**: đang `allow-remote: false` → chỉ gọi được từ chính vpn4
-   (`curl -H "Authorization: Bearer $CLIPROXY_MGMT_KEY" http://127.0.0.1:28417/v0/management/...`).
-   Đừng bật `allow-remote` khi chưa có TLS.
+4. **Management API + trang quản trị**: `allow-remote: true`, `disable-control-panel: false`
+   (từ 2026-09-10). Mở `https://cliproxy.hangocthanh.io.vn/management.html`, đăng nhập bằng
+   `CLIPROXY_MGMT_KEY`. Lần truy cập đầu proxy tự tải `management.html` từ GitHub về
+   `/CLIProxyAPI/static` (container cần ra Internet). Sai key 5 lần → IP bị ban 30 phút.
+   Chỉ bật `allow-remote` khi đi qua TLS (đường 443 qua caddy-edge); đổi key = xoay secret
+   rồi chạy lại `deploy-cliproxy.yml`. Muốn đóng lại: đặt về `false`/`true` và deploy.
 
 ## 7. Vận hành
 

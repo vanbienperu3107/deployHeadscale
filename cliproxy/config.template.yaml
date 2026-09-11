@@ -16,13 +16,14 @@ tls:
   cert: ""
   key: ""
 
-# Management API (/v0/management): chi cho phep tu localhost cua vpn4 (qua SSH),
-# khong mo ra Internet. secret-key rong => tat han API nay.
+# Management API (/v0/management) + trang quan tri /management.html: mo ra Internet
+# qua https://cliproxy.hangocthanh.io.vn/management.html, bao ve bang secret-key
+# (CLIPROXY_MGMT_KEY; sai 5 lan => ban IP 30 phut). secret-key rong => tat han API nay.
 remote-management:
-  allow-remote: false
+  allow-remote: true
   secret-key: "__MANAGEMENT_KEY__"
-  # Khong tai control panel tu GitHub ve server (tiet kiem RAM/dia, giam be mat tan cong).
-  disable-control-panel: true
+  # Tai control panel tu GitHub ve lan dau truy cap /management.html.
+  disable-control-panel: false
 
 # Thu muc token OAuth — trung voi bind mount ./auths trong docker-compose.yml.
 auth-dir: "/root/.cli-proxy-api"
