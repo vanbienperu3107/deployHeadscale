@@ -89,6 +89,10 @@ services:
   # `permitopen="172.21.0.2:5432"`, tuc IP CONTAINER cua derp-postgres. Neu vpn6
   # tao lai container do va IP doi, duong ham nay (va ca cua opencode) se gay —
   # trieu chung la ket noi bi tu choi ngay tu vpn6, khong phai loi cau hinh ben nay.
+  # Duong ham di qua tailnet (100.64.0.7 = vpn6) thay vi IP public: tuyen public
+  # VN<->Peru hay rot va sshd vpn6 bi brute-force den muc MaxStartups throttling.
+  # HostKeyAlias giu known_hosts cu (khoa host y het). Quay lai IP public: dat
+  # PG_TUNNEL_HOST=45.119.87.220 trong .env roi compose up.
   cliproxy-pg-tunnel:
     image: ${PG_TUNNEL_IMAGE:-ghcr.io/vanbienperu3107/pg-tunnel:3bfbbdbacd678b599b04fff2d45ac7cfd164f94c}
     container_name: cliproxy-pg-tunnel
@@ -100,9 +104,10 @@ services:
       -o ExitOnForwardFailure=yes
       -o StrictHostKeyChecking=yes
       -o UserKnownHostsFile=/keys/known_hosts
+      -o HostKeyAlias=45.119.87.220
       -i /keys/pg_tunnel_key
       -L 0.0.0.0:5432:${PG_REMOTE_HOST:-172.21.0.2}:5432
-      pgtunnel@${SSH_HOST_VPN6:-45.119.87.220}
+      pgtunnel@${PG_TUNNEL_HOST:-100.64.0.7}
     volumes:
       # Khoa rieng cua stack nay. Workflow deploy bootstrap tu /opt/opencode/keys
       # neu chua co, de khong phai dua them mot ban sao khoa rieng qua GitHub secrets.
