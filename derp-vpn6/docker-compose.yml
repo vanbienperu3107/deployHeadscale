@@ -50,24 +50,10 @@ services:
   # se dung LAI mot node trung hostname "vpn6" va tranh socket.
   # Xem docs/plan-linux-node-vpn6-vpn4.md.
 
-  # Ping-reporter: moi 30s ping tung peer, POST ket qua len collector voi src='vpn6'.
-  ping-reporter:
-    image: python:3.12-slim
-    container_name: ping-reporter-vpn6
-    restart: unless-stopped
-    # network_mode: host -> dung thang tailscale0 cua host.
-    network_mode: host
-    command: ["python3", "/app/reporter.py"]
-    environment:
-      - REPORTER_NAME=vpn6
-      - TS_SOCKET=/var/run/tailscale/tailscaled.sock
-      - POLL_INTERVAL=30
-      - COLLECTOR_PORT=8090
-      - PING_TIMEOUT=8
-    volumes:
-      - ../ping-reporter/reporter.py:/app/reporter.py:ro
-      # BIND MOUNT THU MUC — xem ghi chu o relay-vpn6/docker-compose.yml.
-      - /var/run/tailscale:/var/run/tailscale
+  # ⚠️ PING-REPORTER DA BI GO (2026-09-11) — xem ghi chu o derp-vpn4/docker-compose.yml.
+  # Them nua: service nay tung khai TRUNG ten container 'ping-reporter-vpn6' voi
+  # relay-vpn6/docker-compose.yml -> deploy-relay-vpn6 do moi lan merge vao main
+  # ("Conflict. The container name ... is already in use"). KHONG them lai.
 
 volumes:
   derper_certs:

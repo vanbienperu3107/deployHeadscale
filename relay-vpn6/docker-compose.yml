@@ -42,24 +42,9 @@ services:
   # Host dung UDP 41642 (KHONG phai 41641) vi 41641 da bi docker-proxy cua relay
   # ben duoi chiem. Xem docs/plan-linux-node-vpn6-vpn4.md.
 
-  # Ping-reporter: bao cao latency relay->peer ve collector.
-  # network_mode: host -> dung thang tailscale0 cua host (truoc day la netns cua
-  # sidecar ts-vpn6, sidecar do khong con nua).
-  ping-reporter:
-    image: python:3.12-slim
-    container_name: ping-reporter-vpn6
-    restart: unless-stopped
-    network_mode: host
-    command: ["python3", "/app/reporter.py"]
-    environment:
-      - REPORTER_NAME=vpn6
-      - TS_SOCKET=/var/run/tailscale/tailscaled.sock
-      - POLL_INTERVAL=30
-      - COLLECTOR_PORT=8090
-      - PING_TIMEOUT=8
-    volumes:
-      - ../ping-reporter/reporter.py:/app/reporter.py:ro
-      - /var/run/tailscale:/var/run/tailscale
+  # ⚠️ PING-REPORTER DA BI GO (2026-09-11) — xem ghi chu o derp-vpn4/docker-compose.yml.
+  # Ten 'ping-reporter-vpn6' tung trung voi derp-vpn6/docker-compose.yml lam
+  # deploy-relay-vpn6 do moi lan merge. KHONG them lai.
 
 networks:
   memnet:

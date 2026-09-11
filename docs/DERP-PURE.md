@@ -207,6 +207,10 @@ là relay công khai, hoạt động độc lập. Sidecar chỉ để:
 → Nếu sidecar/ping-reporter chết, **relay vẫn chạy bình thường**, chỉ mất số liệu
 giám sát của node đó. (Trái lại, DERP embed *cần* sidecar để biết UDP endpoint.)
 
+> **Cập nhật:** sidecar đã gỡ 2026-08-15 (node chạy native trên host), và
+> `ping-reporter` đã gỡ 2026-09-11 vì collector đích chết từ 2026-08-02. Số liệu
+> latency giờ do daemon `tailscale_mod` tự báo (`POST /api/metrics/report`).
+
 ---
 
 ## 3. Triển khai

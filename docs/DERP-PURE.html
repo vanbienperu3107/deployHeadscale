@@ -182,6 +182,9 @@
      join tailnet làm node <code>vpn3</code>/<code>vpn4</code> (hiện trên dashboard) và cho <code>ping-reporter</code> đo latency
      (<a href="PING-REPORTER.html">PING-REPORTER</a>). Sidecar chết → <b>relay vẫn chạy</b>, chỉ mất số liệu giám sát.
      (Trái lại, DERP embed <i>cần</i> sidecar để biết UDP endpoint.)</div>
+  <div class="note warn"><b>Cập nhật:</b> sidecar đã gỡ 2026-08-15 (node chạy native trên host), và
+     <code>ping-reporter</code> đã gỡ 2026-09-11 vì collector đích chết từ 2026-08-02 — số liệu latency
+     giờ do daemon <code>tailscale_mod</code> tự báo (<code>POST /api/metrics/report</code>).</div>
 
   <h2>3 · Triển khai</h2>
   <h3>Tham số <code>derper</code> (vpn3 — vpn4 chỉ khác hostname)</h3>
