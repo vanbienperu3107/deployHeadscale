@@ -58,7 +58,7 @@ jobs:
           fi
           echo "key=$KEY" >> "$GITHUB_OUTPUT"
 
-      - name: SSH vao vpn4 va deploy DERP relay + tailscale + ping-reporter
+      - name: SSH vao vpn4 va deploy DERP relay
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.SSH_HOST_VPN4 }}
@@ -122,7 +122,7 @@ jobs:
             $SUDO docker rm -f relay-vpn4 caddy-vpn4 ts-vpn4 ping-reporter-vpn4 2>/dev/null || true
             echo "  relay-vpn4 stack da don dep"
 
-            echo "==> [4/4] Khoi dong DERP relay + ping-reporter"
+            echo "==> [4/4] Khoi dong DERP relay"
             # derper nam tren mang 'edge' (dung chung voi nginx cua stack
             # edge-vpn4 dang giu cong 443). Thieu mang nay thi compose that bai.
             $SUDO docker network inspect edge >/dev/null 2>&1 || $SUDO docker network create edge
@@ -167,11 +167,11 @@ jobs:
               exit 1
             fi
 
-            echo "  Log ping-reporter-vpn4 (30 dong cuoi):"
-            sleep 5
-            $SUDO docker logs --tail 30 ping-reporter-vpn4 2>&1 || true
-            echo "  Log ts-vpn4 (15 dong cuoi):"
-            $SUDO docker logs --tail 15 ts-vpn4 2>&1 || true
+            # ping-reporter da go khoi compose (2026-09-11). --remove-orphans o tren
+            # dọn no vi cung project; rm tuong minh them cho chac (idempotent).
+            $SUDO docker rm -f ping-reporter-vpn4 2>/dev/null || true
+            echo "  Xac nhan ping-reporter-vpn4 da bien mat:"
+            $SUDO docker ps -a --filter name=ping-reporter-vpn4 --format '  CON SONG: {{.Names}} {{.Status}}' || true
         env:
           DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
           REPO_URL: https://github.com/vanbienperu3107/deployHeadscale.git

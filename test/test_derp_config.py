@@ -161,43 +161,34 @@ def test_derp_vpn3_reporter_dung_netns_sidecar():
     )
 
 
-def _assert_reporter_co_ip_tailnet(compose_dir: str, ten: str):
-    """Bat bien: ping-reporter PHAI nam trong mot netns CO IP tailnet, va PHAI lay
-    socket tailscaled tu dung nguon cua netns do.
+import pytest
 
-    Hai hinh thuc hop le:
-      1. `service:tailscale` — sidecar tailscale trong cung stack (vpn3, vpn5);
-      2. `host` — node tailscale chay NATIVE tren host (vpn4, vpn6 tu 2026-08-15).
 
-    Ve thu hai la CAI DE SOT: khi bo sidecar ma quen doi mount socket, reporter se
-    mount mot named volume RONG. Luc do no khong bao loi gi ca — reporter.py nuot
-    exception cua LocalAPI, tra ve ([], None) va chay mai. Vi vay neu network_mode
-    la `host` thi bat buoc phai co BIND MOUNT thu muc /var/run/tailscale (phan tu
-    volume bat dau bang '/'), khong duoc la named volume.
+@pytest.mark.parametrize("compose_dir", ["derp-vpn4", "derp-vpn6", "relay-vpn6"])
+def test_stack_con_song_khong_con_ping_reporter(compose_dir):
+    """Bat bien (2026-09-11): cac stack DANG CHAY (vpn4, vpn6) KHONG duoc khai
+    ping-reporter nua.
+
+    Ly do go:
+      - no POST toi node tailnet 'collector' — node do chet tu 2026-08-02, moi
+        chu ky TimeoutError 10s roi thu lai mai (log: 'POST collector ERR:
+        TimeoutError', 'collector 100.64.0.1: FAIL');
+      - viec cua no da do daemon tailscale_mod lam (metricsreport.go ->
+        POST /api/metrics/report);
+      - derp-vpn6 va relay-vpn6 tung khai TRUNG ten container
+        'ping-reporter-vpn6' -> deploy-relay-vpn6 do moi lan merge.
+    vpn3/vpn5 da retire nen khong nam trong danh sach nay.
     """
     compose = ROOT / compose_dir / "docker-compose.yml"
     data = yaml.safe_load(compose.read_text())
-    svc = data["services"]["ping-reporter"]
-    nm = svc.get("network_mode")
-    assert nm in ("service:tailscale", "host"), (
-        f"ping-reporter {ten} phai co network_mode 'service:tailscale' hoac 'host' "
-        f"(dang la {nm!r}); neu khong se khong route duoc toi collector -> POST timeout"
+    services = data.get("services", {})
+    assert "ping-reporter" not in services, (
+        f"{compose_dir} van khai service ping-reporter — da go 2026-09-11, xem docstring"
     )
-    if nm == "host":
-        mounts = [v for v in svc.get("volumes", []) if "/var/run/tailscale" in v]
-        assert mounts, (
-            f"ping-reporter {ten} chay network_mode: host nhung khong mount "
-            "/var/run/tailscale -> khong tim thay socket tailscaled cua host"
-        )
-        assert any(v.startswith("/") for v in mounts), (
-            f"ping-reporter {ten}: socket phai la BIND MOUNT thu muc host "
-            f"(vd '/var/run/tailscale:/var/run/tailscale'), khong duoc dung named "
-            f"volume — named volume se rong sau khi bo sidecar. Dang co: {mounts}"
-        )
-
-
-def test_derp_vpn4_reporter_co_ip_tailnet():
-    _assert_reporter_co_ip_tailnet("derp-vpn4", "vpn4")
+    names = [s.get("container_name", "") for s in services.values()]
+    assert not any(n.startswith("ping-reporter") for n in names), (
+        f"{compose_dir} van co container ten ping-reporter-*: {names}"
+    )
 
 
 # ---------- derp-vpn5 (DERP chuan, doi tu relay lai sang giong vpn4) ----------
@@ -355,10 +346,6 @@ def test_relay_vpn6_join_memnet_external():
     )
 
 
-def test_relay_vpn6_reporter_co_ip_tailnet():
-    _assert_reporter_co_ip_tailnet("relay-vpn6", "vpn6 (relay)")
-
-
 def test_relay_vpn6_caddy_snippet_ton_tai():
     """Snippet Caddy cho vpn6 phai ton tai va tro toi relay-vpn6:8080."""
     snippet = ROOT / "relay-vpn6" / "caddy-vpn6.caddy"
@@ -437,10 +424,6 @@ def test_derp_vpn6_hostname_vpn6():
     assert "vpn6.hangocthanh.io.vn" in cmd_str, (
         "derp-vpn6 compose phai dung --hostname=vpn6.hangocthanh.io.vn"
     )
-
-
-def test_derp_vpn6_reporter_co_ip_tailnet():
-    _assert_reporter_co_ip_tailnet("derp-vpn6", "vpn6 (derper)")
 
 
 def test_derp_vpn6_khong_dung_lai_sidecar_tailscale():

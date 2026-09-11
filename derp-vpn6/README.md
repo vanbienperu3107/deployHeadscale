@@ -105,4 +105,5 @@ protocols:
 ## Lưu ý
 - **Không** xóa code relay tcp/udp (relay-vpn5/relay-vpn6) — vẫn còn trên `main`.
 - Khác biệt duy nhất so với vpn4: port nội bộ `:8444` + `--http-port=-1` (cert TLS-ALPN).
-  Phần còn lại (derper, STUN, ts sidecar, ping-reporter) **y hệt vpn4**.
+  Phần còn lại (derper, STUN) **y hệt vpn4**. ts sidecar đã gỡ 2026-08-15 (node
+  chạy native), ping-reporter đã gỡ 2026-09-11 (collector đích chết từ 2026-08-02).

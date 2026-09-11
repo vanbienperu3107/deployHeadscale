@@ -1,5 +1,20 @@
 # Ping-reporter — cách chạy, sequence & call flow
 
+> ## ⛔ ĐÃ GỠ 2026-09-11 — tài liệu này chỉ còn giá trị lịch sử
+>
+> ping-reporter POST tới node tailnet `collector` (node-dedup trên vpn2 cũ). Node
+> đó **chết từ 2026-08-02** → mỗi chu kỳ `TimeoutError` 10s rồi thử lại mãi
+> (`[vpn4] ping 4/4 OK -> collector 100.64.0.1: FAIL`). Nó lấy IP chết đó vì
+> `get_peers_and_collector()` rơi về bản `collector` OFFLINE khi không có bản online.
+>
+> Việc đo latency giờ do chính daemon `tailscale_mod` làm
+> (`cmd/tailscaled/metricsreport.go` → `POST /api/metrics/report`).
+>
+> Đã gỡ khỏi `derp-vpn4`, `derp-vpn6`, `relay-vpn6`. Hai file vpn6 từng khai
+> **trùng tên container** `ping-reporter-vpn6`, làm `deploy-relay-vpn6` đỏ mỗi lần
+> merge. Test `test_stack_con_song_khong_con_ping_reporter` chặn việc thêm lại.
+> vpn3/vpn5 đã retire nên compose của chúng giữ nguyên.
+
 > Tài liệu giải thích cơ chế đo độ trễ (latency) giữa các node trong tailnet và
 > vì sao dashboard `/derp` đôi khi chỉ hiện **vpn2** còn **vpn3/vpn4/vpn5/vpn6**
 > báo *"ping-reporter chưa chạy"*.

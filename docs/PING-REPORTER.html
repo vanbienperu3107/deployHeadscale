@@ -69,6 +69,16 @@
 <body>
 <div class="wrap">
 
+  <div class="alt" style="margin:0 0 18px 0;border-color:#7a2e2e;background:#3a1d1d;color:#f4b4b4">
+    <b>⛔ ĐÃ GỠ 2026-09-11 — tài liệu này chỉ còn giá trị lịch sử.</b><br>
+    ping-reporter POST tới node tailnet <code>collector</code> (node-dedup trên vpn2 cũ), node đó
+    <b>chết từ 2026-08-02</b> → mỗi chu kỳ <code>TimeoutError</code> 10s rồi thử lại mãi
+    (<code>collector 100.64.0.1: FAIL</code>). Việc đo latency giờ do chính daemon
+    <code>tailscale_mod</code> làm (<code>cmd/tailscaled/metricsreport.go</code> → <code>POST /api/metrics/report</code>).
+    Service đã bị gỡ khỏi <code>derp-vpn4</code>, <code>derp-vpn6</code>, <code>relay-vpn6</code>;
+    test <code>test_stack_con_song_khong_con_ping_reporter</code> chặn việc thêm lại.
+  </div>
+
   <h1>Ping-reporter — cách chạy, sequence &amp; call flow</h1>
   <p class="sub">Cơ chế đo độ trễ giữa các node trong tailnet, và vì sao dashboard
      <code>/derp</code> đôi khi chỉ hiện <b>vpn2</b> còn vpn3/vpn4/vpn5/vpn6 báo

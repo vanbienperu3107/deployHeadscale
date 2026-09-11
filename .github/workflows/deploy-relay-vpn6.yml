@@ -50,7 +50,7 @@ jobs:
           if [ -n "$KEY" ]; then echo "::add-mask::$KEY"; echo "Tao preauthkey OK"; else echo "Khong tao duoc preauthkey"; fi
           echo "key=$KEY" >> "$GITHUB_OUTPUT"
 
-      - name: SSH vao vpn6 va deploy relay + tailscale + ping-reporter + Caddy site
+      - name: SSH vao vpn6 va deploy relay + Caddy site
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.SSH_HOST_VPN6 }}
@@ -114,7 +114,13 @@ jobs:
             $SUDO ufw allow 41641/udp >/dev/null 2>&1 || true
             $SUDO ufw allow 41642/udp >/dev/null 2>&1 || true
 
-            echo "==> [5/7] Khoi dong relay-vpn6 + ping-reporter"
+            echo "==> [5/7] Khoi dong relay-vpn6"
+            # ping-reporter-vpn6 da go (2026-09-11). Container dang chay thuoc
+            # PROJECT derp-vpn6 (dung 2026-09-05) nen --remove-orphans o day KHONG
+            # dong toi no, va deploy-derp-vpn6 chi chay tay -> phai rm tuong minh.
+            # Chinh container nay lam buoc nay do moi lan merge:
+            # "Conflict. The container name /ping-reporter-vpn6 is already in use".
+            $SUDO docker rm -f ping-reporter-vpn6 2>/dev/null || true
             cd "$DEPLOY_PATH/relay-vpn6"
             # ⚠️ DA BO buoc 'docker compose run ... rm -f /var/run/tailscale/tailscaled.sock'.
             # Truoc day socket nam trong named volume cua sidecar nen xoa la vo hai.
@@ -181,7 +187,8 @@ jobs:
               exit 1
             fi
             echo "  Log relay-vpn6 (20 dong cuoi):"; $SUDO docker logs --tail 20 relay-vpn6 2>&1 || true
-            echo "  Log ping-reporter-vpn6 (8 dong cuoi):"; $SUDO docker logs --tail 8 ping-reporter-vpn6 2>&1 || true
+            echo "  Xac nhan ping-reporter-vpn6 da bien mat:"
+            $SUDO docker ps -a --filter name=ping-reporter-vpn6 --format '  CON SONG: {{.Names}} {{.Status}}' || true
         env:
           DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
           REPO_URL: https://github.com/vanbienperu3107/deployHeadscale.git

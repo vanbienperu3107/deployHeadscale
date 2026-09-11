@@ -60,27 +60,12 @@ services:
   # ⚠️ KHONG dung toi ts-vpngw/vpn-gw (stack vpn-gw/): do la netns rieng, giu
   # phien OpenVPN Bitel + tinyproxy + subnet route du phong.
 
-  # Ping-reporter: moi 30s ping tung peer, POST ket qua len collector voi src='vpn4'.
-  ping-reporter:
-    image: python:3.12-slim
-    container_name: ping-reporter-vpn4
-    restart: unless-stopped
-    # network_mode: host -> dung thang tailscale0 cua host (truoc day la netns cua
-    # sidecar ts-vpn4, sidecar do khong con nua).
-    network_mode: host
-    command: ["python3", "/app/reporter.py"]
-    environment:
-      - REPORTER_NAME=vpn4
-      - TS_SOCKET=/var/run/tailscale/tailscaled.sock
-      - POLL_INTERVAL=30
-      - COLLECTOR_PORT=8090
-      - PING_TIMEOUT=8
-    volumes:
-      - ../ping-reporter/reporter.py:/app/reporter.py:ro
-      # BIND MOUNT THU MUC (khong phai named volume): tailscaled chay native tren
-      # host. Mount thu muc de socket moi sau moi lan daemon restart duoc thay ngay;
-      # named volume/file .sock = "socket ma", reporter im lang mat ket noi.
-      - /var/run/tailscale:/var/run/tailscale
+  # ⚠️ PING-REPORTER DA BI GO (2026-09-11). No POST ket qua toi node tailnet
+  # 'collector' (node-dedup tren vpn2 cu) — node do chet tu 2026-08-02, nen moi
+  # chu ky deu TimeoutError roi thu lai mai. Viec cua no gio do chinh daemon
+  # tailscale_mod lam: reporter trong tailscaled (cmd/tailscaled/metricsreport.go)
+  # disco-ping moi peer va POST /api/metrics/report thang len dashboard.
+  # KHONG them lai.
 
 networks:
   # Mang dung chung voi stack edge-vpn4 (nginx/caddy) va cliproxy. Tao san bang
