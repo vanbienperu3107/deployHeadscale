@@ -108,9 +108,11 @@ jobs:
             # tren runner (khong co tailnet) van up duoc; tren vpn4 thi ghi IP that.
             printf 'CLIPROXY_TAILNET_IP=%s\n' "100.64.0.4" >> .env
             # Duong ham Postgres cho lich su chat: IP container derp-postgres tren
-            # vpn6 (user pgtunnel chi permitopen dung IP nay) + host vpn6.
+            # vpn6 (user pgtunnel chi permitopen dung IP nay) + host vpn6 qua tailnet.
+            # KHONG dung secret SSH_HOST_VPN6 o day: secret do la IP public, dung
+            # chung voi cac workflow chay tren runner (khong co tailnet).
             printf 'PG_REMOTE_HOST=%s\n' "${PG_REMOTE_HOST:-172.21.0.2}" >> .env
-            printf 'SSH_HOST_VPN6=%s\n' "${SSH_HOST_VPN6:-45.119.87.220}" >> .env
+            printf 'PG_TUNNEL_HOST=%s\n' "${PG_TUNNEL_HOST:-100.64.0.7}" >> .env
 
             # Khoa duong ham: dung LAI khoa pgtunnel da co tren may (stack opencode).
             # Khong dua them mot ban sao khoa rieng qua GitHub secrets - moi ban sao
