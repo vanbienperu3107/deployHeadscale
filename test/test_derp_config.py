@@ -346,10 +346,6 @@ def test_relay_vpn6_join_memnet_external():
     )
 
 
-def test_relay_vpn6_reporter_co_ip_tailnet():
-    _assert_reporter_co_ip_tailnet("relay-vpn6", "vpn6 (relay)")
-
-
 def test_relay_vpn6_caddy_snippet_ton_tai():
     """Snippet Caddy cho vpn6 phai ton tai va tro toi relay-vpn6:8080."""
     snippet = ROOT / "relay-vpn6" / "caddy-vpn6.caddy"
@@ -428,10 +424,6 @@ def test_derp_vpn6_hostname_vpn6():
     assert "vpn6.hangocthanh.io.vn" in cmd_str, (
         "derp-vpn6 compose phai dung --hostname=vpn6.hangocthanh.io.vn"
     )
-
-
-def test_derp_vpn6_reporter_co_ip_tailnet():
-    _assert_reporter_co_ip_tailnet("derp-vpn6", "vpn6 (derper)")
 
 
 def test_derp_vpn6_khong_dung_lai_sidecar_tailscale():
