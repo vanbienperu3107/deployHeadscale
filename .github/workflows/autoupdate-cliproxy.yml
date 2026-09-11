@@ -41,8 +41,15 @@ on:
     - cron: "0 10 * * 0"
   workflow_dispatch: {}
 
+# actions: write la BAT BUOC cho buoc `gh workflow run deploy-cliproxy.yml`.
+# PR #92 (2026-09-09) ha xuong chi con contents: read vi tuong quyen do chi phuc vu
+# buoc ghi repo variable da bo - sai: dispatch cung can no. Loi khong lo ra suot
+# hai ngay vi moi lan chay deu roi vao nhanh "khong co ban moi"; lan dau co ban
+# moi that (run 34551872139) thi dispatch tra 403 Resource not accessible by
+# integration. Quyen nay KHONG cho doc/ghi Actions variables - cai do van 403.
 permissions:
   contents: read
+  actions: write
 
 concurrency:
   group: deploy-vpn4-host-autoupdate
