@@ -1,14 +1,19 @@
 name: Auto-update CLIProxyAPI
 
-# Tu dong nang CLIProxyAPI tren vpn4 theo tag moi nhat cua eceasy/cli-proxy-api.
+# Tu dong nang CLIProxyAPI tren vpn4 theo anh moi nhat cua FORK
+# vanbienperu3107/cliproxy_mod (truoc 2026-09-10: theo eceasy/cli-proxy-api).
 #
 # Vi sao can: ban proxy cu tu nhan dien la Claude Code doi cu — Anthropic tu
 # choi model moi (su co 2026-09-03: claude-fable-5 bao "version 2.1.251 or
 # newer is required" vi image v7.2.112 khai la Claude Code 2.1.63). Cap nhat
 # dinh ky thi khong bao gio bi ket model moi nua.
 #
+# Chuoi hang tuan: fork-sync-upstream.yml (repo fork, Chu nhat 07:00 UTC) merge
+# upstream vao main cua fork, build + test, xanh thi build anh main-<sha>. Workflow
+# nay chay sau do 3 gio.
+#
 # Cach chay: moi tuan (va bam tay duoc) —
-#   1. Hoi Docker Hub tag vX.Y.Z moi nhat.
+#   1. Lay anh main-<sha> cua lan build fork-image XANH moi nhat.
 #   2. So voi tag ANH DANG CHAY tren vpn4 (`docker inspect` container cliproxy).
 #   3. Khac nhau -> dispatch workflow "Deploy CLIProxyAPI (vpn4)" voi tag moi
 #      (deploy da co san verify 401/200 + smoke test completion tieng Viet;
@@ -48,15 +53,34 @@ jobs:
     name: Kiem tra tag moi va deploy
     runs-on: ubuntu-latest
     steps:
-      - name: Lay tag moi nhat tu Docker Hub
+      # Tu 2026-09-10 vpn4 chay anh build tu FORK vanbienperu3107/cliproxy_mod (tinh
+      # nang lich su chat), khong con la eceasy/cli-proxy-api. So tag Docker Hub cua
+      # upstream se luon khac anh dang chay va dispatch deploy voi mot tag khong ton
+      # tai tren GHCR. Nguon dung bay gio: lan build fork-image XANH moi nhat tren
+      # main cua fork. fork-sync-upstream.yml (Chu nhat 07:00 UTC) merge upstream vao
+      # main, chi day khi build + test xanh, roi kich fork-image -> anh main-<sha>.
+      #
+      # Giu id `hub` va output `latest` de hai buoc so sanh/deploy ben duoi khong doi.
+      - name: Lay anh fork moi nhat da build xanh
         id: hub
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # Chon sha co CA fork-image LAN fork-ci xanh. fork-image khong cho test (no
+        # build ngay khi push), nen "anh xanh moi nhat" chua chac la code da qua test:
+        # 2026-09-11 main-69a5c38 build xanh trong khi fork-ci cung sha do do. Deploy
+        # anh do la dua code chua duoc kiem len may that.
         run: |
-          LATEST=$(curl -sf --max-time 30 \
-            "https://hub.docker.com/v2/repositories/eceasy/cli-proxy-api/tags?page_size=25&ordering=last_updated" \
-            | python3 -c "import json,sys,re;d=json.load(sys.stdin);print(next(t['name'] for t in d['results'] if re.fullmatch(r'v\d+\.\d+\.\d+', t['name'])))")
-          if [ -z "$LATEST" ]; then echo "::error::Khong lay duoc tag tu Docker Hub"; exit 1; fi
+          REPO=vanbienperu3107/cliproxy_mod
+          SHA=""
+          for CAND in $(gh run list --repo "$REPO" --workflow fork-image.yml --branch main --status success --limit 10 --json headSha --jq '.[].headSha'); do
+            OK=$(gh run list --repo "$REPO" --workflow fork-ci.yml --branch main --commit "$CAND" --status success --limit 1 --json databaseId --jq 'length')
+            echo "  ung vien $(echo "$CAND" | cut -c1-7): fork-ci xanh = $OK"
+            if [ "$OK" = "1" ]; then SHA="$CAND"; break; fi
+          done
+          if [ -z "$SHA" ]; then echo "::error::Khong co sha nao tren main cua fork co ca fork-image lan fork-ci xanh"; exit 1; fi
+          LATEST="main-$(echo "$SHA" | cut -c1-7)"
           echo "latest=$LATEST" >> "$GITHUB_OUTPUT"
-          echo "Tag moi nhat: $LATEST"
+          echo "Anh fork moi nhat: ghcr.io/vanbienperu3107/cliproxy_mod:$LATEST"
 
       # HAI step, va su phan cong giua chung la co y.
       #
