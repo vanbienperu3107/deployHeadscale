@@ -252,10 +252,16 @@ def test_template_chi_chua_placeholder_khong_chua_key_that():
     assert "sk-" not in raw, "phat hien chuoi giong API key that trong template"
 
 
-def test_management_api_khong_mo_ra_internet():
-    cfg = load_template()
-    assert cfg["remote-management"]["allow-remote"] is False, (
-        "Management API chi duoc dung tu localhost cua vpn4 (qua SSH)"
+def test_management_mo_ra_internet_phai_co_secret_key():
+    """2026-09-10: user chon mo trang quan tri /management.html ra Internet (qua TLS 443).
+    allow-remote=true chi an toan khi secret-key luon duoc dien (deploy chan key rong)."""
+    rm = load_template()["remote-management"]
+    if rm["allow-remote"]:
+        assert rm["secret-key"] == "__MANAGEMENT_KEY__", (
+            "allow-remote=true bat buoc secret-key lay tu secrets.CLIPROXY_MGMT_KEY"
+        )
+    assert rm["disable-control-panel"] is False, (
+        "trang quan tri /management.html phai duoc bat"
     )
 
 
