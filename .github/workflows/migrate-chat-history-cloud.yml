@@ -1,0 +1,51 @@
+name: Migrate chat-history (cloud DB)
+
+# Tao schema chat_history tren Postgres cloud (layerbase) - noi luu lich su chat
+# thay cho derp-postgres o vpn6 tu 2026-09-11 (nguoi dung chon DB gan vpn4 hon).
+#
+# Chay thang tu runner: DB cloud nghe tren Internet (sslmode=require), khong can
+# duong ham SSH nhu ban vpn6.
+#
+# Idempotent: chay lai nhieu lan khong hong. Cung file SQL voi ban vpn6.
+on:
+  workflow_dispatch:
+    inputs:
+      run_retention:
+        description: "Chay luon buoc don du lieu qua 90 ngay"
+        required: false
+        default: "false"
+        type: choice
+        options: ["false", "true"]
+
+concurrency:
+  group: migrate-chat-history-cloud
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  migrate:
+    name: Ap dung migration tren DB cloud
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Ap dung luoc do
+        env:
+          # Cung secret ma deploy-cliproxy dua vao config cua proxy: mot nguon duy nhat.
+          DSN: ${{ secrets.CHAT_HISTORY_DSN }}
+          RUN_RETENTION: ${{ github.event.inputs.run_retention || 'false' }}
+        run: |
+          set -e
+          if [ -z "$DSN" ]; then echo "::error::Thieu secret CHAT_HISTORY_DSN"; exit 1; fi
+          # default_query_exec_mode la tham so rieng cua pgx (proxy can no vi host
+          # `-pooler` la PgBouncer che do transaction, lam hong prepared statement).
+          # libpq/psql KHONG hieu tham so do va tu choi ca URI -> phai bo di o day.
+          PSQL_DSN=$(printf '%s' "$DSN" | sed -E 's/[?&]default_query_exec_mode=[^&]*//')
+          psql "$PSQL_DSN" -v ON_ERROR_STOP=1 -tAc "SELECT 'server: ' || version()"
+          psql "$PSQL_DSN" -v ON_ERROR_STOP=1 -f cliproxy/sql/001_chat_history.sql
+          psql "$PSQL_DSN" -tAc "SELECT 'bang: ' || table_name FROM information_schema.tables WHERE table_schema = 'chat_history' ORDER BY table_name"
+          psql "$PSQL_DSN" -tAc "SELECT 'so luot da luu: ' || count(*) FROM chat_history.chat_turns"
+          test "$RUN_RETENTION" != "true" || psql "$PSQL_DSN" -v ON_ERROR_STOP=1 -f cliproxy/sql/002_chat_history_retention.sql

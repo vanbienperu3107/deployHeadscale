@@ -142,10 +142,17 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           LATEST: ${{ steps.hub.outputs.latest }}
         run: |
+          T0=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           gh workflow run deploy-cliproxy.yml --repo "$GITHUB_REPOSITORY" --ref main -f image_tag="$LATEST"
-          # gh workflow run khong tra run id -> doi run moi nhat cua workflow do xuat hien roi watch.
+          # gh workflow run khong tra run id, nen phai tu tim run cua CHINH minh.
+          # Khong lay "run moi nhat" tron: 2026-09-11 mot lan dispatch tay (tai khoan
+          # nguoi) roi vao dung luc do, workflow nay theo doi nham run bi huy va bao
+          # do trong khi deploy that da xanh (run 34552292413). Loc: do bot tao VA tao
+          # sau thoi diem dispatch, lay run cu nhat trong so do.
           sleep 20
-          RUN_ID=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow deploy-cliproxy.yml --limit 1 --json databaseId --jq '.[0].databaseId')
+          RUN_ID=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow deploy-cliproxy.yml --event workflow_dispatch --limit 10 --json databaseId,createdAt,headBranch --jq "[.[] | select(.createdAt >= \"$T0\")] | sort_by(.createdAt) | .[0].databaseId")
+          ACTOR=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID" --jq .triggering_actor.login 2>/dev/null || echo "?")
+          test "$ACTOR" = "github-actions[bot]" || echo "::warning::Run $RUN_ID do $ACTOR tao, khong phai bot - co the co dispatch tay chen vao"
           echo "Theo doi run $RUN_ID"
           gh run watch "$RUN_ID" --repo "$GITHUB_REPOSITORY" --exit-status --interval 30
 
