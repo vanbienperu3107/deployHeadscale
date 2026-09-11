@@ -82,6 +82,11 @@ END
 $$;
 
 GRANT USAGE ON SCHEMA chat_history TO cliproxy_chat;
+
+-- Proxy goi ten bang KHONG kem schema trong ban build dau tien, nen role phai
+-- tim thay bang o chat_history. Thieu dong nay: moi lan ghi deu hong voi
+-- `relation "chat_sessions" does not exist` (do duoc 2026-09-10 tren prod).
+ALTER ROLE cliproxy_chat SET search_path = chat_history, public;
 GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA chat_history TO cliproxy_chat;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA chat_history TO cliproxy_chat;
 
