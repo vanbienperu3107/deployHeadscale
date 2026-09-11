@@ -133,6 +133,12 @@ jobs:
 
             echo "==> [5/6] Compose up"
             $SUDO docker compose up -d --remove-orphans
+            # Tao lai cliproxy MOI lan deploy. config.yaml la bind mount: doi noi dung
+            # file khong doi spec container, nen `up -d` bo qua cliproxy khi tag anh
+            # giu nguyen. Phan lon config upstream tu nap lai qua watcher, nhung
+            # chat-history chi doc DSN MOT lan luc khoi dong: 2026-09-11 doi DSN sang
+            # DB cloud, deploy xanh ma proxy van ghi vao vpn6 cho toi khi restart tay.
+            $SUDO docker compose up -d --force-recreate --no-deps cliproxy
             $SUDO docker compose ps
 
             echo "==> [6/6] Verify cong 28417 tren host (ben trong container van la 8317)"
