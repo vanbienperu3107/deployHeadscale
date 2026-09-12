@@ -9,6 +9,11 @@ services:
       - "127.0.0.1:8090:8090"
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    # SSO tu CMS: memory-caddy forward_auth -> derp-backend /api/auth/forward, roi
+    # chep X-Auth-Email sang day. Caddy PHAI xoa header nay tu client truoc.
+    # Cong 127.0.0.1:8090 van nhan header truc tiep — chi root tren vpn6 toi duoc.
+    environment:
+      TRUSTED_AUTH_HEADER: "X-Auth-Email"
     volumes:
       - ./beszel_data:/beszel_data
     logging:
