@@ -45,7 +45,7 @@ jobs:
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_KEY }}
           port: ${{ secrets.SSH_PORT || '22' }}
-          source: "beszel/docker-compose.yml,beszel/bootstrap.py"
+          source: "beszel/docker-compose.yml,beszel/bootstrap.py,beszel/caddy_block.py"
           target: /opt
           overwrite: true
 
@@ -84,9 +84,10 @@ jobs:
             CADDY_CT=$(docker ps --format '{{.Names}} {{.Image}}' | awk 'tolower($0) ~ /caddy/ {print $1; exit}')
             CADDYFILE=$(docker inspect "$CADDY_CT" --format '{{range .Mounts}}{{.Source}} {{.Destination}}{{"\n"}}{{end}}' | awk '$2=="/etc/caddy/Caddyfile"{print $1; exit}')
             echo "Caddyfile: $CADDYFILE"
-            if grep -q 'status.hangocthanh.io.vn' "$CADDYFILE"; then echo "Block da co - bo qua"; exit 0; fi
             cp "$CADDYFILE" "$CADDYFILE.bak-beszel-$(date +%Y%m%d-%H%M%S)"
-            printf '\n# Beszel (deployHeadscale/beszel)\nstatus.hangocthanh.io.vn {\n\treverse_proxy beszel:8090\n}\n' >> "$CADDYFILE"
+            python3 /opt/beszel/caddy_block.py "$CADDYFILE" > /tmp/Caddyfile.beszel
+            cat /tmp/Caddyfile.beszel > "$CADDYFILE"
+            rm -f /tmp/Caddyfile.beszel
             docker exec "$CADDY_CT" caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
             docker exec "$CADDY_CT" caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
             echo "XONG vpn6. Cred: /root/beszel-admin.txt"
