@@ -86,9 +86,10 @@ jobs:
             echo "Caddyfile: $CADDYFILE"
             cp "$CADDYFILE" "$CADDYFILE.bak-beszel-$(date +%Y%m%d-%H%M%S)"
             python3 /opt/beszel/caddy_block.py "$CADDYFILE" > /tmp/Caddyfile.beszel
+            docker cp /tmp/Caddyfile.beszel "$CADDY_CT":/tmp/Caddyfile.new
+            docker exec "$CADDY_CT" caddy validate --config /tmp/Caddyfile.new --adapter caddyfile
             cat /tmp/Caddyfile.beszel > "$CADDYFILE"
             rm -f /tmp/Caddyfile.beszel
-            docker exec "$CADDY_CT" caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
             docker exec "$CADDY_CT" caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
             echo "XONG vpn6. Cred: /root/beszel-admin.txt"
         env:
