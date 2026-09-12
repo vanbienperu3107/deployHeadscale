@@ -72,3 +72,23 @@ jobs:
             echo "6. BANG DOI node_key -> ten may (DB headscale, cung postgres)"
             echo "===================================================="
             $SUDO docker exec -i derp-postgres psql -U derp -d headscale -P pager=off -c "SELECT id, given_name, hostname, node_key, last_seen FROM nodes ORDER BY given_name;" || echo "(khong doc duoc DB headscale)"
+
+            HSQL="$SUDO docker exec -i derp-postgres psql -U derp -d headscale -P pager=off"
+            echo ""
+            echo "===================================================="
+            echo "8. IP TAILNET THAT cua tung node (headscale.nodes)"
+            echo "===================================================="
+            $HSQL -c "SELECT id, given_name, ipv4, ipv6, last_seen, expiry FROM nodes ORDER BY given_name;" || true
+
+            echo ""
+            echo "===================================================="
+            echo "9. POLICY HEADSCALE DANG CHAY (ban moi nhat trong DB)"
+            echo "   ACL chan TCP van de disco ping di qua -> ping latency OK KHONG chung minh RDP duoc"
+            echo "===================================================="
+            $HSQL -c "SELECT id, updated_at, data FROM policies ORDER BY id DESC LIMIT 1;" || echo "(khong co bang policies)"
+
+            echo ""
+            echo "===================================================="
+            echo "10. IP GHIM trong device_identity (dashboard) cho itop/votam"
+            echo "===================================================="
+            $PSQL -c "SELECT * FROM device_identity WHERE row_to_json(device_identity)::text ILIKE '%itop%' OR row_to_json(device_identity)::text ILIKE '%votam%';" || true
