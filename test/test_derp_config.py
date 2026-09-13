@@ -416,11 +416,14 @@ def test_deploy_derp_vpn6_workflow_dispatch_only():
     assert "schedule" not in on_block, "KHONG duoc auto-deploy theo schedule"
 
 
-def test_relay_vpn6_code_van_giu_khong_xoa():
-    """Yeu cau nguoi dung: KHONG xoa code relay tcp/udp khi them derper vpn6."""
+def test_relay_code_go_van_giu_khong_xoa():
+    """Yeu cau nguoi dung (2026-09-05): KHONG xoa code relay tcp/udp khi them derper vpn6.
+
+    Cap nhat 2026-09-11: nguoi dung DUYET go stack relay-vpn6 (compose + caddy +
+    auto-deploy) vi no khong con nhan request nao va tu dung lai moi lan merge —
+    xem test_relay_vpn6_da_go_va_khong_con_auto_deploy. Phan con giu la CODE Go
+    goc cua relay (relay-vpn5/), dung lai duoc neu can dung lai.
+    """
     assert (ROOT / "relay-vpn5" / "server.go").exists(), (
         "relay-vpn5/server.go (code mix tcp/udp) phai VAN con — khong duoc xoa"
-    )
-    assert (ROOT / "relay-vpn6" / "docker-compose.yml").exists(), (
-        "relay-vpn6/docker-compose.yml phai VAN con — khong duoc xoa"
     )
