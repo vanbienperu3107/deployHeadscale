@@ -21,6 +21,9 @@ BLOCK = """status.hangocthanh.io.vn {
 \t\t\tredir https://cms.hangocthanh.io.vn/app/sign-in 302
 \t\t}
 \t}
+\t# Trang Monitor cua CMS nhung iframe: chi cho cms.* frame, site la thi khong.
+\theader -X-Frame-Options
+\theader ?Content-Security-Policy "frame-ancestors 'self' https://cms.hangocthanh.io.vn"
 \treverse_proxy beszel:8090
 }
 """
