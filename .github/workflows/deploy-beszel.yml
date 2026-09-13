@@ -72,6 +72,10 @@ jobs:
             echo "==> [3/6] docker compose up"
             cd /opt/beszel
             docker compose up -d
+            # Keypair doi moi lan chay nhung hub chi doc id_ed25519 luc khoi dong: compose
+            # khong recreate hub khi config hub khong doi => hub giu key cu, agent bao
+            # "Invalid SSH key", moi system do (su co 2026-09-13). Luon restart hub.
+            docker restart beszel
             timeout 90 sh -c 'until curl -fsS http://127.0.0.1:8090/api/health >/dev/null 2>&1; do sleep 2; done'
             echo "==> [4/6] credentials"
             test -f /root/beszel-admin.txt || printf 'email: admin@hangocthanh.io.vn\npassword: %s\n' "$(openssl rand -base64 18 | tr -d '=+/')" > /root/beszel-admin.txt
