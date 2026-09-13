@@ -1,0 +1,64 @@
+name: Teardown relay-vpn6 (hybrid relay cu tren vpn6)
+
+# Go container relay-vpn6 khoi host vpn6. RETIRE 2026-09-11.
+#
+# Vi sao go:
+#   - Tu 2026-09-05 vpn6 chay derper CHUAN (stack derp-vpn6) lam region 1003.
+#     sslh route SNI vpn6.hangocthanh.io.vn -> 127.0.0.1:8444 (derper), nen moi
+#     request toi vpn6 tren 443 KHONG BAO GIO toi duoc Caddy -> relay-vpn6.
+#   - "/relay/probe tra 200" trong log deploy cu la do DERPER tra: derper dang ky
+#     route "/" (bat MOI duong dan) voi home handler luon WriteHeader(200)
+#     (cmd/derper/derper.go:280, getHomeHandler) — khong phai relay tra loi.
+#   - deploy-relay-vpn6.yml (da xoa) van dung lai relay sau MOI lan merge main.
+#
+# Chi chay TAY (workflow_dispatch), MOT LAN. Xoa theo TEN container (khong phu
+# thuoc compose file vi thu muc relay-vpn6/ da bi go khoi repo).
+#
+# KHONG dong toi:
+#   - container derper (stack derp-vpn6, region 1003) — phai VAN chay;
+#   - tailscaled native tren host (UDP 41642);
+#   - khoi `vpn6.hangocthanh.io.vn { reverse_proxy relay-vpn6:8080 }` trong
+#     Caddyfile memory-stack: sslh chan vpn6 truoc Caddy nen khoi do khong bao gio
+#     duoc dung. Sua Caddy prod la rui ro rieng -> de lai, xem derp-vpn6/README.md.
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-derp-vpn6
+  cancel-in-progress: false
+
+jobs:
+  teardown:
+    name: Teardown relay-vpn6 tren vpn6
+    runs-on: ubuntu-latest
+    steps:
+      - name: SSH vao vpn6 va go relay-vpn6
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SSH_HOST_VPN6 }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT || '22' }}
+          script_stop: true
+          command_timeout: 10m
+          # Viet PHANG (khong if/else nhieu dong) — bai hoc drone-ssh 2026-09-04.
+          script: |
+            if [ "$(id -u)" -ne 0 ]; then SUDO="sudo"; else SUDO=""; fi
+            echo "== TRUOC: container relay/derper =="
+            $SUDO docker ps -a --format '{{.Names}}\t{{.Status}}' | grep -E 'relay|derper' || true
+            echo "== Go container + image + volume relay-vpn6 =="
+            $SUDO docker rm -f relay-vpn6 || true
+            $SUDO docker image rm relay-vpn6-relay || true
+            $SUDO docker volume rm relay-vpn6_relay_data || true
+            echo "== Dong UDP 41641 (cong relay). 41642 = tailscaled native, GIU NGUYEN =="
+            $SUDO ufw delete allow 41641/udp || true
+            echo "== SAU: relay-vpn6 phai KHONG con =="
+            $SUDO docker ps -a --filter name=relay-vpn6 --format '  CON SONG: {{.Names}} {{.Status}}' || true
+            echo "== derper (region 1003) phai VAN chay =="
+            $SUDO docker ps --filter name=derper --format '  {{.Names}} {{.Status}}' || true
+            echo "== vpn6/derp qua 443 -> sslh -> derper (ky vong HTTP 101) =="
+            curl -sk --max-time 10 -o /dev/null -w "  HTTP %{http_code}\n" -H "Upgrade: DERP" -H "Connection: Upgrade" "https://vpn6.hangocthanh.io.vn/derp" || true
+            echo "== memory-stack van song (claude.hangocthanh.io.vn qua sslh -> Caddy) =="
+            curl -sk --max-time 10 -o /dev/null -w "  HTTP %{http_code}\n" "https://claude.hangocthanh.io.vn/" || true
+            echo "== UDP con mo sau khi go =="
+            $SUDO ss -ulpn 2>/dev/null | grep -E ':(41641|41642|3478)\b' || true

@@ -73,6 +73,30 @@ jobs:
             echo "===================================================="
             $SUDO docker exec -i derp-postgres psql -U derp -d headscale -P pager=off -c "SELECT id, given_name, hostname, node_key, last_seen FROM nodes ORDER BY given_name;" || echo "(khong doc duoc DB headscale)"
 
+            echo ""
+            echo "===================================================="
+            echo "7. VPN6 LIVE: relay-vpn6 con phuc vu gi khong (truoc khi go)"
+            echo "===================================================="
+            echo "--- 7a. sslh config (SNI vpn6 di dau)"
+            $SUDO cat /etc/sslh/sslh.cfg 2>&1 || echo "(khong co /etc/sslh/sslh.cfg)"
+            echo "--- 7b. unit sslh dang chay voi lenh gi"
+            $SUDO systemctl show -p ExecStart sslh-mux 2>&1 || true
+            echo "--- 7c. container relay/derper"
+            $SUDO docker ps -a --format '{{.Names}}\t{{.Status}}\t{{.Ports}}' | grep -E 'relay|derper' || true
+            echo "--- 7d. ai giu UDP 41641 / 41642 / 3478"
+            $SUDO ss -ulpn 2>/dev/null | grep -E ':(41641|41642|3478)\b' || true
+            echo "--- 7e. vpn6/relay/probe qua duong public (443 -> sslh): ai tra loi?"
+            curl -sk --max-time 10 -D - -o /tmp/probe-body "https://vpn6.hangocthanh.io.vn/relay/probe" | head -8 || true
+            echo "  body (200 byte dau):"; head -c 200 /tmp/probe-body 2>/dev/null; echo
+            echo "--- 7f. vpn6/derp upgrade qua duong public (ky vong 101 tu derper)"
+            curl -sk --max-time 10 -o /dev/null -w "  HTTP %{http_code}\n" -H "Upgrade: DERP" -H "Connection: Upgrade" "https://vpn6.hangocthanh.io.vn/derp" || true
+            echo "--- 7g. goi THANG relay-vpn6:8080 trong memnet (neu con song)"
+            $SUDO docker exec memory-caddy wget -qS -O - --timeout=5 http://relay-vpn6:8080/relay/probe 2>&1 | head -5 || echo "  (relay-vpn6:8080 khong tra loi / khong co)"
+            echo "--- 7h. log relay-vpn6 24h qua: co client that nao ket noi khong"
+            $SUDO docker logs --since 24h relay-vpn6 2>&1 | tail -15 || true
+            echo "--- 7i. khoi vpn6 trong Caddyfile memory-stack"
+            $SUDO grep -n -A3 'vpn6.hangocthanh.io.vn' /home/thanh/memory-stack/Caddyfile 2>&1 || true
+
             HSQL="$SUDO docker exec -i derp-postgres psql -U derp -d headscale -P pager=off"
             echo ""
             echo "===================================================="
