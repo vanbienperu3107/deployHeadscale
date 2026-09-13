@@ -1,0 +1,92 @@
+name: Delete headscale node (chay tay, co chot an toan)
+
+# Xoa MOT node khoi headscale qua REST API (DELETE /api/v1/node/{id}).
+#
+# Chot an toan: truoc khi xoa, doc danh sach node va CHI xoa khi node id do co
+# dung given name VA dung IP da khai trong input. Lech bat ky cai nao -> dung,
+# khong xoa gi. Xoa node la KHONG hoan tac (may se phai dang ky lai).
+#
+# Lan dung dau (2026-09-12): xoa node rac id 78 'votam-pc-1' (100.64.0.103) —
+# sinh ra khi 2 ban vpn chay dong thoi tren VOTAM-PC, ban thu hai dung state dir
+# khac nen dang nhap lai thanh may moi. Node that la id 68 'votam-pc' (.24).
+
+on:
+  workflow_dispatch:
+    inputs:
+      node_id:
+        description: "ID node can xoa"
+        required: true
+      expected_name:
+        description: "Given name PHAI khop (vd votam-pc-1)"
+        required: true
+      expected_ipv4:
+        description: "IPv4 tailnet PHAI khop (vd 100.64.0.103)"
+        required: true
+
+concurrency:
+  group: delete-headscale-node
+  cancel-in-progress: false
+
+jobs:
+  delete:
+    name: Xoa node ${{ inputs.node_id }} (${{ inputs.expected_name }})
+    runs-on: ubuntu-latest
+    env:
+      HS_URL: https://vpn2.hangocthanh.io.vn
+      HS_API_KEY: ${{ secrets.HEADPLANE_HS_API_KEY }}
+      NODE_ID: ${{ inputs.node_id }}
+      EXPECT_NAME: ${{ inputs.expected_name }}
+      EXPECT_IP: ${{ inputs.expected_ipv4 }}
+    steps:
+      - name: Doc node + chot an toan + xoa + xac minh
+        run: |
+          python3 - <<'PY'
+          import json, os, sys, urllib.request, urllib.error
+
+          url = os.environ["HS_URL"].rstrip("/")
+          key = os.environ["HS_API_KEY"]
+          nid = os.environ["NODE_ID"].strip()
+          want_name = os.environ["EXPECT_NAME"].strip()
+          want_ip = os.environ["EXPECT_IP"].strip()
+
+          def call(method, path):
+              req = urllib.request.Request(url + path, method=method)
+              req.add_header("Authorization", "Bearer " + key)
+              try:
+                  with urllib.request.urlopen(req, timeout=20) as r:
+                      body = r.read().decode()
+                      return r.status, (json.loads(body) if body else {})
+              except urllib.error.HTTPError as e:
+                  return e.code, e.read().decode()[:300]
+
+          def list_nodes():
+              st, data = call("GET", "/api/v1/node")
+              if st != 200:
+                  print(f"::error::GET /api/v1/node -> {st} {data}"); sys.exit(1)
+              return data.get("nodes", [])
+
+          nodes = list_nodes()
+          target = [n for n in nodes if str(n.get("id")) == nid]
+          if not target:
+              print(f"::error::khong co node id={nid} — dung, khong xoa gi"); sys.exit(1)
+          n = target[0]
+          name = n.get("givenName") or n.get("name")
+          ips = n.get("ipAddresses") or []
+          print(f"node id={nid} givenName={name!r} ips={ips} online={n.get('online')} user={(n.get('user') or {}).get('name')}")
+
+          if name != want_name:
+              print(f"::error::givenName {name!r} != {want_name!r} — dung, khong xoa"); sys.exit(1)
+          if want_ip not in ips:
+              print(f"::error::IP {want_ip} khong nam trong {ips} — dung, khong xoa"); sys.exit(1)
+          print("chot an toan: KHOP ten + IP -> xoa")
+
+          st, data = call("DELETE", f"/api/v1/node/{nid}")
+          print(f"DELETE /api/v1/node/{nid} -> {st} {data}")
+          if st != 200:
+              print("::error::xoa that bai"); sys.exit(1)
+
+          still = [x for x in list_nodes() if str(x.get("id")) == nid]
+          if still:
+              print(f"::error::node id={nid} VAN CON sau khi xoa"); sys.exit(1)
+          print(f"XAC MINH: node id={nid} ({want_name}) da bien mat khoi headscale")
+          PY
