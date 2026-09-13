@@ -100,10 +100,20 @@ protocols:
 ## Rollback (nếu hỏng)
 1. Khôi phục cấu hình sslh từ backup → restart sslh (memory-stack về như cũ ngay).
 2. `cd derp-vpn6 && docker compose down`.
-3. (Tùy chọn) bật lại relay-vpn6 cũ: stack relay vẫn còn trên `main`, không bị xóa.
+3. ~~Bật lại relay-vpn6 cũ~~ — **đã gỡ 2026-09-11**, không còn đường lui này.
+   Muốn dựng lại thì lấy từ lịch sử git (commit trước PR gỡ relay-vpn6).
 
 ## Lưu ý
-- **Không** xóa code relay tcp/udp (relay-vpn5/relay-vpn6) — vẫn còn trên `main`.
+- **relay-vpn6 đã retire 2026-09-11.** Thư mục `relay-vpn6/` và `deploy-relay-vpn6.yml`
+  đã xoá khỏi repo; container trên box gỡ bằng `teardown-relay-vpn6.yml` (chạy tay).
+  Lý do: sslh chuyển SNI vpn6 thẳng vào derper nên relay không nhận được request nào
+  trên 443, nhưng `deploy-relay-vpn6` vẫn tự dựng lại nó sau **mỗi** lần merge main.
+  Log cũ báo `/relay/probe` 200 là do **derper** trả — derper đăng ký route `/` bắt mọi
+  đường dẫn với home handler luôn trả 200 (`cmd/derper/derper.go:280`).
+- Code Go của relay (`relay-vpn5/`) vẫn còn trên `main` (vpn5 retire, giữ làm tham chiếu).
+- Khối `vpn6.hangocthanh.io.vn { reverse_proxy relay-vpn6:8080 }` trong Caddyfile
+  memory-stack **để lại**: sslh chặn vpn6 trước khi tới Caddy nên nó không bao giờ
+  được dùng; gỡ nó là sửa Caddy prod, rủi ro riêng không đáng.
 - Khác biệt duy nhất so với vpn4: port nội bộ `:8444` + `--http-port=-1` (cert TLS-ALPN).
   Phần còn lại (derper, STUN) **y hệt vpn4**. ts sidecar đã gỡ 2026-08-15 (node
   chạy native), ping-reporter đã gỡ 2026-09-11 (collector đích chết từ 2026-08-02).

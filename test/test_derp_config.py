@@ -164,7 +164,7 @@ def test_derp_vpn3_reporter_dung_netns_sidecar():
 import pytest
 
 
-@pytest.mark.parametrize("compose_dir", ["derp-vpn4", "derp-vpn6", "relay-vpn6"])
+@pytest.mark.parametrize("compose_dir", ["derp-vpn4", "derp-vpn6"])
 def test_stack_con_song_khong_con_ping_reporter(compose_dir):
     """Bat bien (2026-09-11): cac stack DANG CHAY (vpn4, vpn6) KHONG duoc khai
     ping-reporter nua.
@@ -289,70 +289,24 @@ def test_relay_vpn5_go_mod_ton_tai():
 # Region 1003 (vpn6) hostname/ipv4/regionid gio do DB derp_servers quan ly,
 # khong con assert tu derp.yaml tinh. Cac test duoi kiem tra cau truc compose.
 
-def test_relay_vpn6_compose_ton_tai():
-    compose = ROOT / "relay-vpn6" / "docker-compose.yml"
-    assert compose.exists(), "relay-vpn6/docker-compose.yml phai ton tai"
+def test_relay_vpn6_da_go_va_khong_con_auto_deploy():
+    """Bat bien (2026-09-11): relay-vpn6 (hybrid relay cu) DA RETIRE.
 
-
-def test_relay_vpn6_relay_lay_socket_tu_host():
-    """relay-vpn6 khong con sidecar tailscale — node vpn6 chay NATIVE tren host.
-
-    Bat bien moi (2026-08-15): relay PHAI mount BIND /var/run/tailscale cua host.
-    Mount named volume hoac mount thang file .sock = "socket ma": relay giu inode cu
-    sau khi tailscaled restart, im lang mat ket noi, DERP region 1003 chet trong khi
-    `docker ps` van bao Up. Xem docs/plan-linux-node-vpn6-vpn4.md.
+    Tu 2026-09-05 vpn6 chay derper chuan (derp-vpn6); sslh route SNI vpn6 thang
+    vao derper nen relay-vpn6 khong nhan duoc request nao tren 443. Van de that la
+    deploy-relay-vpn6.yml tu DUNG LAI no sau MOI lan merge main (workflow_run CI).
+    Go bang teardown-relay-vpn6.yml (chay tay). Test nay chan ca hai: thu muc stack
+    va workflow auto-deploy khong duoc quay lai.
     """
-    compose = ROOT / "relay-vpn6" / "docker-compose.yml"
-    data = yaml.safe_load(compose.read_text())
-    svcs = data.get("services", {})
-    assert "relay" in svcs, "relay-vpn6 compose phai co service 'relay'"
-    assert "tailscale" not in svcs, (
-        "relay-vpn6 KHONG duoc khai lai sidecar 'tailscale': node vpn6 chay native "
-        "tren host (systemd tailscale-node). Dung lai sidecar = 2 node trung hostname."
+    assert not (ROOT / "relay-vpn6" / "docker-compose.yml").exists(), (
+        "relay-vpn6/docker-compose.yml da go 2026-09-11 — vpn6 dung derp-vpn6"
     )
-    mounts = [v for v in svcs["relay"].get("volumes", []) if "/var/run/tailscale" in v]
-    assert mounts, "relay-vpn6 phai mount /var/run/tailscale de lay socket tailscaled"
-    assert any(v.startswith("/var/run/tailscale:") for v in mounts), (
-        f"relay-vpn6 phai BIND MOUNT thu muc host '/var/run/tailscale:/var/run/tailscale' "
-        f"(khong phai named volume, khong phai file .sock). Dang co: {mounts}"
+    assert not (ROOT / ".github" / "workflows" / "deploy-relay-vpn6.yml").exists(), (
+        "deploy-relay-vpn6.yml da go: no tu dung lai relay-vpn6 moi lan merge main"
     )
-
-
-def test_relay_vpn6_build_tu_relay_vpn5():
-    """relay-vpn6 tai dung code Go cua relay-vpn5 (build context ../relay-vpn5)."""
-    compose = ROOT / "relay-vpn6" / "docker-compose.yml"
-    data = yaml.safe_load(compose.read_text())
-    ctx = data["services"]["relay"].get("build", {}).get("context", "")
-    assert "relay-vpn5" in ctx, "relay-vpn6 phai build tu ../relay-vpn5 (tai dung code Go)"
-
-
-def test_relay_vpn6_expose_udp_41641():
-    compose = ROOT / "relay-vpn6" / "docker-compose.yml"
-    data = yaml.safe_load(compose.read_text())
-    ports = data["services"]["relay"].get("ports", [])
-    ports_str = " ".join(str(p) for p in ports)
-    assert "41641" in ports_str, "relay-vpn6 phai expose UDP 41641 (WireGuard)"
-
-
-def test_relay_vpn6_join_memnet_external():
-    """relay-vpn6 phai join network memory-stack_memnet (de Caddy goi duoc)."""
-    compose = ROOT / "relay-vpn6" / "docker-compose.yml"
-    data = yaml.safe_load(compose.read_text())
-    nets = data.get("networks", {})
-    assert "memnet" in nets, "relay-vpn6 phai khai bao network 'memnet'"
-    assert nets["memnet"].get("external") is True, "memnet phai la external"
-    assert nets["memnet"].get("name") == "memory-stack_memnet", (
-        "memnet phai tro toi network memory-stack_memnet (cua memory-caddy)"
+    assert (ROOT / ".github" / "workflows" / "teardown-relay-vpn6.yml").exists(), (
+        "phai con teardown-relay-vpn6.yml de go container dang chay tren vpn6"
     )
-
-
-def test_relay_vpn6_caddy_snippet_ton_tai():
-    """Snippet Caddy cho vpn6 phai ton tai va tro toi relay-vpn6:8080."""
-    snippet = ROOT / "relay-vpn6" / "caddy-vpn6.caddy"
-    assert snippet.exists(), "relay-vpn6/caddy-vpn6.caddy phai ton tai"
-    txt = snippet.read_text()
-    assert "vpn6.hangocthanh.io.vn" in txt, "snippet phai co domain vpn6"
-    assert "relay-vpn6:8080" in txt, "snippet phai reverse_proxy toi relay-vpn6:8080"
 
 
 # ---------- derp-vpn6 (DERP chuan giong vpn4, dung chung 443 qua sslh) ----------
@@ -462,11 +416,14 @@ def test_deploy_derp_vpn6_workflow_dispatch_only():
     assert "schedule" not in on_block, "KHONG duoc auto-deploy theo schedule"
 
 
-def test_relay_vpn6_code_van_giu_khong_xoa():
-    """Yeu cau nguoi dung: KHONG xoa code relay tcp/udp khi them derper vpn6."""
+def test_relay_code_go_van_giu_khong_xoa():
+    """Yeu cau nguoi dung (2026-09-05): KHONG xoa code relay tcp/udp khi them derper vpn6.
+
+    Cap nhat 2026-09-11: nguoi dung DUYET go stack relay-vpn6 (compose + caddy +
+    auto-deploy) vi no khong con nhan request nao va tu dung lai moi lan merge —
+    xem test_relay_vpn6_da_go_va_khong_con_auto_deploy. Phan con giu la CODE Go
+    goc cua relay (relay-vpn5/), dung lai duoc neu can dung lai.
+    """
     assert (ROOT / "relay-vpn5" / "server.go").exists(), (
         "relay-vpn5/server.go (code mix tcp/udp) phai VAN con — khong duoc xoa"
-    )
-    assert (ROOT / "relay-vpn6" / "docker-compose.yml").exists(), (
-        "relay-vpn6/docker-compose.yml phai VAN con — khong duoc xoa"
     )
