@@ -12,19 +12,24 @@ HOST = "status.hangocthanh.io.vn"
 BLOCK = """status.hangocthanh.io.vn {
 \t# SSO tu CMS: xoa header client tu gui, hoi derp-backend xem phien CMS con
 \t# hop le khong; hop le -> chep X-Auth-Email (Beszel TRUSTED_AUTH_HEADER).
-\trequest_header -X-Auth-Email
-\tforward_auth derp-backend:8787 {
-\t\turi /api/auth/forward
-\t\tcopy_headers X-Auth-Email
-\t\t@unauth status 401 404
-\t\thandle_response @unauth {
-\t\t\tredir https://cms.hangocthanh.io.vn/app/sign-in 302
+\t# PHAI boc route{}: thu tu mac dinh cua Caddy chay forward_auth TRUOC
+\t# request_header -> header vua chep bi xoa, Beszel luon hien trang login
+\t# (su co 2026-09-14). route{} giu dung thu tu viet.
+\troute {
+\t\trequest_header -X-Auth-Email
+\t\tforward_auth derp-backend:8787 {
+\t\t\turi /api/auth/forward
+\t\t\tcopy_headers X-Auth-Email
+\t\t\t@unauth status 401 404
+\t\t\thandle_response @unauth {
+\t\t\t\tredir https://cms.hangocthanh.io.vn/app/sign-in 302
+\t\t\t}
 \t\t}
+\t\treverse_proxy beszel:8090
 \t}
 \t# Trang Monitor cua CMS nhung iframe: chi cho cms.* frame, site la thi khong.
 \theader -X-Frame-Options
 \theader ?Content-Security-Policy "frame-ancestors 'self' https://cms.hangocthanh.io.vn"
-\treverse_proxy beszel:8090
 }
 """
 

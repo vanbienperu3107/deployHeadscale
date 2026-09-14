@@ -149,6 +149,19 @@ jobs:
       - name: Integration — chay that stack cliproxy
         run: bash test/cliproxy_integration.sh
 
+  beszel-caddy:
+    name: beszel — Caddy block SSO (thu tu header + caddy adapt that)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Test caddy_block.py (pytest + caddy adapt)
+        run: |
+          python3 -m venv /tmp/venv-beszel
+          /tmp/venv-beszel/bin/pip install --quiet pytest
+          /tmp/venv-beszel/bin/python -m pytest -q test/test_beszel_caddy_block.py
+
   relay-vpn5-build:
     name: relay-vpn5 — Go build + vet + compose validate
     runs-on: ubuntu-latest
