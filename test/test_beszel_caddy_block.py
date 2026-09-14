@@ -82,7 +82,8 @@ def test_caddy_adapt_xoa_header_truoc_forward_auth(tmp_path):
     )
     assert res.returncode == 0, res.stderr
     cfg = json.loads(res.stdout)
-    flat = _handlers(cfg["apps"]["http"]["servers"])
+    # servers la dict {"srv0": {...}} -> duyet tung server theo thu tu
+    flat = _handlers(list(cfg["apps"]["http"]["servers"].values()))
 
     def idx(pred):
         hits = [i for i, h in enumerate(flat) if pred(h)]
