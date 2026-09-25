@@ -19,6 +19,7 @@ COMPOSE = ROOT / "cliproxy" / "docker-compose.yml"
 TEMPLATE = ROOT / "cliproxy" / "config.template.yaml"
 GITIGNORE = ROOT / "cliproxy" / ".gitignore"
 WORKFLOW = ROOT / ".github" / "workflows" / "deploy-cliproxy.yml"
+RESET_WORKFLOW = ROOT / ".github" / "workflows" / "reset-cliproxy-cooldowns.yml"
 INTEGRATION = ROOT / "test" / "cliproxy_integration.sh"
 
 AUTH_DIR_IN_CONTAINER = "/root/.cli-proxy-api"
@@ -80,6 +81,40 @@ def test_config_yaml_duoc_mount_vao_container():
     assert any(v.split(":")[1] == "/CLIProxyAPI/config.yaml" for v in vols), (
         f"phai mount config.yaml vao /CLIProxyAPI/config.yaml: {vols}"
     )
+
+
+def test_plugin_host_bat_va_thu_muc_plugin_duoc_luu_ben_vung():
+    cfg = load_template()
+    plugins = cfg.get("plugins") or {}
+    assert plugins.get("enabled") is True
+    assert plugins.get("dir") == "/CLIProxyAPI/plugins"
+    configs = plugins.get("configs") or {}
+    assert set(configs) == {"model-fallback-router"}
+    fallback = configs["model-fallback-router"]
+    assert fallback["enabled"] is True
+    assert fallback["priority"] == 100
+    assert "./plugins:/CLIProxyAPI/plugins" in service()["volumes"]
+    workflow = WORKFLOW.read_text(encoding="utf-8")
+    assert "mkdir -p auths logs plugins" in workflow
+
+
+def test_model_fallback_router_chuyen_opus_khi_rate_limit():
+    cfg = load_template()
+    fallback = cfg["plugins"]["configs"]["model-fallback-router"]
+    rule = fallback["rules"][0]
+    assert set(rule["models"]) == {"claude-opus-5", "claude-opus-5-5"}
+    assert rule["primary_model"] == "$requested"
+    assert rule["fallback_models"] == ["claude-sonnet-5", "gpt-5.5", "gpt-5.4"]
+    assert 429 in fallback["fallback"]["fallback_on_status"]
+    assert fallback["fallback"]["cooldown_seconds"] >= 300
+    assert 400 in fallback["fallback"]["no_fallback_on_status"]
+
+
+def test_deploy_tai_model_fallback_router_plugin():
+    body = WORKFLOW.read_text(encoding="utf-8")
+    assert "model-fallback-router_0.1.3_linux_amd64.zip" in body
+    assert "plugins/model-fallback-router.so" in body
+    assert "https://github.com/thebtf/cpa-model-fallback-router/releases/download/v0.1.3/" in body
 
 
 def test_publish_cong_la_cong_it_dung_khong_phai_mac_dinh():
@@ -381,3 +416,15 @@ def test_workflow_dung_chung_concurrency_group_voi_stack_vpn4_khac():
     """derper/vpn-gw cung o vpn4 — deploy song song de dinh lock docker/dpkg."""
     body = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
     assert body["concurrency"]["group"] == "deploy-vpn4-host"
+
+
+def test_reset_cooldown_dung_auth_index_va_khong_in_secret():
+    body = RESET_WORKFLOW.read_text(encoding="utf-8")
+    workflow = yaml.safe_load(body)
+    assert workflow["concurrency"]["group"] == "deploy-vpn4-host"
+    assert "/v0/management/auth-files" in body
+    assert "/v0/management/reset-quota" in body
+    assert "auth_index" in body
+    assert "CLIPROXY_MGMT_KEY" in body
+    assert "set -x" not in body, "khong duoc in management key vao log"
+    assert "claude-opus-5-5" in body, "reset xong phai goi that model can khoi phuc"

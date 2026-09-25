@@ -1,0 +1,37 @@
+name: Reset CLIProxy Claude cooldowns
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-vpn4-host
+  cancel-in-progress: false
+
+jobs:
+  reset:
+    name: Reset Claude cooldowns and probe
+    runs-on: ubuntu-latest
+    steps:
+      - name: Reset every Claude credential
+        env:
+          BASE_URL: https://cliproxy.hangocthanh.io.vn
+          MGMT_KEY: ${{ secrets.CLIPROXY_MGMT_KEY }}
+          API_KEY: ${{ secrets.CLIPROXY_API_KEY }}
+        run: |
+          test -n "$MGMT_KEY"
+          test -n "$API_KEY"
+          curl -fsS --max-time 30 -H "Authorization: Bearer $MGMT_KEY" "$BASE_URL/v0/management/auth-files" -o /tmp/auth-files.json
+          python3 -c "import json;d=json.load(open('/tmp/auth-files.json'));xs=[x['auth_index'] for x in d.get('files',[]) if str(x.get('provider','')).lower()=='claude' and x.get('auth_index')];open('/tmp/claude-indexes','w').write(''.join(i+'\n' for i in xs));print('Claude credentials:',len(xs))"
+          test -s /tmp/claude-indexes
+          while IFS= read -r AUTH_INDEX; do
+            python3 -c "import json,sys;open('/tmp/reset.json','w').write(json.dumps({'auth_index':sys.argv[1]}))" "$AUTH_INDEX"
+            curl -fsS --max-time 30 -H "Authorization: Bearer $MGMT_KEY" -H "Content-Type: application/json" --data-binary @/tmp/reset.json "$BASE_URL/v0/management/reset-quota"
+            echo
+          done < /tmp/claude-indexes
+          CODE=$(curl -sS -o /tmp/probe.json -w '%{http_code}' --max-time 90 -H "Authorization: Bearer $API_KEY" -H "Content-Type: application/json" --data '{"model":"claude-opus-5-5","max_tokens":8,"messages":[{"role":"user","content":"Reply OK"}]}' "$BASE_URL/v1/chat/completions")
+          echo "claude-opus-5-5 -> HTTP $CODE"
+          python3 -c "import json;d=json.load(open('/tmp/probe.json'));print(d.get('error',{}).get('message') or d.get('choices',[{}])[0].get('message',{}).get('content',''))"
+          test "$CODE" = "200"

@@ -60,6 +60,8 @@ services:
       # Bind mount (khong phai named volume) de backup/di chuyen server de dang.
       - ./auths:/root/.cli-proxy-api
       - ./logs:/CLIProxyAPI/logs
+      # Plugin cai tu Management Center phai song qua moi lan recreate container.
+      - ./plugins:/CLIProxyAPI/plugins
     # vpn4 chi co 2GB RAM va dang chay derper + vpn-gw -> van phai chan tran.
     # 512m TUNG GAY SU CO 2026-08-02: kernel OOM-kill CLIProxyAPI giua mot request
     # cua OpenCode ("Memory cgroup out of memory", anon-rss 511MB) -> client treo o

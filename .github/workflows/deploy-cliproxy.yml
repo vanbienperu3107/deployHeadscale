@@ -71,8 +71,10 @@ jobs:
 
             echo "==> [2/6] Chuan bi thu muc du lieu (auths giu nguyen neu da co)"
             cd "$DEPLOY_PATH/cliproxy"
-            mkdir -p auths logs
+            mkdir -p auths logs plugins
             chmod 700 auths
+            test -s plugins/model-fallback-router.so || curl -fsSL -o plugins/model-fallback-router_linux_amd64.zip https://github.com/thebtf/cpa-model-fallback-router/releases/download/v0.1.3/model-fallback-router_0.1.3_linux_amd64.zip
+            test -s plugins/model-fallback-router.so || python3 -c "import zipfile,pathlib;z=zipfile.ZipFile('plugins/model-fallback-router_linux_amd64.zip');z.extract('model-fallback-router.so','plugins');pathlib.Path('plugins/model-fallback-router.so').chmod(0o755)"
             # Don rac request-log cu (moi file toi 32MB, tung day logs len 204MB).
             # Chi xoa trong logs/, KHONG dung toi auths/.
             find logs -maxdepth 1 -name 'request-log-parts-*' -type d -exec rm -rf {} + 2>/dev/null || true

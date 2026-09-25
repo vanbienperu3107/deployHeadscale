@@ -78,6 +78,49 @@ chat-history:
 # Thong ke dung luong cho Management API.
 usage-statistics-enabled: true
 
+# Bat plugin host va official plugin store. Plugin fallback ben duoi chi can thiet
+# cho Opus: khi account co Opus 5 bi 429/quota thi tu chuyen sang model khac thay
+# vi de client retry mai tren cung model dang bi limit.
+plugins:
+  enabled: true
+  dir: "/CLIProxyAPI/plugins"
+  configs:
+    model-fallback-router:
+      enabled: true
+      priority: 100
+      rules:
+        - name: claude_opus_rate_limit_fallback
+          source_formats:
+            - claude
+            - anthropic
+            - openai
+            - chat-completions
+          models:
+            - claude-opus-5
+            - claude-opus-5-5
+          primary_model: "$requested"
+          fallback_models:
+            - claude-sonnet-5
+            - gpt-5.5
+            - gpt-5.4
+      fallback:
+        enabled: true
+        cooldown_seconds: 300
+        fallback_on_status:
+          - 401
+          - 403
+          - 408
+          - 409
+          - 429
+          - 500
+          - 502
+          - 503
+          - 504
+        no_fallback_on_status:
+          - 400
+          - 404
+          - 422
+
 # Retry khi upstream tra 403/408/500/502/503/504.
 request-retry: 3
 
