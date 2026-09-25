@@ -78,9 +78,9 @@ chat-history:
 # Thong ke dung luong cho Management API.
 usage-statistics-enabled: true
 
-# Bat plugin host va official plugin store. Plugin fallback ben duoi chi can thiet
-# cho Opus: khi account co Opus 5 bi 429/quota thi tu chuyen sang model khac thay
-# vi de client retry mai tren cung model dang bi limit.
+# Bat plugin host va official plugin store. Plugin fallback ben duoi ap dung cho
+# Claude: khi account Claude bi 429/quota thi tu chuyen sang provider khac thay vi
+# de client retry mai tren cung model dang bi limit.
 plugins:
   enabled: true
   dir: "/CLIProxyAPI/plugins"
@@ -89,18 +89,16 @@ plugins:
       enabled: true
       priority: 100
       rules:
-        - name: claude_opus_rate_limit_fallback
+        - name: claude_rate_limit_fallback
           source_formats:
             - claude
             - anthropic
             - openai
             - chat-completions
           models:
-            - claude-opus-5
-            - claude-opus-5-5
+            - claude-*
           primary_model: "$requested"
           fallback_models:
-            - claude-sonnet-5
             - gpt-5.5
             - gpt-5.4
       fallback:

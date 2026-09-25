@@ -98,13 +98,13 @@ def test_plugin_host_bat_va_thu_muc_plugin_duoc_luu_ben_vung():
     assert "mkdir -p auths logs plugins" in workflow
 
 
-def test_model_fallback_router_chuyen_opus_khi_rate_limit():
+def test_model_fallback_router_chuyen_toan_bo_claude_khi_rate_limit():
     cfg = load_template()
     fallback = cfg["plugins"]["configs"]["model-fallback-router"]
     rule = fallback["rules"][0]
-    assert set(rule["models"]) == {"claude-opus-5", "claude-opus-5-5"}
+    assert rule["models"] == ["claude-*"]
     assert rule["primary_model"] == "$requested"
-    assert rule["fallback_models"] == ["claude-sonnet-5", "gpt-5.5", "gpt-5.4"]
+    assert rule["fallback_models"] == ["gpt-5.5", "gpt-5.4"]
     assert 429 in fallback["fallback"]["fallback_on_status"]
     assert fallback["fallback"]["cooldown_seconds"] >= 300
     assert 400 in fallback["fallback"]["no_fallback_on_status"]
