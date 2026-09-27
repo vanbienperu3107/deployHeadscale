@@ -1,0 +1,56 @@
+name: Deploy public UI preview via memory Caddy
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-vpn6-preview
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SSH_HOST_VPN6 }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT || '22' }}
+          envs: DEPLOY_PATH
+          script_stop: true
+          command_timeout: 10m
+          script: |
+            set -e
+            if [ "$(id -u)" -ne 0 ]; then SUDO="sudo"; else SUDO=""; fi
+            cd "$DEPLOY_PATH"
+            git config --global --add safe.directory "$DEPLOY_PATH" || true
+            git fetch origin main
+            git reset --hard origin/main
+            $SUDO docker compose up -d --no-deps --force-recreate ui-preview
+            $SUDO docker network connect memory-stack_memnet ui-preview 2>/dev/null || true
+
+            CADDYFILE=/home/thanh/memory-stack/Caddyfile
+            BACKUP=/home/thanh/memory-stack/Caddyfile.preview-backup
+            $SUDO test -f "$CADDYFILE"
+            $SUDO cp "$CADDYFILE" "$BACKUP"
+            if ! $SUDO grep -q '^view\.hangocthanh\.io\.vn {' "$CADDYFILE"; then
+              printf '\nview.hangocthanh.io.vn {\n    encode gzip\n    reverse_proxy ui-preview:8080\n}\n' | $SUDO tee -a "$CADDYFILE" >/dev/null
+            fi
+            if ! $SUDO docker exec memory-caddy caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile; then
+              $SUDO cp "$BACKUP" "$CADDYFILE"
+              exit 1
+            fi
+            $SUDO docker restart memory-caddy
+            for _ in $(seq 1 30); do
+              code=$(curl -k -sS -o /dev/null -w '%{http_code}' --resolve view.hangocthanh.io.vn:443:127.0.0.1 https://view.hangocthanh.io.vn/ || true)
+              if [ "$code" = "200" ]; then exit 0; fi
+              sleep 5
+            done
+            $SUDO docker logs --tail 100 memory-caddy
+            exit 1
+        env:
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
