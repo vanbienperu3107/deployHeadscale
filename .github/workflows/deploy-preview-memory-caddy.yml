@@ -30,6 +30,18 @@ jobs:
             git config --global --add safe.directory "$DEPLOY_PATH" || true
             git fetch origin main
             git reset --hard origin/main
+            PREVIEW_ROOT=/home/thanh/ui-previews
+            RANDOM=$(openssl rand -hex 12)
+            SLUG="preview-${{ github.run_id }}-$RANDOM"
+            TEMP="$PREVIEW_ROOT/.${SLUG}.staging"
+            TARGET="$PREVIEW_ROOT/$SLUG"
+            $SUDO mkdir -p "$PREVIEW_ROOT"
+            test ! -e "$TEMP" && test ! -e "$TARGET"
+            $SUDO mkdir "$TEMP"
+            $SUDO cp -a "$DEPLOY_PATH/ui-preview/." "$TEMP/"
+            $SUDO mv "$TEMP" "$TARGET"
+            printf '<!doctype html><title>UI previews</title><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{font:16px system-ui;margin:3rem;max-width:48rem}a{display:block;padding:.6rem 0}</style><h1>UI previews</h1><a href="/%s/">Latest preview</a>' "$SLUG" | $SUDO tee "$PREVIEW_ROOT/index.html" >/dev/null
+
             $SUDO docker compose up -d --no-deps --force-recreate ui-preview
             $SUDO docker network connect memory-stack_memnet ui-preview 2>/dev/null || true
 
@@ -45,9 +57,13 @@ jobs:
               exit 1
             fi
             $SUDO docker restart memory-caddy
+            URL="https://view.hangocthanh.io.vn/$SLUG/"
             for _ in $(seq 1 30); do
-              code=$(curl -k -sS -o /dev/null -w '%{http_code}' --resolve view.hangocthanh.io.vn:443:127.0.0.1 https://view.hangocthanh.io.vn/ || true)
-              if [ "$code" = "200" ]; then exit 0; fi
+              code=$(curl -k -sS -o /dev/null -w '%{http_code}' --resolve view.hangocthanh.io.vn:443:127.0.0.1 "$URL" || true)
+              if [ "$code" = "200" ]; then
+                echo "Public UI preview: $URL"
+                exit 0
+              fi
               sleep 5
             done
             $SUDO docker logs --tail 100 memory-caddy
