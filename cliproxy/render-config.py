@@ -125,8 +125,17 @@ def main(argv):
     tho = pathlib.Path(template).read_text(encoding="utf-8")
     tho = tho.replace("__MANAGEMENT_KEY__", mgmt).replace("__CHAT_HISTORY_DSN__", dsn)
     tho = thay_api_keys(tho, khoa)
-    if "__API_KEY__" in tho or "__MANAGEMENT_KEY__" in tho or "__CHAT_HISTORY_DSN__" in tho:
-        raise SystemExit("config.yaml van con placeholder — kiem tra lai template/secret")
+    # Chi soi dong LENH, bo dong chu thich: phan dau template GIAI THICH cac
+    # placeholder nen chinh chu thich do chua chuoi __API_KEY__ — lop loi
+    # "tu to giac" da lam CI do mot lan.
+    for dong in tho.splitlines():
+        if dong.lstrip().startswith("#"):
+            continue
+        for gc in ("__API_KEY__", "__MANAGEMENT_KEY__", "__CHAT_HISTORY_DSN__"):
+            if gc in dong:
+                raise SystemExit(
+                    "config.yaml van con placeholder %s — kiem tra lai template/secret" % gc
+                )
 
     p = pathlib.Path(dich)
     p.write_text(tho, encoding="utf-8")
