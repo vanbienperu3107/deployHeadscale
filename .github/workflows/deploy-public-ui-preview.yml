@@ -32,7 +32,9 @@ jobs:
             git fetch origin main
             git reset --hard origin/main
             $SUDO docker compose run --rm --no-deps caddy caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
-            $SUDO docker compose up -d --force-recreate ui-preview caddy
+            # This host already runs headscale under another compose project.
+            # Preview deployment must not start/recreate dependencies it does not own.
+            $SUDO docker compose up -d --no-deps --force-recreate ui-preview caddy
             for _ in $(seq 1 24); do
               code=$(curl -k -sS -o /dev/null -w '%{http_code}' --resolve view.hangocthanh.io.vn:443:127.0.0.1 https://view.hangocthanh.io.vn/ || true)
               if [ "$code" = "200" ]; then exit 0; fi
