@@ -1,0 +1,44 @@
+name: Deploy public UI preview (vpn6)
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-vpn6-preview
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy static preview and Caddy host
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SSH_HOST_VPN6 }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT || '22' }}
+          envs: DEPLOY_PATH
+          script_stop: true
+          command_timeout: 10m
+          script: |
+            set -e
+            if [ "$(id -u)" -ne 0 ]; then SUDO="sudo"; else SUDO=""; fi
+            cd "$DEPLOY_PATH"
+            git config --global --add safe.directory "$DEPLOY_PATH" || true
+            git fetch origin main
+            git reset --hard origin/main
+            $SUDO docker compose run --rm --no-deps caddy caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+            $SUDO docker compose up -d --force-recreate ui-preview caddy
+            for _ in $(seq 1 24); do
+              code=$(curl -k -sS -o /dev/null -w '%{http_code}' --resolve view.hangocthanh.io.vn:443:127.0.0.1 https://view.hangocthanh.io.vn/ || true)
+              if [ "$code" = "200" ]; then exit 0; fi
+              sleep 5
+            done
+            $SUDO docker logs --tail 80 caddy
+            exit 1
+        env:
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
