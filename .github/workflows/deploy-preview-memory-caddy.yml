@@ -50,9 +50,10 @@ jobs:
             printf '%s\t%s\t%s\n' "$(date -u +%Y-%m-%dT%H:%MZ)" "$PV_REF" "$(printf %s "$PV_SHA" | cut -c1-7)" | $SUDO tee "$PREVIEW_ROOT/.meta/$SLUG" >/dev/null
 
             # Trang goc: sinh lai tu MOI snapshot dang co (moi nhat truoc) -> khong mat link ban cu.
+            echo "Snapshot hien co:"; $SUDO ls -la "$PREVIEW_ROOT"
             INDEX_TMP="$PREVIEW_ROOT/.index.html.tmp"
             {
-              printf '<!doctype html><html lang="vi"><meta charset="utf-8"><title>UI previews</title><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{font:16px/1.5 system-ui;margin:3rem auto;max-width:48rem;padding:0 1rem;color:#171d1a;background:#f5fbf5}a{color:#1a6b51}li{padding:.35rem 0}small{color:#404944}</style>'
+              printf '<!doctype html><html lang="vi"><meta charset="utf-8"><title>UI previews</title><link rel="icon" href="data:,"><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{font:16px/1.5 system-ui;margin:3rem auto;max-width:48rem;padding:0 1rem;color:#171d1a;background:#f5fbf5}a{color:#1a6b51}li{padding:.35rem 0}small{color:#404944}</style>'
               printf '<h1>UI previews</h1><p><a href="/%s/">Mở bản mới nhất</a></p><ol>' "$SLUG"
               for d in $(ls -1dt "$PREVIEW_ROOT"/preview-*/ 2>/dev/null); do
                 s=$(basename "$d")
