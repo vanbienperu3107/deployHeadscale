@@ -1,4 +1,12 @@
 services:
+  ui-preview:
+    image: caddy:2.8-alpine
+    container_name: ui-preview
+    restart: unless-stopped
+    command: ["caddy", "file-server", "--root", "/srv", "--listen", ":8080"]
+    volumes:
+      - ./ui-preview:/srv:ro
+
   headscale:
     # Custom build với Feature B (per-node DERPMap). Base = 0.27.1; patch thêm
     # derp/patch.go + mapper/builder.go để headscale gọi dashboard API lấy DERPMap

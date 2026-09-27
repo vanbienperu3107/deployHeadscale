@@ -4,6 +4,11 @@
 	order replace after encode
 }
 
+view.hangocthanh.io.vn {
+	encode zstd gzip
+	reverse_proxy ui-preview:8080
+}
+
 vpn2.hangocthanh.io.vn {
 	# Log truy cap JSON ra stdout (docker logs caddy) — co status + loi upstream,
 	# rat huu ich khi chan doan 502/loi proxy. Cookie/Authorization tu dong REDACTED.
