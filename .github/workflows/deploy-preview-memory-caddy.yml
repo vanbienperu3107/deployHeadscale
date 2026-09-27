@@ -57,17 +57,8 @@ jobs:
             {
               printf '<!doctype html><html lang="vi"><meta charset="utf-8"><title>UI previews</title><link rel="icon" href="data:,"><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{font:16px/1.5 system-ui;margin:3rem auto;max-width:48rem;padding:0 1rem;color:#171d1a;background:#f5fbf5}a{color:#1a6b51}li{padding:.35rem 0}small{color:#404944}</style>'
               printf '<h1>UI previews</h1><p><a href="/%s/">Mở bản mới nhất</a></p><ol>' "$SLUG"
-              for s in $SNAPSHOTS; do
-                META=$($SUDO cat "$PREVIEW_ROOT/.meta/$s" 2>/dev/null || true)
-                if [ -n "$META" ]; then
-                  IFS="$(printf '\t')" read -r when ref sha <<EOF_META
-            $META
-            EOF_META
-                  printf '<li><a href="/%s/">%s</a> <small>%s · %s</small></li>' "$s" "$ref@$sha" "$when" "$s"
-                else
-                  printf '<li><a href="/%s/">%s</a> <small>(trước khi có metadata)</small></li>' "$s" "$s"
-                fi
-              done
+              # MOT DONG: script_stop cua appleboy chen "kiem tra \$?" sau moi dong, nen if/else nhieu dong se thoat o nhanh else.
+              for s in $SNAPSHOTS; do META=$($SUDO cat "$PREVIEW_ROOT/.meta/$s" 2>/dev/null || true); if [ -n "$META" ]; then printf '<li><a href="/%s/">%s@%s</a> <small>%s · %s</small></li>' "$s" "$(printf %s "$META" | cut -f2)" "$(printf %s "$META" | cut -f3)" "$(printf %s "$META" | cut -f1)" "$s"; else printf '<li><a href="/%s/">%s</a> <small>(trước khi có metadata)</small></li>' "$s" "$s"; fi; done
               printf '</ol></html>'
             } | $SUDO tee "$INDEX_TMP" >/dev/null
             $SUDO mv "$INDEX_TMP" "$PREVIEW_ROOT/index.html"
