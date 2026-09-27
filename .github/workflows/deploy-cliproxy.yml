@@ -86,7 +86,14 @@ jobs:
             # do se roi thang vao than heredoc va lam python bao SyntaxError.
             # Moi lenh phai gon trong dung MOT dong. (test_cliproxy_config.py chan
             # heredoc quay lai file nay.)
-            python3 -c "import os,pathlib;t=pathlib.Path('config.template.yaml').read_text();p=pathlib.Path('config.yaml');p.write_text(t.replace('__API_KEY__',os.environ['CLIPROXY_API_KEY']).replace('__MANAGEMENT_KEY__',os.environ['CLIPROXY_MGMT_KEY']).replace('__CHAT_HISTORY_DSN__',os.environ.get('CHAT_HISTORY_DSN','')));p.chmod(0o600);print('  config.yaml da ghi:',p.stat().st_size,'bytes')"
+            # Khoa API lay tu FILE DUNG CHUNG /opt/opencode/secrets/cliproxy.key —
+            # chinh file ma opencode-server mount vao /run/secrets/cliproxy-key.
+            # Sua file do la doi khoa cho CA HAI ben. Truoc day config.yaml duoc
+            # sinh CHI tu secret, nen moi lan deploy xoa sach khoa them tay qua
+            # /management.html va OpenCode dinh 401 (su co 2026-09-26/27).
+            # Khoa trong secret van duoc them vao (cac buoc verify chay tren runner
+            # chi biet khoa do).
+            python3 render-config.py config.template.yaml config.yaml
             if grep -q '__API_KEY__\|__MANAGEMENT_KEY__\|__CHAT_HISTORY_DSN__' config.yaml; then
               echo "::error::config.yaml van con placeholder — secret rong?"
               exit 1
