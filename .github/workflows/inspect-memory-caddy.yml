@@ -1,0 +1,31 @@
+name: Inspect memory Caddy ingress (read-only)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SSH_HOST_VPN6 }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT || '22' }}
+          script_stop: true
+          script: |
+            set -e
+            if [ "$(id -u)" -ne 0 ]; then SUDO="sudo"; else SUDO=""; fi
+            echo '== memory-caddy mounts/networks =='
+            $SUDO docker inspect memory-caddy --format '{{json .Mounts}} {{json .NetworkSettings.Networks}}'
+            echo '== memory-caddy effective Caddyfile =='
+            $SUDO docker exec memory-caddy sh -c 'cat /etc/caddy/Caddyfile 2>/dev/null || true'
+            echo '== preview networks =='
+            $SUDO docker inspect ui-preview --format '{{json .NetworkSettings.Networks}}'
+            echo '== sslh service/unit =='
+            $SUDO systemctl cat sslh 2>/dev/null || true
+            $SUDO grep -R "8443\|8444\|443" /etc/sslh* /etc/default/sslh 2>/dev/null || true
