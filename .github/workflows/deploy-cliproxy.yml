@@ -94,7 +94,10 @@ jobs:
             # Khoa trong secret van duoc them vao (cac buoc verify chay tren runner
             # chi biet khoa do).
             python3 render-config.py config.template.yaml config.yaml
-            if grep -q '__API_KEY__\|__MANAGEMENT_KEY__\|__CHAT_HISTORY_DSN__' config.yaml; then
+            # BO DONG CHU THICH truoc khi soi: phan dau template GIAI THICH cac
+            # placeholder nen chinh chu thich do chua chuoi __API_KEY__ — lop loi
+            # "tu to giac", da lam deploy do that (run 36354194930).
+            if grep -v '^[[:space:]]*#' config.yaml | grep -q '__API_KEY__\|__MANAGEMENT_KEY__\|__CHAT_HISTORY_DSN__'; then
               echo "::error::config.yaml van con placeholder — secret rong?"
               exit 1
             fi
