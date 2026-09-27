@@ -1,0 +1,30 @@
+name: Diagnose VPN6 ingress (read-only)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SSH_HOST_VPN6 }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT || '22' }}
+          script_stop: true
+          script: |
+            set -e
+            if [ "$(id -u)" -ne 0 ]; then SUDO="sudo"; else SUDO=""; fi
+            echo '== dashboard compose =='
+            $SUDO sed -n '1,240p' /opt/dashboard-vn/docker-compose.yml
+            echo '== dashboard Caddyfiles =='
+            $SUDO find /opt/dashboard-vn -maxdepth 3 -type f -iname '*caddy*' -print -exec $SUDO sed -n '1,260p' {} \;
+            echo '== sslh config =='
+            $SUDO find /etc -maxdepth 3 -type f -iname '*sslh*' -print -exec $SUDO sed -n '1,220p' {} \; 2>/dev/null || true
+            echo '== sslh process =='
+            $SUDO ps -ef | grep '[s]slh' || true
