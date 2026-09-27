@@ -1,0 +1,31 @@
+name: Diagnose public UI preview (vpn6)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SSH_HOST_VPN6 }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT || '22' }}
+          script_stop: true
+          command_timeout: 5m
+          script: |
+            set -e
+            if [ "$(id -u)" -ne 0 ]; then SUDO="sudo"; else SUDO=""; fi
+            echo '== listeners =='
+            $SUDO ss -tlnp | grep -E ':(80|443)\b' || true
+            echo '== docker port owners =='
+            $SUDO docker ps --format '{{.Names}} {{.Image}} {{.Ports}}'
+            echo '== caddy containers =='
+            $SUDO docker ps -a --filter name=caddy --format '{{.Names}} {{.Status}} {{.Image}} {{.Ports}}'
+            echo '== compose directories =='
+            $SUDO find /opt /root -maxdepth 3 -type f \( -name Caddyfile -o -name docker-compose.yml \) 2>/dev/null | head -80
