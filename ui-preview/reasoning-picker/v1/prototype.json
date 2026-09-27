@@ -1,0 +1,16 @@
+{
+  "title": "Chọn model và mức suy luận trong hội thoại",
+  "summary": "Prototype mẫu cho quy trình mới: 3 cách đặt bộ chọn model và reasoning level trên màn hội thoại OpenCode, dùng token từ adroidClient.",
+  "status": "draft",
+  "created": "2026-09-27",
+  "source": "adroidClient presentation/theme (Color.kt @ 88fd410), Material 3 mặc định.",
+  "variants": [
+    { "id": "a", "label": "Bottom sheet" },
+    { "id": "b", "label": "Thanh mức trên ô nhập" },
+    { "id": "c", "label": "Menu neo tại chip" }
+  ],
+  "viewports": [
+    { "name": "mobile", "width": 412, "height": 915 },
+    { "name": "desktop", "width": 1280, "height": 900 }
+  ]
+}

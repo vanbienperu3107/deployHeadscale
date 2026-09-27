@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="vi" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="pv-prototype" content="reasoning-picker/v1">
+  <title>Chọn model và mức suy luận — prototype v1</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="../../_system/tokens.css">
+  <link rel="stylesheet" href="../../_system/components.css">
+  <style>
+    .pv-page { padding: var(--md-space-6) var(--md-space-4) 96px; }
+    .pv-page > header { max-width: 60ch; margin: 0 auto var(--md-space-6); }
+    .pv-page h1 { margin: 0 0 var(--md-space-1); font: var(--md-sys-typescale-headline-small); }
+    .pv-page > header p { margin: 0; color: var(--md-sys-color-on-surface-variant); font: var(--md-sys-typescale-body-medium); }
+    .pv-page .pv-back { font: var(--md-sys-typescale-label-large); color: var(--md-sys-color-primary); }
+    .variants { display: block; }
+    .variant-note { max-width: var(--pv-device-width); margin: var(--md-space-3) auto 0; color: var(--md-sys-color-on-surface-variant); font: var(--md-sys-typescale-body-medium); }
+
+    /* Hoi thoai dung chung */
+    .convo { padding: var(--md-space-2) var(--md-space-4) var(--md-space-4); display: flex; flex-direction: column; gap: var(--md-space-2); }
+    .convo .pv-label { margin-top: var(--md-space-3); }
+    .convo .pv-label.me { text-align: right; }
+    .ctx { margin: 0 var(--md-space-4); padding: var(--md-space-2) var(--md-space-3); border-radius: var(--md-sys-shape-corner-small); background: var(--md-sys-color-surface-container); font: var(--md-sys-typescale-body-small); color: var(--md-sys-color-on-surface-variant); display: flex; justify-content: space-between; gap: var(--md-space-2); }
+    .ctx strong { color: var(--md-sys-color-on-surface); font-weight: 500; }
+    .composer { border-top: 1px solid var(--md-sys-color-outline-variant); background: var(--md-sys-color-surface-container-low); padding: var(--md-space-2) var(--md-space-3) var(--md-space-4); }
+    .composer .m3-text-field { border-radius: var(--md-sys-shape-corner-extra-large); background: var(--md-sys-color-surface); }
+    .send { width: 40px; height: 40px; border-radius: 50%; border: 0; background: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary); font-size: 18px; }
+    .chip-row { display: flex; gap: var(--md-space-2); margin-bottom: var(--md-space-2); overflow-x: auto; }
+
+    /* A: bottom sheet */
+    .sheet-section { padding: 0 var(--md-space-2); }
+    .sheet-section + .sheet-section { margin-top: var(--md-space-2); }
+    .sheet-section h3 { margin: var(--md-space-3) var(--md-space-4) var(--md-space-1); font: var(--md-sys-typescale-title-small); color: var(--md-sys-color-on-surface-variant); }
+    .sheet-footer { display: flex; justify-content: flex-end; gap: var(--md-space-2); padding: var(--md-space-4) var(--md-space-6) 0; }
+
+    /* B: segmented ngay tren composer */
+    .level-strip { margin-bottom: var(--md-space-2); }
+    .level-strip__head { display: flex; justify-content: space-between; align-items: baseline; margin: 0 var(--md-space-1) var(--md-space-1); font: var(--md-sys-typescale-label-medium); color: var(--md-sys-color-on-surface-variant); }
+    .level-strip__head button { border: 0; background: none; padding: 0; color: var(--md-sys-color-primary); font: var(--md-sys-typescale-label-medium); }
+    .segmented { display: grid; grid-template-columns: repeat(5, 1fr); border: 1px solid var(--md-sys-color-outline); border-radius: var(--md-sys-shape-corner-full); overflow: hidden; }
+    .segmented button { min-height: 40px; border: 0; border-left: 1px solid var(--md-sys-color-outline); background: transparent; color: var(--md-sys-color-on-surface); font: var(--md-sys-typescale-label-large); padding: 0 2px; }
+    .segmented button:first-child { border-left: 0; }
+    .segmented button[aria-checked="true"] { background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container); }
+    .level-hint { margin: var(--md-space-1) var(--md-space-1) 0; font: var(--md-sys-typescale-body-small); color: var(--md-sys-color-on-surface-variant); min-height: 16px; }
+
+    /* C: menu neo tai cho */
+    .menu-anchor { position: relative; display: inline-block; }
+    .m3-menu { position: absolute; bottom: calc(100% + 6px); left: 0; z-index: 5; min-width: 264px; padding: var(--md-space-2) 0; border-radius: var(--md-sys-shape-corner-extra-small); background: var(--md-sys-color-surface-container); box-shadow: 0 2px 6px color-mix(in srgb, var(--md-sys-color-scrim) 20%, transparent), 0 8px 20px color-mix(in srgb, var(--md-sys-color-scrim) 14%, transparent); }
+    .m3-menu[hidden] { display: none; }
+    .m3-menu h3 { margin: var(--md-space-2) var(--md-space-4) var(--md-space-1); font: var(--md-sys-typescale-label-medium); color: var(--md-sys-color-on-surface-variant); }
+    .m3-menu .m3-list-item { min-height: 44px; padding-block: var(--md-space-1); }
+    .m3-menu hr { margin: var(--md-space-2) 0; }
+    .check { width: 20px; flex: 0 0 20px; color: var(--md-sys-color-primary); }
+  </style>
+</head>
+<body>
+  <div class="pv-page">
+    <header>
+      <p><a class="pv-back" href="../../">Tất cả prototype</a></p>
+      <h1>Chọn model và mức suy luận cho lượt tiếp theo</h1>
+      <p>Màn hội thoại OpenCode trong adroidClient. Ba cách đặt bộ chọn; bấm vào chip để thử. Mức suy luận chỉ áp dụng cho tin nhắn gửi tiếp theo.</p>
+    </header>
+
+    <div class="variants">
+      <!-- ================= A ================= -->
+      <section data-variant="a" data-variant-label="Bottom sheet">
+        <div class="pv-device" data-pv-id="a-device">
+          <div class="m3-top-app-bar"><button class="m3-icon-button" aria-label="Quay lại">‹</button><h2 class="m3-top-app-bar__title">Review Android release</h2><button class="m3-icon-button" aria-label="Tùy chọn khác">⋮</button></div>
+          <div class="ctx"><span>Engineering project</span><strong data-bind="model-full">cliproxy/gpt-5.6-terra</strong></div>
+          <div class="pv-scroll convo">
+            <span class="pv-label me">Bạn</span>
+            <div class="pv-bubble pv-bubble--user">Kiểm tra lại migration database trước khi release.</div>
+            <span class="pv-label">OpenCode</span>
+            <div class="pv-bubble pv-bubble--assistant">Có 3 migration chưa chạy trên staging. Muốn tôi phân tích kỹ từng bước rollback không? Việc này nên dùng mức suy luận cao hơn.</div>
+          </div>
+          <div class="composer">
+            <div class="chip-row">
+              <button class="m3-chip" data-pv-id="a-open" data-open-sheet>✦ <span data-bind="model">gpt-5.6-terra</span> · <span data-bind="level">high</span> ▾</button>
+            </div>
+            <div class="m3-text-field"><input aria-label="Tin nhắn" placeholder="Nhắn cho OpenCode"><button class="send" aria-label="Gửi">➤</button></div>
+          </div>
+          <div class="m3-scrim" data-sheet hidden>
+            <div class="m3-bottom-sheet" role="dialog" aria-modal="true" aria-labelledby="a-sheet-title" data-pv-id="a-sheet">
+              <div class="m3-bottom-sheet__handle"></div>
+              <h2 class="m3-bottom-sheet__title" id="a-sheet-title">Cho lượt tiếp theo</h2>
+              <div class="sheet-section" role="radiogroup" aria-label="Model">
+                <h3>Model</h3>
+                <div data-list="model"></div>
+              </div>
+              <hr class="pv-divider">
+              <div class="sheet-section" role="radiogroup" aria-label="Mức suy luận">
+                <h3>Mức suy luận</h3>
+                <div data-list="level"></div>
+              </div>
+              <div class="sheet-footer"><button class="m3-button m3-button--text" data-close>Hủy</button><button class="m3-button m3-button--filled" data-apply data-pv-id="a-apply">Áp dụng</button></div>
+            </div>
+          </div>
+        </div>
+        <p class="variant-note">Gom cả hai lựa chọn vào một chỗ, có nút Áp dụng. Chậm hơn một thao tác nhưng khó chọn nhầm.</p>
+      </section>
+
+      <!-- ================= B ================= -->
+      <section data-variant="b" data-variant-label="Thanh mức ngay trên ô nhập">
+        <div class="pv-device" data-pv-id="b-device">
+          <div class="m3-top-app-bar"><button class="m3-icon-button" aria-label="Quay lại">‹</button><h2 class="m3-top-app-bar__title">Review Android release</h2><button class="m3-icon-button" aria-label="Tùy chọn khác">⋮</button></div>
+          <div class="ctx"><span>Engineering project</span><strong data-bind="model-full">cliproxy/gpt-5.6-terra</strong></div>
+          <div class="pv-scroll convo">
+            <span class="pv-label me">Bạn</span>
+            <div class="pv-bubble pv-bubble--user">Kiểm tra lại migration database trước khi release.</div>
+            <span class="pv-label">OpenCode</span>
+            <div class="pv-bubble pv-bubble--assistant">Có 3 migration chưa chạy trên staging. Muốn tôi phân tích kỹ từng bước rollback không? Việc này nên dùng mức suy luận cao hơn.</div>
+          </div>
+          <div class="composer">
+            <div class="level-strip" data-pv-id="b-strip">
+              <div class="level-strip__head"><span>Mức suy luận</span><button data-model-cycle aria-label="Đổi model">✦ <span data-bind="model">gpt-5.6-terra</span> ▾</button></div>
+              <div class="segmented" role="radiogroup" aria-label="Mức suy luận" data-segmented></div>
+              <p class="level-hint" data-bind="hint" aria-live="polite"></p>
+            </div>
+            <div class="m3-text-field"><input aria-label="Tin nhắn" placeholder="Nhắn cho OpenCode"><button class="send" aria-label="Gửi">➤</button></div>
+          </div>
+        </div>
+        <p class="variant-note">Luôn thấy mức đang dùng, đổi bằng một chạm. Tốn thêm khoảng 70dp chiều cao phía trên bàn phím.</p>
+      </section>
+
+      <!-- ================= C ================= -->
+      <section data-variant="c" data-variant-label="Menu neo tại chip">
+        <div class="pv-device" data-pv-id="c-device">
+          <div class="m3-top-app-bar"><button class="m3-icon-button" aria-label="Quay lại">‹</button><h2 class="m3-top-app-bar__title">Review Android release</h2><button class="m3-icon-button" aria-label="Tùy chọn khác">⋮</button></div>
+          <div class="ctx"><span>Engineering project</span><strong data-bind="model-full">cliproxy/gpt-5.6-terra</strong></div>
+          <div class="pv-scroll convo">
+            <span class="pv-label me">Bạn</span>
+            <div class="pv-bubble pv-bubble--user">Kiểm tra lại migration database trước khi release.</div>
+            <span class="pv-label">OpenCode</span>
+            <div class="pv-bubble pv-bubble--assistant">Có 3 migration chưa chạy trên staging. Muốn tôi phân tích kỹ từng bước rollback không? Việc này nên dùng mức suy luận cao hơn.</div>
+          </div>
+          <div class="composer">
+            <div class="chip-row" style="overflow:visible">
+              <div class="menu-anchor">
+                <button class="m3-chip" data-pv-id="c-open" data-open-menu aria-haspopup="menu" aria-expanded="false">✦ <span data-bind="model">gpt-5.6-terra</span> ▾</button>
+                <div class="m3-menu" role="menu" data-menu="model" hidden><h3>Model</h3><div data-list="model"></div></div>
+              </div>
+              <div class="menu-anchor">
+                <button class="m3-chip" data-pv-id="c-open-level" data-open-menu aria-haspopup="menu" aria-expanded="false"><span data-bind="level">high</span> ▾</button>
+                <div class="m3-menu" role="menu" data-menu="level" hidden><h3>Mức suy luận</h3><div data-list="level"></div></div>
+              </div>
+            </div>
+            <div class="m3-text-field"><input aria-label="Tin nhắn" placeholder="Nhắn cho OpenCode"><button class="send" aria-label="Gửi">➤</button></div>
+          </div>
+        </div>
+        <p class="variant-note">Gần nhất với bản hiện tại: hai chip, mỗi chip mở menu ngay tại chỗ. Gọn nhất nhưng mức suy luận dễ bị bỏ qua.</p>
+      </section>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      var MODELS = [
+        { id: "gpt-5.6-terra", note: "Cliproxy · hỗ trợ mức suy luận" },
+        { id: "gpt-6-astra", note: "Cliproxy · mức do server quyết định" },
+        { id: "claude-sonnet-5", note: "Cliproxy · văn bản và ảnh" }
+      ];
+      var LEVELS = [
+        { id: "default", label: "Mặc định", hint: "Server tự chọn mức phù hợp." },
+        { id: "low", label: "Thấp", hint: "Trả lời nhanh, ít phân tích." },
+        { id: "medium", label: "Vừa", hint: "Cân bằng tốc độ và độ kỹ." },
+        { id: "high", label: "Cao", hint: "Phân tích kỹ hơn, chậm hơn." },
+        { id: "xhigh", label: "Rất cao", hint: "Dành cho việc khó như migration, bảo mật." }
+      ];
+      var byId = function (arr, id) { return arr.filter(function (x) { return x.id === id; })[0]; };
+
+      document.querySelectorAll("[data-variant]").forEach(function (root) {
+        var state = { model: "gpt-5.6-terra", level: "high" };
+        var draft = null;
+
+        function bind() {
+          root.querySelectorAll('[data-bind="model"]').forEach(function (el) { el.textContent = state.model; });
+          root.querySelectorAll('[data-bind="model-full"]').forEach(function (el) { el.textContent = "cliproxy/" + state.model; });
+          root.querySelectorAll('[data-bind="level"]').forEach(function (el) { el.textContent = byId(LEVELS, state.level).label.toLowerCase(); });
+          root.querySelectorAll('[data-bind="hint"]').forEach(function (el) { el.textContent = byId(LEVELS, state.level).hint; });
+        }
+
+        function listItems(kind, src, pick) {
+          root.querySelectorAll('[data-list="' + kind + '"]').forEach(function (box) {
+            var items = kind === "model" ? MODELS : LEVELS;
+            box.innerHTML = "";
+            items.forEach(function (it) {
+              var b = document.createElement("button");
+              b.type = "button";
+              b.className = "m3-list-item";
+              var inMenu = !!box.closest("[role=menu]");
+              b.setAttribute("role", inMenu ? "menuitemradio" : "radio");
+              b.setAttribute("aria-checked", String(src()[kind] === it.id));
+              b.dataset.pvId = root.dataset.variant + "-" + kind + "-" + it.id;
+              var mark = inMenu ? '<span class="check" aria-hidden="true">' + (src()[kind] === it.id ? "✓" : "") + "</span>" : '<span class="m3-radio" aria-hidden="true"></span>';
+              b.innerHTML = mark + '<span class="m3-list-item__text"><span class="m3-list-item__headline"></span><span class="m3-list-item__supporting"></span></span>';
+              b.querySelector(".m3-list-item__headline").textContent = it.label || it.id;
+              b.querySelector(".m3-list-item__supporting").textContent = it.note || it.hint;
+              b.addEventListener("click", function () { pick(kind, it.id); });
+              box.appendChild(b);
+            });
+          });
+        }
+
+        // A — bottom sheet voi ban nhap, Ap dung moi ghi
+        var sheet = root.querySelector("[data-sheet]");
+        if (sheet) {
+          var renderSheet = function () { listItems("model", function () { return draft; }, pickDraft); listItems("level", function () { return draft; }, pickDraft); };
+          var pickDraft = function (kind, id) { draft[kind] = id; renderSheet(); };
+          var close = function () { sheet.hidden = true; root.querySelector("[data-open-sheet]").focus(); };
+          root.querySelector("[data-open-sheet]").addEventListener("click", function () {
+            draft = { model: state.model, level: state.level }; renderSheet(); sheet.hidden = false;
+            sheet.querySelector('[aria-checked="true"]').focus();
+          });
+          sheet.querySelector("[data-close]").addEventListener("click", close);
+          sheet.querySelector("[data-apply]").addEventListener("click", function () { state = draft; bind(); close(); });
+          sheet.addEventListener("click", function (e) { if (e.target === sheet) close(); });
+          sheet.addEventListener("keydown", function (e) { if (e.key === "Escape") close(); });
+        }
+
+        // B — segmented, chon la ap dung ngay
+        var seg = root.querySelector("[data-segmented]");
+        if (seg) {
+          var renderSeg = function () {
+            seg.innerHTML = "";
+            LEVELS.forEach(function (l) {
+              var b = document.createElement("button");
+              b.type = "button";
+              b.setAttribute("role", "radio");
+              b.setAttribute("aria-checked", String(state.level === l.id));
+              b.dataset.pvId = "b-level-" + l.id;
+              b.textContent = l.label;
+              b.addEventListener("click", function () { state.level = l.id; renderSeg(); bind(); });
+              seg.appendChild(b);
+            });
+          };
+          renderSeg();
+          root.querySelector("[data-model-cycle]").addEventListener("click", function () {
+            var i = MODELS.map(function (m) { return m.id; }).indexOf(state.model);
+            state.model = MODELS[(i + 1) % MODELS.length].id; bind();
+          });
+        }
+
+        // C — menu neo
+        var openers = root.querySelectorAll("[data-open-menu]");
+        if (openers.length) {
+          var closeMenus = function () {
+            root.querySelectorAll("[data-menu]").forEach(function (m) { m.hidden = true; });
+            openers.forEach(function (o) { o.setAttribute("aria-expanded", "false"); });
+          };
+          var pickNow = function (kind, id) { state[kind] = id; bind(); closeMenus(); renderMenus(); };
+          var renderMenus = function () { listItems("model", function () { return state; }, pickNow); listItems("level", function () { return state; }, pickNow); };
+          renderMenus();
+          openers.forEach(function (o) {
+            o.addEventListener("click", function (e) {
+              e.stopPropagation();
+              var menu = o.parentElement.querySelector("[data-menu]");
+              var wasOpen = !menu.hidden;
+              closeMenus();
+              if (!wasOpen) { menu.hidden = false; o.setAttribute("aria-expanded", "true"); menu.querySelector("[aria-checked=true]").focus(); }
+            });
+          });
+          document.addEventListener("click", function (e) { if (!e.target.closest(".menu-anchor")) closeMenus(); });
+          root.addEventListener("keydown", function (e) { if (e.key === "Escape") closeMenus(); });
+        }
+
+        bind();
+      });
+    })();
+  </script>
+  <script src="../../_system/variants.js"></script>
+  <script src="../../_system/feedback.js"></script>
+</body>
+</html>

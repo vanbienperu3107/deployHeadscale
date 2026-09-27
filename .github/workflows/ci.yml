@@ -200,3 +200,40 @@ jobs:
             exit 1
           fi
           echo "OK: khong tim thay private key trong relay-vpn5."
+
+  ui-preview:
+    name: ui-preview — catalog, token, duong dan (pytest)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Test ui-preview integrity
+        run: |
+          python3 -m venv /tmp/venv-ui
+          /tmp/venv-ui/bin/pip install --quiet pytest
+          /tmp/venv-ui/bin/python -m pytest -q test/test_ui_preview.py
+
+  ui-preview-baseline:
+    name: ui-preview — doi chieu anh chuan prototype da duyet
+    runs-on: ubuntu-latest
+    # Anh chuan chi hop le trong dung container nay (font/render tat dinh).
+    container: mcr.microsoft.com/playwright:v1.63.0-noble
+    env:
+      PV_ENV: mcr.microsoft.com/playwright:v1.63.0-noble
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Playwright toHaveScreenshot
+        working-directory: tools/ui-preview
+        run: |
+          npm ci --no-audit --no-fund
+          npx playwright test
+
+      - name: Luu diff khi lech
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-preview-baseline-diff
+          path: tools/ui-preview/test-results/

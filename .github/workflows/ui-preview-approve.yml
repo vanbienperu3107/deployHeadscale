@@ -1,0 +1,79 @@
+name: UI preview approve (chup anh chuan)
+
+# Chay SAU KHI nguoi dung duyet mot prototype. Chup anh chuan trong container Playwright ghim version,
+# dat status=approved trong prototype.json va commit vao CHINH nhanh da dispatch (khong phai main).
+# Dung: gh workflow run ui-preview-approve.yml --ref <branch> -f prototype=<slug>/v<N> -f approved_by=<ten>
+
+on:
+  workflow_dispatch:
+    inputs:
+      prototype:
+        description: "Prototype da duyet, dang <slug>/v<N>"
+        required: true
+      approved_by:
+        description: "Nguoi duyet"
+        required: true
+
+concurrency:
+  group: ui-preview-approve-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  approve:
+    runs-on: ubuntu-latest
+    container: mcr.microsoft.com/playwright:v1.63.0-noble
+    env:
+      PV_ENV: mcr.microsoft.com/playwright:v1.63.0-noble
+      PV_APPROVE: ${{ inputs.prototype }}
+      PV_APPROVED_BY: ${{ inputs.approved_by }}
+      PV_SOURCE_SHA: ${{ github.sha }}
+    steps:
+      - name: Chan nhanh main/master
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+        run: |
+          echo "::error::Khong commit anh chuan truc tiep vao main; dispatch tren nhanh feature roi mo PR."
+          exit 1
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Kiem tra input
+        run: |
+          echo "$PV_APPROVE" | grep -Eq '^[a-z0-9][a-z0-9-]*/v[1-9][0-9]*$' || { echo "::error::prototype phai dang <slug>/v<N>"; exit 1; }
+          test -f "ui-preview/$PV_APPROVE/prototype.json" || { echo "::error::khong co ui-preview/$PV_APPROVE/prototype.json"; exit 1; }
+
+      - name: Chup anh chuan
+        working-directory: tools/ui-preview
+        run: |
+          npm ci --no-audit --no-fund
+          npx playwright test --update-snapshots=all
+
+      - name: Danh dau approved + cap nhat catalog
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib
+          p = pathlib.Path("ui-preview") / os.environ["PV_APPROVE"] / "prototype.json"
+          d = json.loads(p.read_text(encoding="utf-8"))
+          d["status"] = "approved"
+          p.write_text(json.dumps(d, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+          PY
+          python3 tools/ui-preview/catalog.py
+
+      - name: Doi chieu lai ngay (anh vua chup phai PASS)
+        working-directory: tools/ui-preview
+        env:
+          PV_APPROVE: ""
+        run: npx playwright test
+
+      - name: Commit vao nhanh
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "ui-preview/$PV_APPROVE" ui-preview/index.html
+          git commit -m "Approve UI prototype $PV_APPROVE (baseline by $PV_APPROVED_BY)"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
+          echo "Anh chuan: ui-preview/$PV_APPROVE/approved/ @ $(git rev-parse HEAD)" >> "$GITHUB_STEP_SUMMARY"

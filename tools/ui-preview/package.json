@@ -1,0 +1,12 @@
+{
+  "name": "ui-preview-tools",
+  "private": true,
+  "description": "P5: chup va doi chieu anh chuan (baseline) cua prototype trong ui-preview/",
+  "scripts": {
+    "test": "playwright test",
+    "approve": "playwright test --update-snapshots=all"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0"
+  }
+}

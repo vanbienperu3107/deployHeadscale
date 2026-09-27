@@ -1,0 +1,128 @@
+/*
+ * Design tokens dung chung cho moi prototype trong ui-preview/.
+ * Nguon: adroidClient (GPTMobileTheme). App dung Material 3 mac dinh:
+ *   - Mau: presentation/theme/Color.kt (khoi GENERATED ben duoi, sinh bang tools/ui-preview/sync_tokens.py)
+ *   - Typography: Type.kt = Typography() mac dinh M3 -> type scale M3 chuan, font he thong (Roboto tren Android)
+ *   - Shape: Theme.kt khong khai bao Shapes -> shape scale M3 mac dinh
+ * Prototype chi nen dung bien --md-*; can gia tri moi thi them vao day, khong hardcode trong trang.
+ */
+
+/* BEGIN GENERATED COLORS tu adroidClient presentation/theme/Color.kt @ 88fd410. KHONG sua tay; chay tools/ui-preview/sync_tokens.py */
+:root, [data-theme="light"] {
+  --md-sys-color-primary: #1a6b51;
+  --md-sys-color-on-primary: #ffffff;
+  --md-sys-color-primary-container: #a6f2d2;
+  --md-sys-color-on-primary-container: #002116;
+  --md-sys-color-secondary: #4c6359;
+  --md-sys-color-on-secondary: #ffffff;
+  --md-sys-color-secondary-container: #cee9db;
+  --md-sys-color-on-secondary-container: #092017;
+  --md-sys-color-tertiary: #3f6375;
+  --md-sys-color-on-tertiary: #ffffff;
+  --md-sys-color-tertiary-container: #c2e8fd;
+  --md-sys-color-on-tertiary-container: #001f2a;
+  --md-sys-color-error: #ba1a1a;
+  --md-sys-color-on-error: #ffffff;
+  --md-sys-color-error-container: #ffdad6;
+  --md-sys-color-on-error-container: #410002;
+  --md-sys-color-background: #f5fbf5;
+  --md-sys-color-on-background: #171d1a;
+  --md-sys-color-surface: #f5fbf5;
+  --md-sys-color-on-surface: #171d1a;
+  --md-sys-color-surface-variant: #dbe5de;
+  --md-sys-color-on-surface-variant: #404944;
+  --md-sys-color-outline: #707974;
+  --md-sys-color-outline-variant: #bfc9c2;
+  --md-sys-color-scrim: #000000;
+  --md-sys-color-inverse-surface: #2c322e;
+  --md-sys-color-inverse-on-surface: #ecf2ed;
+  --md-sys-color-inverse-primary: #8ad6b6;
+  --md-sys-color-surface-dim: #d6dbd6;
+  --md-sys-color-surface-bright: #f5fbf5;
+  --md-sys-color-surface-container-lowest: #ffffff;
+  --md-sys-color-surface-container-low: #eff5f0;
+  --md-sys-color-surface-container: #e9efea;
+  --md-sys-color-surface-container-high: #e4eae4;
+  --md-sys-color-surface-container-highest: #dee4df;
+}
+[data-theme="dark"] {
+  --md-sys-color-primary: #8ad6b6;
+  --md-sys-color-on-primary: #003828;
+  --md-sys-color-primary-container: #00513c;
+  --md-sys-color-on-primary-container: #a6f2d2;
+  --md-sys-color-secondary: #b3ccbf;
+  --md-sys-color-on-secondary: #1e352c;
+  --md-sys-color-secondary-container: #354b41;
+  --md-sys-color-on-secondary-container: #cee9db;
+  --md-sys-color-tertiary: #a6cce0;
+  --md-sys-color-on-tertiary: #0a3545;
+  --md-sys-color-tertiary-container: #264b5c;
+  --md-sys-color-on-tertiary-container: #c2e8fd;
+  --md-sys-color-error: #ffb4ab;
+  --md-sys-color-on-error: #690005;
+  --md-sys-color-error-container: #93000a;
+  --md-sys-color-on-error-container: #ffdad6;
+  --md-sys-color-background: #0f1512;
+  --md-sys-color-on-background: #dee4df;
+  --md-sys-color-surface: #0f1512;
+  --md-sys-color-on-surface: #dee4df;
+  --md-sys-color-surface-variant: #404944;
+  --md-sys-color-on-surface-variant: #bfc9c2;
+  --md-sys-color-outline: #89938d;
+  --md-sys-color-outline-variant: #404944;
+  --md-sys-color-scrim: #000000;
+  --md-sys-color-inverse-surface: #dee4df;
+  --md-sys-color-inverse-on-surface: #2c322e;
+  --md-sys-color-inverse-primary: #1a6b51;
+  --md-sys-color-surface-dim: #0f1512;
+  --md-sys-color-surface-bright: #343b37;
+  --md-sys-color-surface-container-lowest: #0a0f0d;
+  --md-sys-color-surface-container-low: #171d1a;
+  --md-sys-color-surface-container: #1b211e;
+  --md-sys-color-surface-container-high: #252b28;
+  --md-sys-color-surface-container-highest: #303633;
+}
+/* END GENERATED COLORS */
+
+:root {
+  /* Typography — M3 default type scale (sp == px o do phan giai 1x) */
+  --md-ref-typeface: Roboto, "Noto Sans", "Segoe UI", system-ui, sans-serif;
+  --md-sys-typescale-headline-large: 400 32px/40px var(--md-ref-typeface);
+  --md-sys-typescale-headline-medium: 400 28px/36px var(--md-ref-typeface);
+  --md-sys-typescale-headline-small: 400 24px/32px var(--md-ref-typeface);
+  --md-sys-typescale-title-large: 400 22px/28px var(--md-ref-typeface);
+  --md-sys-typescale-title-medium: 500 16px/24px var(--md-ref-typeface);
+  --md-sys-typescale-title-small: 500 14px/20px var(--md-ref-typeface);
+  --md-sys-typescale-body-large: 400 16px/24px var(--md-ref-typeface);
+  --md-sys-typescale-body-medium: 400 14px/20px var(--md-ref-typeface);
+  --md-sys-typescale-body-small: 400 12px/16px var(--md-ref-typeface);
+  --md-sys-typescale-label-large: 500 14px/20px var(--md-ref-typeface);
+  --md-sys-typescale-label-medium: 500 12px/16px var(--md-ref-typeface);
+  --md-sys-typescale-label-small: 500 11px/16px var(--md-ref-typeface);
+  --md-sys-typescale-title-medium-tracking: 0.15px;
+  --md-sys-typescale-body-large-tracking: 0.5px;
+  --md-sys-typescale-body-medium-tracking: 0.25px;
+  --md-sys-typescale-label-large-tracking: 0.1px;
+  --md-sys-typescale-label-medium-tracking: 0.5px;
+
+  /* Shape — M3 default shape scale */
+  --md-sys-shape-corner-extra-small: 4px;
+  --md-sys-shape-corner-small: 8px;
+  --md-sys-shape-corner-medium: 12px;
+  --md-sys-shape-corner-large: 16px;
+  --md-sys-shape-corner-extra-large: 28px;
+  --md-sys-shape-corner-full: 999px;
+
+  /* Spacing — luoi 4dp cua Compose */
+  --md-space-1: 4px;
+  --md-space-2: 8px;
+  --md-space-3: 12px;
+  --md-space-4: 16px;
+  --md-space-5: 20px;
+  --md-space-6: 24px;
+  --md-space-8: 32px;
+
+  /* Khung thiet bi dung cho prototype mobile */
+  --pv-device-width: 412px;
+  --pv-device-height: 860px;
+}

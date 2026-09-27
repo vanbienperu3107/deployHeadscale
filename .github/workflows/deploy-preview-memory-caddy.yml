@@ -20,7 +20,7 @@ jobs:
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_KEY }}
           port: ${{ secrets.SSH_PORT || '22' }}
-          envs: DEPLOY_PATH
+          envs: DEPLOY_PATH,PV_REF,PV_SHA
           script_stop: true
           command_timeout: 10m
           script: |
@@ -28,19 +28,44 @@ jobs:
             if [ "$(id -u)" -ne 0 ]; then SUDO="sudo"; else SUDO=""; fi
             cd "$DEPLOY_PATH"
             git config --global --add safe.directory "$DEPLOY_PATH" || true
+            # Ha tang (compose, Caddy) LUON lay tu main. Chi noi dung ui-preview/ lay tu nhanh da
+            # dispatch (--ref), qua git archive dung commit -> xem prototype truoc khi merge ma
+            # khong dua code chua duyet vao working tree production.
             git fetch origin main
             git reset --hard origin/main
+            case "$PV_REF" in (*[!A-Za-z0-9._/-]*|"") echo "ref khong hop le: $PV_REF"; exit 1;; esac
+            git fetch origin "refs/heads/$PV_REF"
+            test "$(git rev-parse FETCH_HEAD)" = "$PV_SHA" || { echo "Nhanh $PV_REF da doi (FETCH_HEAD != $PV_SHA); dispatch lai."; exit 1; }
             PREVIEW_ROOT=/home/thanh/ui-previews
-            RANDOM=$(openssl rand -hex 12)
-            SLUG="preview-${{ github.run_id }}-$RANDOM"
+            TOKEN=$(openssl rand -hex 6)
+            SLUG="preview-${{ github.run_id }}-$TOKEN"
             TEMP="$PREVIEW_ROOT/.${SLUG}.staging"
             TARGET="$PREVIEW_ROOT/$SLUG"
-            $SUDO mkdir -p "$PREVIEW_ROOT"
+            $SUDO mkdir -p "$PREVIEW_ROOT/.meta"
             test ! -e "$TEMP" && test ! -e "$TARGET"
             $SUDO mkdir "$TEMP"
-            $SUDO cp -a "$DEPLOY_PATH/ui-preview/." "$TEMP/"
+            git archive "$PV_SHA" ui-preview | $SUDO tar -x --strip-components=1 -C "$TEMP"
+            $SUDO test -f "$TEMP/index.html"
             $SUDO mv "$TEMP" "$TARGET"
-            printf '<!doctype html><title>UI previews</title><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{font:16px system-ui;margin:3rem;max-width:48rem}a{display:block;padding:.6rem 0}</style><h1>UI previews</h1><a href="/%s/">Latest preview</a>' "$SLUG" | $SUDO tee "$PREVIEW_ROOT/index.html" >/dev/null
+            printf '%s\t%s\t%s\n' "$(date -u +%Y-%m-%dT%H:%MZ)" "$PV_REF" "$(printf %s "$PV_SHA" | cut -c1-7)" | $SUDO tee "$PREVIEW_ROOT/.meta/$SLUG" >/dev/null
+
+            # Trang goc: sinh lai tu MOI snapshot dang co (moi nhat truoc) -> khong mat link ban cu.
+            INDEX_TMP="$PREVIEW_ROOT/.index.html.tmp"
+            {
+              printf '<!doctype html><html lang="vi"><meta charset="utf-8"><title>UI previews</title><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{font:16px/1.5 system-ui;margin:3rem auto;max-width:48rem;padding:0 1rem;color:#171d1a;background:#f5fbf5}a{color:#1a6b51}li{padding:.35rem 0}small{color:#404944}</style>'
+              printf '<h1>UI previews</h1><p><a href="/%s/">Mở bản mới nhất</a></p><ol>' "$SLUG"
+              for d in $(ls -1dt "$PREVIEW_ROOT"/preview-*/ 2>/dev/null); do
+                s=$(basename "$d")
+                if [ -f "$PREVIEW_ROOT/.meta/$s" ]; then
+                  IFS="$(printf '\t')" read -r when ref sha < "$PREVIEW_ROOT/.meta/$s"
+                  printf '<li><a href="/%s/">%s</a> <small>%s · %s</small></li>' "$s" "$ref@$sha" "$when" "$s"
+                else
+                  printf '<li><a href="/%s/">%s</a> <small>(trước khi có metadata)</small></li>' "$s" "$s"
+                fi
+              done
+              printf '</ol></html>'
+            } | $SUDO tee "$INDEX_TMP" >/dev/null
+            $SUDO mv "$INDEX_TMP" "$PREVIEW_ROOT/index.html"
 
             $SUDO docker compose up -d --no-deps --force-recreate ui-preview
             $SUDO docker network connect memory-stack_memnet ui-preview 2>/dev/null || true
@@ -70,3 +95,6 @@ jobs:
             exit 1
         env:
           DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          # Nhanh va commit da dispatch: gh workflow run deploy-preview-memory-caddy.yml --ref <branch>
+          PV_REF: ${{ github.ref_name }}
+          PV_SHA: ${{ github.sha }}

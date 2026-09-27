@@ -1,0 +1,8 @@
+{
+  "title": "OpenCode mobile: onboarding, Chats, conversation",
+  "summary": "Bản đầu tiên của luồng OpenCode trên adroidClient: danh sách session, cấu hình Cliproxy, màn hội thoại với chọn model và reasoning level.",
+  "status": "draft",
+  "created": "2026-09-27",
+  "source": "Chuyển nguyên trạng từ ui-preview/index.html (commit 0ad8d98). Chưa dùng _system/.",
+  "variants": []
+}
