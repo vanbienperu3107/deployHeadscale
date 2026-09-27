@@ -5,7 +5,7 @@ services:
     restart: unless-stopped
     command: ["caddy", "file-server", "--root", "/srv", "--listen", ":8080"]
     volumes:
-      - ./ui-preview:/srv:ro
+      - /home/thanh/ui-previews:/srv:ro
 
   headscale:
     # Custom build với Feature B (per-node DERPMap). Base = 0.27.1; patch thêm
