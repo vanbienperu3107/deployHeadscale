@@ -144,7 +144,7 @@ jobs:
         run: |
           python3 -m venv /tmp/venv-cliproxy
           /tmp/venv-cliproxy/bin/pip install --quiet pytest pyyaml
-          /tmp/venv-cliproxy/bin/python -m pytest -q test/test_cliproxy_config.py
+          /tmp/venv-cliproxy/bin/python -m pytest -q test/test_cliproxy_config.py test/test_cliproxy_keys.py
 
       - name: Integration — chay that stack cliproxy
         run: bash test/cliproxy_integration.sh
