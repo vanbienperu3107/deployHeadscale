@@ -37,76 +37,35 @@ jobs:
           key: ${{ secrets.SSH_KEY }}
           port: ${{ secrets.SSH_PORT || '22' }}
           envs: DEPLOY_PATH,PRIMARY_EMAIL,BACKUP_EMAIL,PRIMARY_PRIORITY,BACKUP_PRIORITY
-          script_stop: true
+          script_stop: false
           command_timeout: 10m
           script: |
             set -e
             if [ "$(id -u)" -ne 0 ]; then SUDO="sudo"; else SUDO=""; fi
             cd "$DEPLOY_PATH/cliproxy"
             test -d auths
-            python3 - <<'PY'
-            import json
-            import os
-            import pathlib
-            import sys
-
-            auth_dir = pathlib.Path("auths")
-            primary_email = os.environ["PRIMARY_EMAIL"].strip().lower()
-            backup_email = os.environ["BACKUP_EMAIL"].strip().lower()
-            primary_priority = int(os.environ["PRIMARY_PRIORITY"])
-            backup_priority = int(os.environ["BACKUP_PRIORITY"])
-
-            targets = {
-                primary_email: (primary_priority, "primary"),
-                backup_email: (backup_priority, "backup"),
-            }
-
+            python3 -c 'import json,os,pathlib,sys;auth_dir=pathlib.Path("auths");targets={os.environ["PRIMARY_EMAIL"].strip().lower():(int(os.environ["PRIMARY_PRIORITY"]),"primary"),os.environ["BACKUP_EMAIL"].strip().lower():(int(os.environ["BACKUP_PRIORITY"]),"backup")};changed=[];seen=set();
             def find_email(data):
-                candidates = [
-                    data.get("email"),
-                    data.get("label"),
-                    (data.get("metadata") or {}).get("email") if isinstance(data.get("metadata"), dict) else None,
-                    (data.get("storage") or {}).get("email") if isinstance(data.get("storage"), dict) else None,
-                ]
+                candidates=[data.get("email"),data.get("label")]
+                for key in ("metadata","storage"):
+                    node=data.get(key)
+                    if isinstance(node,dict): candidates.append(node.get("email"))
                 for value in candidates:
-                    if isinstance(value, str) and "@" in value:
-                        return value.strip().lower()
+                    if isinstance(value,str) and "@" in value: return value.strip().lower()
                 return ""
-
-            changed = []
-            seen = set()
             for path in sorted(auth_dir.glob("*.json")):
-                try:
-                    data = json.loads(path.read_text(encoding="utf-8"))
-                except Exception as exc:
-                    print(f"skip {path.name}: invalid json: {exc}")
-                    continue
-                provider = str(data.get("type") or data.get("provider") or "").strip().lower()
-                email = find_email(data)
-                if provider and provider != "claude":
-                    continue
-                if email not in targets:
-                    continue
-                priority, role = targets[email]
-                seen.add(email)
-                data["priority"] = priority
-                data["weight"] = 1
-                if "disabled" in data:
-                    data["disabled"] = False
-                path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-                path.chmod(0o600)
-                changed.append((path.name, email, role, priority))
-
-            missing = set(targets) - seen
-            for name, email, role, priority in changed:
-                print(f"updated {name}: {email} role={role} priority={priority} weight=1 enabled=true")
-            if missing:
-                print("missing target emails: " + ", ".join(sorted(missing)))
-                sys.exit(1)
-            if len(changed) < 2:
-                print("expected at least two changed Claude auth files")
-                sys.exit(1)
-            PY
+                try: data=json.loads(path.read_text(encoding="utf-8"))
+                except Exception as exc: print(f"skip {path.name}: invalid json: {exc}"); continue
+                provider=str(data.get("type") or data.get("provider") or "").strip().lower(); email=find_email(data)
+                if provider and provider != "claude": continue
+                if email not in targets: continue
+                priority,role=targets[email]; seen.add(email); data["priority"]=priority; data["weight"]=1
+                if "disabled" in data: data["disabled"]=False
+                path.write_text(json.dumps(data,ensure_ascii=False,indent=2)+"\n",encoding="utf-8"); path.chmod(0o600); changed.append((path.name,email,role,priority))
+            missing=set(targets)-seen
+            for name,email,role,priority in changed: print(f"updated {name}: {email} role={role} priority={priority} weight=1 enabled=true")
+            if missing: print("missing target emails: "+", ".join(sorted(missing))); sys.exit(1)
+            if len(changed)<2: print("expected at least two changed Claude auth files"); sys.exit(1)'
 
             if grep -q '^  session-affinity: true' config.yaml; then
               python3 -c "from pathlib import Path;p=Path('config.yaml');s=p.read_text();p.write_text(s.replace('  session-affinity: true','  session-affinity: false'))"
