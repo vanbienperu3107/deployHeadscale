@@ -1,0 +1,139 @@
+name: Configure CLIProxyAPI quota failover
+
+on:
+  workflow_dispatch:
+    inputs:
+      primary_email:
+        description: "Claude account to use first"
+        required: true
+        default: "hangocthanhperu3107@gmail.com"
+      backup_email:
+        description: "Claude account to use after primary quota is exhausted"
+        required: true
+        default: "hangocthanh3107@gmail.com"
+      primary_priority:
+        description: "Priority for primary account; larger value wins"
+        required: true
+        default: "2"
+      backup_priority:
+        description: "Priority for backup account"
+        required: true
+        default: "1"
+
+concurrency:
+  group: deploy-vpn4-host
+  cancel-in-progress: false
+
+jobs:
+  configure:
+    name: Configure OAuth priorities on vpn4
+    runs-on: ubuntu-latest
+    steps:
+      - name: SSH into vpn4 and update auth metadata
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SSH_HOST_VPN4 }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT || '22' }}
+          envs: DEPLOY_PATH,PRIMARY_EMAIL,BACKUP_EMAIL,PRIMARY_PRIORITY,BACKUP_PRIORITY
+          script_stop: true
+          command_timeout: 10m
+          script: |
+            set -e
+            if [ "$(id -u)" -ne 0 ]; then SUDO="sudo"; else SUDO=""; fi
+            cd "$DEPLOY_PATH/cliproxy"
+            test -d auths
+            python3 - <<'PY'
+            import json
+            import os
+            import pathlib
+            import sys
+
+            auth_dir = pathlib.Path("auths")
+            primary_email = os.environ["PRIMARY_EMAIL"].strip().lower()
+            backup_email = os.environ["BACKUP_EMAIL"].strip().lower()
+            primary_priority = int(os.environ["PRIMARY_PRIORITY"])
+            backup_priority = int(os.environ["BACKUP_PRIORITY"])
+
+            targets = {
+                primary_email: (primary_priority, "primary"),
+                backup_email: (backup_priority, "backup"),
+            }
+
+            def find_email(data):
+                candidates = [
+                    data.get("email"),
+                    data.get("label"),
+                    (data.get("metadata") or {}).get("email") if isinstance(data.get("metadata"), dict) else None,
+                    (data.get("storage") or {}).get("email") if isinstance(data.get("storage"), dict) else None,
+                ]
+                for value in candidates:
+                    if isinstance(value, str) and "@" in value:
+                        return value.strip().lower()
+                return ""
+
+            changed = []
+            seen = set()
+            for path in sorted(auth_dir.glob("*.json")):
+                try:
+                    data = json.loads(path.read_text(encoding="utf-8"))
+                except Exception as exc:
+                    print(f"skip {path.name}: invalid json: {exc}")
+                    continue
+                provider = str(data.get("type") or data.get("provider") or "").strip().lower()
+                email = find_email(data)
+                if provider and provider != "claude":
+                    continue
+                if email not in targets:
+                    continue
+                priority, role = targets[email]
+                seen.add(email)
+                data["priority"] = priority
+                data["weight"] = 1
+                if "disabled" in data:
+                    data["disabled"] = False
+                path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+                path.chmod(0o600)
+                changed.append((path.name, email, role, priority))
+
+            missing = set(targets) - seen
+            for name, email, role, priority in changed:
+                print(f"updated {name}: {email} role={role} priority={priority} weight=1 enabled=true")
+            if missing:
+                print("missing target emails: " + ", ".join(sorted(missing)))
+                sys.exit(1)
+            if len(changed) < 2:
+                print("expected at least two changed Claude auth files")
+                sys.exit(1)
+            PY
+
+            if grep -q '^  session-affinity: true' config.yaml; then
+              python3 -c "from pathlib import Path;p=Path('config.yaml');s=p.read_text();p.write_text(s.replace('  session-affinity: true','  session-affinity: false'))"
+              echo "updated config.yaml: session-affinity=false"
+            else
+              echo "config.yaml: session-affinity already not true"
+            fi
+
+            if ! grep -q '^quota-exceeded:' config.yaml; then
+              printf '\nquota-exceeded:\n  switch-project: true\n  switch-preview-model: true\n' >> config.yaml
+              echo "added quota-exceeded switch config"
+            elif ! grep -q '^  switch-project: true' config.yaml; then
+              echo "::error::quota-exceeded exists but switch-project is not true; update manually"
+              exit 1
+            else
+              echo "config.yaml: quota-exceeded.switch-project=true"
+            fi
+
+            $SUDO docker compose restart cliproxy
+            for _ in $(seq 1 30); do
+              if bash -c 'exec 3<>/dev/tcp/127.0.0.1/28417' 2>/dev/null; then break; fi
+              sleep 2
+            done
+            $SUDO docker compose ps cliproxy
+        env:
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          PRIMARY_EMAIL: ${{ github.event.inputs.primary_email }}
+          BACKUP_EMAIL: ${{ github.event.inputs.backup_email }}
+          PRIMARY_PRIORITY: ${{ github.event.inputs.primary_priority }}
+          BACKUP_PRIORITY: ${{ github.event.inputs.backup_priority }}
