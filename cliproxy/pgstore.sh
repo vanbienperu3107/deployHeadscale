@@ -115,8 +115,9 @@ enable() {
   umask 077
   printf 'PGSTORE_DSN=%s\n' "$PGSTORE_DSN" > "$ENV_FILE"
   chmod 600 "$ENV_FILE"
-  mkdir -p "$SPOOL"
-  chmod 700 "$SPOOL"
+  # Docker tu tao ./pgstore-spool voi chu root neu bind mount chay truoc -> phai sudo.
+  $SUDO mkdir -p "$SPOOL"
+  $SUDO chmod 700 "$SPOOL"
   : > "$STATE"
   echo "WAS_ENABLED=$( [ -n "$(env_get PGSTORE_DSN)" ] && echo 1 || echo 0 )" >> "$STATE"
 

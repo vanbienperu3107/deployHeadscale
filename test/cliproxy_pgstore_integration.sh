@@ -32,6 +32,8 @@ cleanup() {
   docker rm -f "$PGC" >/dev/null 2>&1 || true
   (cd "$STACK" && docker compose down -v --remove-orphans >/dev/null 2>&1 || true)
   docker network rm edge cliproxy_chatdb >/dev/null 2>&1 || true
+  # spool/backups do container (root) ghi -> can sudo de xoa tren runner.
+  sudo -n rm -rf "$STACK/pgstore-spool" "$STACK/backups" "$STACK/auths" 2>/dev/null || true
   rm -rf "$STACK/config.yaml" "$STACK/auths" "$STACK/logs" "$STACK/pgstore-spool" \
     "$STACK/backups" "$STACK/.env" "$STACK/.pgstore.env" "$STACK/.pgstore-state" \
     "$STACK/.keys-wanted" "$STACK/.config.prev.yaml" "$TMP"
