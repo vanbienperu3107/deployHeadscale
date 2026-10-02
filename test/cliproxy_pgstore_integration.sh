@@ -11,6 +11,12 @@
 #   5. Tat PGSTORE (secret rong): config + token keo ve file, khoa cu van goi duoc.
 set -euo pipefail
 
+# Chay voi CHINH anh dang chay tren vpn4 (fork cliproxy_mod), khong phai tag mac dinh
+# eceasy cu trong compose: kiem PGSTORE tren anh khac la kiem sai doi tuong.
+# Ghi de bang CLIPROXY_IMAGE neu can.
+export CLIPROXY_IMAGE="${CLIPROXY_IMAGE:-ghcr.io/vanbienperu3107/cliproxy_mod:main-df5a5b7}"
+echo "anh proxy: $CLIPROXY_IMAGE"
+
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 STACK="$ROOT/cliproxy"
 OLD_KEY="ci-old-web-key-$RANDOM$RANDOM"
@@ -24,6 +30,7 @@ cleanup() {
   echo "--- don dep ---"
   (cd "$STACK" && docker compose down -v --remove-orphans >/dev/null 2>&1 || true)
   docker rm -f "$PGC" >/dev/null 2>&1 || true
+  (cd "$STACK" && docker compose down -v --remove-orphans >/dev/null 2>&1 || true)
   docker network rm edge cliproxy_chatdb >/dev/null 2>&1 || true
   rm -rf "$STACK/config.yaml" "$STACK/auths" "$STACK/logs" "$STACK/pgstore-spool" \
     "$STACK/backups" "$STACK/.env" "$STACK/.pgstore.env" "$STACK/.pgstore-state" \
@@ -32,7 +39,11 @@ cleanup() {
 trap cleanup EXIT
 
 docker network inspect edge >/dev/null 2>&1 || docker network create edge >/dev/null
-docker network inspect cliproxy_chatdb >/dev/null 2>&1 || docker network create cliproxy_chatdb >/dev/null
+# Mang cliproxy_chatdb PHAI do compose tao (co label cua compose), neu tao tay thi
+# compose tu choi dung lai. `compose create` tao mang ma khong chay container nao.
+(cd "$STACK" && touch config.yaml && docker compose create --no-recreate cliproxy >/dev/null 2>&1 || true)
+(cd "$STACK" && docker compose rm -fs cliproxy >/dev/null 2>&1 || true)
+docker network inspect cliproxy_chatdb >/dev/null
 
 echo "==> [1/8] Postgres that, alias cliproxy-pg-tunnel, ap migration 003"
 docker run -d --name "$PGC" --network cliproxy_chatdb --network-alias cliproxy-pg-tunnel \
