@@ -48,7 +48,15 @@ docker network inspect cliproxy_chatdb >/dev/null
 echo "==> [1/8] Postgres that, alias cliproxy-pg-tunnel, ap migration 003"
 docker run -d --name "$PGC" --network cliproxy_chatdb --network-alias cliproxy-pg-tunnel \
   -e POSTGRES_USER=derp -e POSTGRES_PASSWORD=derp -e POSTGRES_DB=derp postgres:16-alpine >/dev/null
-for _ in $(seq 1 60); do docker exec "$PGC" pg_isready -U derp -d derp >/dev/null 2>&1 && break; sleep 1; done
+# KHONG dung pg_isready qua socket: entrypoint chay mot server TAM (chi socket) de
+# init roi tat va khoi dong lai -> socket bao san sang qua som. Server that moi nghe
+# TCP, nen doi mot truy van qua 127.0.0.1 thanh cong.
+pgok=0
+for _ in $(seq 1 90); do
+  if docker exec "$PGC" psql -h 127.0.0.1 -U derp -d derp -qtAc 'SELECT 1' >/dev/null 2>&1; then pgok=1; break; fi
+  sleep 1
+done
+[ "$pgok" = "1" ] || { echo "::error::Postgres test khong len"; docker logs --tail 40 "$PGC"; exit 1; }
 docker cp "$STACK/sql/003_cliproxy_store.sql" "$PGC:/tmp/003.sql"
 docker exec "$PGC" psql -U derp -d derp -v ON_ERROR_STOP=1 -qf /tmp/003.sql
 docker exec "$PGC" psql -U derp -d derp -v ON_ERROR_STOP=1 -qc "ALTER ROLE cliproxy_store WITH LOGIN PASSWORD '$PGPASS'"
