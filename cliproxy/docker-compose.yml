@@ -16,6 +16,15 @@ services:
     restart: unless-stopped
     environment:
       - TZ=${TZ:-America/Lima}
+      # Kho Postgres cho config + token (PGSTORE, tinh nang upstream CLIProxyAPI).
+      # RONG = TAT: proxy doc ./config.yaml + ./auths nhu cu (mac dinh, va la duong
+      # rollback). Co gia tri: luc khoi dong proxy keo config + token tu DB ve
+      # spool /pgstore-spool/pgstore, moi thay doi tu web/OAuth ghi nguoc vao DB ->
+      # key them qua /management.html SONG qua moi lan deploy.
+      # Do cliproxy/pgstore.sh ghi vao .env SAU khi seed + kiem tra thanh cong.
+      # PGSTORE_SCHEMA co y de trong: xem cliproxy/sql/003_cliproxy_store.sql.
+      - PGSTORE_DSN=${PGSTORE_DSN:-}
+      - PGSTORE_LOCAL_PATH=/pgstore-spool
     ports:
       # API chinh — MO CONG KHAI, bao ve bang api-keys trong config.yaml.
       # Cong ngoai la 28417 chu KHONG phai 8317 mac dinh cua CLIProxyAPI: bot quet
@@ -60,6 +69,9 @@ services:
       # Bind mount (khong phai named volume) de backup/di chuyen server de dang.
       - ./auths:/root/.cli-proxy-api
       - ./logs:/CLIProxyAPI/logs
+      # Spool cua PGSTORE (ban phan chieu cua DB). Bind mount de pgstore.sh export
+      # duoc khi can rollback ve file. Proxy tu dung lai tu DB moi lan khoi dong.
+      - ./pgstore-spool:/pgstore-spool
     # vpn4 chi co 2GB RAM va dang chay derper + vpn-gw -> van phai chan tran.
     # 512m TUNG GAY SU CO 2026-08-02: kernel OOM-kill CLIProxyAPI giua mot request
     # cua OpenCode ("Memory cgroup out of memory", anon-rss 511MB) -> client treo o

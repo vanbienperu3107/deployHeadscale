@@ -4,3 +4,12 @@ config.yaml
 auths/
 logs/
 .env
+# PGSTORE: spool (ban sao config + token tu DB), DSN, trang thai, ban backup.
+pgstore-spool/
+.pgstore.env
+.pgstore-state
+backups/
+# Danh sach khoa can giu + ban sao config tam trong luc deploy (chua khoa that).
+.keys-wanted
+.config.prev.yaml
+.spool-config.yaml

@@ -51,7 +51,7 @@ jobs:
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_KEY }}
           port: ${{ secrets.SSH_PORT || '22' }}
-          envs: DEPLOY_PATH,REPO_URL,DEPLOY_REF,CLIPROXY_API_KEY,CLIPROXY_MGMT_KEY,CLIPROXY_IMAGE,DEBUG_LOGGING,CHAT_HISTORY_DSN,PG_REMOTE_HOST,SSH_HOST_VPN6
+          envs: DEPLOY_PATH,REPO_URL,DEPLOY_REF,CLIPROXY_API_KEY,CLIPROXY_MGMT_KEY,CLIPROXY_IMAGE,DEBUG_LOGGING,CHAT_HISTORY_DSN,PG_REMOTE_HOST,SSH_HOST_VPN6,CLIPROXY_STORE_PG_PASSWORD
           script_stop: true
           command_timeout: 15m
           script: |
@@ -93,7 +93,13 @@ jobs:
             # /management.html va OpenCode dinh 401 (su co 2026-09-26/27).
             # Khoa trong secret van duoc them vao (cac buoc verify chay tren runner
             # chi biet khoa do).
+            # GIU KHOA CU (yeu cau 2026-10-02): chep config.yaml dang chay ra truoc khi
+            # render ghi de, de pgstore.sh gom moi khoa cu (ke ca khoa them tay qua
+            # web) va them lai neu thieu, roi goi thu tung khoa sau khi up.
+            cp config.yaml .config.prev.yaml 2>/dev/null || true
+            chmod 600 .config.prev.yaml 2>/dev/null || true
             python3 render-config.py config.template.yaml config.yaml
+            bash pgstore.sh snapshot-keys
             # BO DONG CHU THICH truoc khi soi: phan dau template GIAI THICH cac
             # placeholder nen chinh chu thich do chua chuoi __API_KEY__ — lop loi
             # "tu to giac", da lam deploy do that (run 36354194930).
@@ -112,7 +118,13 @@ jobs:
             # ngay sau dong "else", luc do $? van la ket qua cua dieu kien if (=1 khi
             # dieu kien sai) -> script thoat 1 vo co. Rong thi ghi CLIPROXY_IMAGE=
             # cung duoc vi compose dung ${CLIPROXY_IMAGE:-<mac dinh>}.
+            # Giu dong PGSTORE_DSN cu qua lan ghi lai .env: pgstore.sh dua vao no de
+            # biet kho Postgres dang bat hay tat (va keo du lieu ve file khi tat).
+            grep '^PGSTORE_DSN=' .env > .env.keep 2>/dev/null || true
             printf 'CLIPROXY_IMAGE=%s\n' "${CLIPROXY_IMAGE:-}" > .env
+            cat .env.keep >> .env
+            rm -f .env.keep
+            chmod 600 .env
             # IP tailnet cua vpn4 (node "vpn4" chay native tren host tu 2026-08-15).
             # Compose dung ${CLIPROXY_TAILNET_IP:-127.0.0.2}: mac dinh loopback de CI
             # tren runner (khong co tailnet) van up duoc; tren vpn4 thi ghi IP that.
@@ -141,6 +153,14 @@ jobs:
             # https://cliproxy.hangocthanh.io.vn tren cong 443) goi toi duoc.
             $SUDO docker network inspect edge >/dev/null 2>&1 || $SUDO docker network create edge
 
+            echo "==> [4b/6] Kho Postgres cho config + token (PGSTORE)"
+            # Co secret CLIPROXY_STORE_PG_PASSWORD -> bat: kiem DB qua duong ham, backup,
+            # seed LAN DAU (config + token) roi ghi PGSTORE_DSN vao .env. Khong co
+            # secret -> tat (neu dang bat thi keo config + token moi nhat ve file).
+            # Hai dong test rieng thay vi if/else (ssh-action pha nhanh else).
+            test -z "$CLIPROXY_STORE_PG_PASSWORD" || PGSTORE_DSN="postgresql://cliproxy_store:${CLIPROXY_STORE_PG_PASSWORD}@cliproxy-pg-tunnel:5432/derp?sslmode=disable" bash pgstore.sh enable
+            test -n "$CLIPROXY_STORE_PG_PASSWORD" || bash pgstore.sh off
+
             echo "==> [5/6] Compose up"
             $SUDO docker compose up -d --remove-orphans
             # Tao lai cliproxy MOI lan deploy. config.yaml la bind mount: doi noi dung
@@ -150,6 +170,13 @@ jobs:
             # DB cloud, deploy xanh ma proxy van ghi vao vpn6 cho toi khi restart tay.
             $SUDO docker compose up -d --force-recreate --no-deps cliproxy
             $SUDO docker compose ps
+
+            echo "==> [5b/6] Kho config dung + MOI khoa cu van goi duoc"
+            # Them lai khoa cu con thieu qua Management API (vao DB hoac config.yaml,
+            # tuy kho dang bat), roi goi /v1/models bang TUNG khoa. Mot khoa 401 =
+            # deploy do; vua bat PGSTORE ma loi thi tu rollback ve file.
+            CLIPROXY_MGMT_KEY="$CLIPROXY_MGMT_KEY" bash pgstore.sh verify
+            rm -f .config.prev.yaml
 
             echo "==> [6/6] Verify cong 28417 tren host (ben trong container van la 8317)"
             up=0
@@ -186,6 +213,9 @@ jobs:
           # permitopen dung IP nay, doi IP thi duong ham gay.
           PG_REMOTE_HOST: ${{ vars.PG_REMOTE_HOST || '172.21.0.2' }}
           SSH_HOST_VPN6: ${{ secrets.SSH_HOST_VPN6 }}
+          # Kho Postgres (PGSTORE). Rong => tat. Tao role/schema truoc bang
+          # migrate-cliproxy-store.yml.
+          CLIPROXY_STORE_PG_PASSWORD: ${{ secrets.CLIPROXY_STORE_PG_PASSWORD }}
 
       - name: Verify tu Internet (runner goi vao 28417 cua vpn4)
         env:

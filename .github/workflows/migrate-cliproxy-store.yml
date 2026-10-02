@@ -1,0 +1,79 @@
+name: Migrate cliproxy store (vpn6)
+
+# Chuan bi kho Postgres cho CLIProxy (PGSTORE): role `cliproxy_store` + schema
+# rieng `cliproxy_store` trong database `derp` tren vpn6, dat mat khau role.
+#
+# Chay MOT lan truoc khi bat PGSTORE (va chay lai khi xoay mat khau). Tach khoi
+# deploy-cliproxy.yml vi la thay doi luoc do tren database dang phuc vu dashboard
+# + headscale — bam tay, doc log, roi moi deploy (giong migrate-chat-history.yml).
+#
+# Secret can co: CLIPROXY_STORE_PG_PASSWORD — chi gom [A-Za-z0-9], >= 24 ky tu
+# (vd `openssl rand -hex 24`). Deploy ghep no thanh DSN qua duong ham
+# cliproxy-pg-tunnel, nen ky tu dac biet se pha URL.
+on:
+  workflow_dispatch: {}
+
+concurrency:
+  group: migrate-cliproxy-store
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  migrate:
+    name: Tao role + schema cliproxy_store tren derp-postgres
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Kiem secret bat buoc
+        env:
+          PGPASS: ${{ secrets.CLIPROXY_STORE_PG_PASSWORD }}
+        run: |
+          if [ -z "$PGPASS" ]; then
+            echo "::error::Thieu secret CLIPROXY_STORE_PG_PASSWORD"; exit 1
+          fi
+          if ! printf '%s' "$PGPASS" | grep -Eq '^[A-Za-z0-9]{24,}$'; then
+            echo "::error::CLIPROXY_STORE_PG_PASSWORD phai chi gom [A-Za-z0-9] va dai >= 24 (dung: openssl rand -hex 24)"; exit 1
+          fi
+          echo "OK"
+
+      # Copy SQL len vpn6 truoc: ssh-action chen mot dong kiem exit code sau MOI
+      # dong script, nen khong dua noi dung SQL qua heredoc duoc.
+      - name: Copy SQL len vpn6
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SSH_HOST_VPN6 }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY_VPN6 || secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT || '22' }}
+          source: "cliproxy/sql/003_cliproxy_store.sql"
+          target: "/tmp/cliproxy-store-${{ github.run_id }}"
+          strip_components: 2
+
+      - name: Ap dung luoc do
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SSH_HOST_VPN6 }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY_VPN6 || secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT || '22' }}
+          script_stop: true
+          envs: PGPASS,GITHUB_RUN_ID
+          script: |
+            set -e
+            exec 9>/var/lock/vpn6-cliproxy-store
+            flock -w 300 9 || exit 1
+            test -s /tmp/cliproxy-store-$GITHUB_RUN_ID/003_cliproxy_store.sql
+            docker cp /tmp/cliproxy-store-$GITHUB_RUN_ID/003_cliproxy_store.sql derp-postgres:/tmp/003_cliproxy_store.sql
+            docker exec derp-postgres psql -U derp -d derp -v ON_ERROR_STOP=1 -f /tmp/003_cliproxy_store.sql
+            docker exec -e PGPASS="$PGPASS" derp-postgres psql -U derp -d derp -v ON_ERROR_STOP=1 -c "ALTER ROLE cliproxy_store WITH LOGIN PASSWORD '$PGPASS'"
+            docker exec derp-postgres psql -U derp -d derp -tAc "SELECT 'schema: ' || nspname || ' owner=' || pg_get_userbyid(nspowner) FROM pg_namespace WHERE nspname = 'cliproxy_store'"
+            docker exec derp-postgres psql -U derp -d derp -tAc "SELECT 'bang: ' || table_name FROM information_schema.tables WHERE table_schema = 'cliproxy_store' ORDER BY table_name"
+            docker exec derp-postgres rm -f /tmp/003_cliproxy_store.sql
+            rm -rf /tmp/cliproxy-store-$GITHUB_RUN_ID
+        env:
+          PGPASS: ${{ secrets.CLIPROXY_STORE_PG_PASSWORD }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
