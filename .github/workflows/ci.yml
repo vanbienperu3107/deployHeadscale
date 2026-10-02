@@ -146,8 +146,19 @@ jobs:
           /tmp/venv-cliproxy/bin/pip install --quiet pytest pyyaml
           /tmp/venv-cliproxy/bin/python -m pytest -q test/test_cliproxy_config.py test/test_cliproxy_keys.py
 
+      # Test PGSTORE can psql/initdb THAT (khong de SKIP am tham tren CI).
+      - name: Test kho Postgres + giu khoa cu (pytest, Postgres that)
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql >/dev/null
+          PG_BIN=$(ls -d /usr/lib/postgresql/*/bin | sort -V | tail -1) \
+            /tmp/venv-cliproxy/bin/python -m pytest -q -rs test/test_cliproxy_pgstore.py 2>&1 | tee /tmp/pgstore-pytest.log
+          if grep -q SKIPPED /tmp/pgstore-pytest.log; then echo "::error::test PGSTORE bi skip tren CI"; exit 1; fi
+
       - name: Integration — chay that stack cliproxy
         run: bash test/cliproxy_integration.sh
+
+      - name: Integration — PGSTORE bat/tat + khoa cu van goi duoc
+        run: bash test/cliproxy_pgstore_integration.sh
 
   beszel-caddy:
     name: beszel — Caddy block SSO (thu tu header + caddy adapt that)

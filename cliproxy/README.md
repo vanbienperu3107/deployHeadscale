@@ -69,6 +69,39 @@ gh workflow run deploy-cliproxy.yml --ref main -f image_tag=v7.2.112
 Workflow sẽ: cập nhật repo trên vpn4 → sinh `config.yaml` (chmod 600) → `docker compose pull/up`
 → verify **có key = 200 / không key = 401** từ cả trong host lẫn từ Internet.
 
+### 3b. Kho Postgres cho config + token (PGSTORE, từ 2026-10-02)
+
+Bật thì key thêm qua `/management.html` (Gemini, OpenAI, api-keys…) và token OAuth
+nằm trong Postgres vpn6 (DB `derp`, schema riêng `cliproxy_store`) — **sống qua mọi
+lần deploy**. Không có secret thì stack chạy bằng file như cũ.
+
+| Bước | Lệnh |
+|---|---|
+| 1. Secret | `openssl rand -hex 24 \| gh secret set CLIPROXY_STORE_PG_PASSWORD` (chỉ `[A-Za-z0-9]`, ≥ 24) |
+| 2. Role + schema | `gh workflow run migrate-cliproxy-store.yml` (chạy lại khi xoay mật khẩu) |
+| 3. Bật | `gh workflow run deploy-cliproxy.yml --ref main` |
+| Tắt | Xoá secret `CLIPROXY_STORE_PG_PASSWORD` rồi deploy: config + token mới nhất được kéo về `config.yaml` + `auths/` |
+
+Quy tắc khi đang bật:
+
+- **Chỉ seed lần đầu.** DB trống → nạp `config.yaml` đang chạy + `auths/*.json`
+  (backup trước vào `backups/`). DB có dữ liệu → deploy **không ghi đè** gì.
+- **Khoá cũ luôn dùng được.** Mỗi deploy gom mọi khoá API đang hiệu lực (config cũ,
+  spool DB, file dùng chung OpenCode, secret), **chỉ thêm** khoá thiếu qua Management
+  API rồi gọi `/v1/models` bằng **từng khoá**. Một khoá 401 = deploy đỏ; nếu vừa bật
+  PGSTORE thì tự rollback về file. Không bao giờ xoá khoá nào.
+- **Sửa token/config bằng file trên vpn4 không còn tác dụng** — dùng web hoặc
+  Management API. `configure-cliproxy-quota-failover.yml` đã chuyển sang API.
+- **Bảo mật:** `auth_store` chứa refresh token, `config_store` chứa provider key.
+  Backup DB `derp` phải giữ như mật khẩu.
+
+Vận hành tay (trên vpn4, thư mục `cliproxy/`):
+
+```bash
+bash pgstore.sh export     # spool DB -> config.yaml + auths/ (để rollback tay)
+sudo docker logs cliproxy 2>&1 | grep postgres-backed   # đang dùng DB?
+```
+
 ## 4. Đăng nhập Claude và Codex (làm 1 lần, sau đó token tự refresh)
 
 Server không có trình duyệt, còn OAuth của Claude/Codex bắt buộc redirect về
