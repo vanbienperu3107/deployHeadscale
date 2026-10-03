@@ -29,6 +29,8 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"flag"
 	"fmt"
 	"os"
@@ -42,12 +44,15 @@ import (
 
 func main() {
 	host := flag.String("host", "", "hostname cua derper, vd vpn4.hangocthanh.io.vn")
+	rawURL := flag.String("url", "", "URL DERP day du (vd https://derp.test:8443/derp); bo qua -host")
+	caFile := flag.String("ca", "", "file PEM CA tin them (CI: derper chay cert tu ky)")
 	n := flag.Int("n", 10, "so lan do")
 	timeout := flag.Duration("timeout", 20*time.Second, "timeout moi lan do")
+	minOK := flag.Int("min-ok", 0, "exit 1 neu so lan bat tay THANH CONG < gia tri nay (0 = khong kiem)")
 	flag.Parse()
 
-	if *host == "" {
-		fmt.Fprintln(os.Stderr, "thieu -host")
+	if *host == "" && *rawURL == "" {
+		fmt.Fprintln(os.Stderr, "thieu -host hoac -url")
 		os.Exit(2)
 	}
 
@@ -56,7 +61,24 @@ func main() {
 	// netmon.New() doi mot eventbus, thua cho viec nay.
 	netMon := netmon.NewStatic()
 
+	var pool *x509.CertPool
+	if *caFile != "" {
+		pem, err := os.ReadFile(*caFile)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "doc -ca: %v\n", err)
+			os.Exit(2)
+		}
+		pool = x509.NewCertPool()
+		if !pool.AppendCertsFromPEM(pem) {
+			fmt.Fprintln(os.Stderr, "-ca: khong co cert PEM hop le")
+			os.Exit(2)
+		}
+	}
+
 	url := "https://" + *host + "/derp"
+	if *rawURL != "" {
+		url = *rawURL
+	}
 	fmt.Printf("derper : %s\n", url)
 	fmt.Printf("so lan : %d\n\n", *n)
 
@@ -71,6 +93,11 @@ func main() {
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "NewClient: %v\n", err)
 			os.Exit(1)
+		}
+		if pool != nil {
+			// tlsdial dung RootCAs nhu bo root BO SUNG (van verify hostname);
+			// KHONG duoc dat InsecureSkipVerify — tlsdial.Config se panic.
+			c.TLSConfig = &tls.Config{RootCAs: pool}
 		}
 
 		ctx, cancel := context.WithTimeout(context.Background(), *timeout)
@@ -121,8 +148,12 @@ func main() {
 		fmt.Printf("\nloi cuoi: %s\n", lastErr)
 	}
 
-	// Khong exit != 0 khi bi tu choi: sau khi bat co thi TU CHOI la ket qua
-	// DUNG. Job goi cong cu nay tu quyet dinh y nghia.
+	// Mac dinh khong exit != 0 khi bi tu choi: sau khi bat co thi TU CHOI la
+	// ket qua DUNG. Job goi cong cu nay tu quyet dinh y nghia (hoac dat -min-ok).
+	if *minOK > 0 && len(okDur) < *minOK {
+		fmt.Printf("\nFAIL: chi %d lan bat tay thanh cong, can >= %d\n", len(okDur), *minOK)
+		os.Exit(1)
+	}
 }
 
 func ms(d time.Duration) float64 { return float64(d.Microseconds()) / 1000.0 }
