@@ -79,6 +79,31 @@ jobs:
       - name: Build derper + kiem tra /derp/probe
         run: bash test/derp_integration.sh
 
+  derp-compose-build:
+    # Build image derper Y HET deploy (docker compose build tren compose that),
+    # chay voi co prod (chi doi cert LE -> cert tu ky), TLS :443 + bat tay DERP.
+    name: DERP compose build + TLS handshake (${{ matrix.stack }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        stack: [derp-vpn4, derp-vpn6]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go (cho derpdial)
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: scripts/derpdial/go.mod
+          cache-dependency-path: scripts/derpdial/go.sum
+
+      - name: Mang 'edge' (derp-vpn4 khai external)
+        run: docker network create edge || true
+
+      - name: Build + chay + bat tay
+        run: bash test/derp_compose_build.sh "${{ matrix.stack }}"
+
   stats-integration:
     name: /stats integration (collector tach khoi sidecar)
     runs-on: ubuntu-latest

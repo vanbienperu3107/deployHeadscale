@@ -17,11 +17,12 @@ services:
     build:
       context: ../derp-vpn3   # dung Dockerfile.derper cua vpn3 (giong vpn4/vpn5)
       dockerfile: Dockerfile.derper
-      # Cung phien ban voi vpn4 (v1.100.0 chay on tu 2026-07-03) de hai relay
-      # hanh xu giong nhau; v1.100.0 can Go >= 1.26.
+      # Cung phien ban voi vpn4 de hai relay hanh xu giong nhau (test khoa dieu
+      # nay: test_derp_config.py). v1.102.5 can Go >= 1.26.6; pin patch Go vi
+      # `compose up --build` khong pull lai base image cache cu (xem derp-vpn4).
       args:
-        GO_VERSION: "1.26"
-        TAILSCALE_VERSION: v1.100.0
+        GO_VERSION: "1.26.8"
+        TAILSCALE_VERSION: v1.102.5
     container_name: derper
     restart: unless-stopped
     command:
