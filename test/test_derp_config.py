@@ -427,3 +427,47 @@ def test_relay_code_go_van_giu_khong_xoa():
     assert (ROOT / "relay-vpn5" / "server.go").exists(), (
         "relay-vpn5/server.go (code mix tcp/udp) phai VAN con — khong duoc xoa"
     )
+
+
+# ---------- phien ban derper (nang v1.102.5 ngay 2026-10-03) ----------
+
+def _derper_build_args(compose_dir):
+    data = yaml.safe_load((ROOT / compose_dir / "docker-compose.yml").read_text())
+    return data["services"]["derper"]["build"]["args"]
+
+
+def test_derper_vpn4_vpn6_cung_phien_ban():
+    """Hai relay dang chay phai cung derper + cung Go de hanh xu giong nhau."""
+    a4 = _derper_build_args("derp-vpn4")
+    a6 = _derper_build_args("derp-vpn6")
+    assert str(a4["TAILSCALE_VERSION"]) == str(a6["TAILSCALE_VERSION"]), (a4, a6)
+    assert str(a4["GO_VERSION"]) == str(a6["GO_VERSION"]), (a4, a6)
+
+
+@pytest.mark.parametrize("compose_dir", ["derp-vpn4", "derp-vpn6"])
+def test_derper_go_version_pin_patch(compose_dir):
+    """GO_VERSION phai pin den PATCH (x.y.z) va >= 1.26.6.
+
+    tailscale.com v1.102.5 yeu cau `go 1.26.6`. Deploy dung `compose up --build`
+    KHONG pull lai base image, nen tag "1.26" con cache cu tren host (co the
+    1.26.4) se build fail; image golang dat GOTOOLCHAIN=local nen khong tu tai
+    toolchain moi. Lan nang Go truoc tung bo quen derper prod o trang thai dung
+    (docs/BUGS-HISTORY.md muc 3).
+    """
+    go = str(_derper_build_args(compose_dir)["GO_VERSION"])
+    parts = go.split(".")
+    assert len(parts) == 3 and all(p.isdigit() for p in parts), (
+        f"{compose_dir}: GO_VERSION='{go}' phai dang x.y.z"
+    )
+    assert tuple(int(p) for p in parts) >= (1, 26, 6), (
+        f"{compose_dir}: derper v1.102.5 can Go >= 1.26.6, dang '{go}'"
+    )
+
+
+def test_derpdial_cung_phien_ban_tailscale_voi_derper():
+    """derpdial (do bat tay) dung cung thu vien tailscale voi derper prod."""
+    want = str(_derper_build_args("derp-vpn4")["TAILSCALE_VERSION"])
+    gomod = (ROOT / "scripts" / "derpdial" / "go.mod").read_text()
+    assert f"tailscale.com {want}" in gomod, (
+        f"scripts/derpdial/go.mod phai require tailscale.com {want}"
+    )
