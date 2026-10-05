@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Proxmox qua sslh SNI - ai.hangocthanh.io.vn</title>
+<style>
+body{margin:0;font:16px/1.55 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#f6f7f9;color:#111827}
+main{max-width:1100px;margin:0 auto;padding:2rem 1.25rem 4rem}
+h1{font-size:1.6rem;margin:0 0 .25rem}
+.sub{color:#4b5563;margin:0 0 1.5rem}
+.badge{display:inline-block;padding:.15rem .55rem;border-radius:999px;font-size:.8rem;font-weight:600;background:#fef3c7;color:#78350f;border:1px solid #f59e0b}
+section{background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:1.25rem;margin:0 0 1.5rem}
+h2{font-size:1.15rem;margin:0 0 .5rem}
+img{display:block;max-width:100%;height:auto;margin:.75rem auto;border:1px solid #e5e7eb;border-radius:8px;background:#fff}
+pre{background:#0f172a;color:#e2e8f0;padding:.9rem 1rem;border-radius:8px;overflow:auto;font-size:.85rem}
+.add{color:#86efac}
+ul{margin:.25rem 0 0;padding-left:1.2rem}
+a{color:#2563eb}
+</style>
+</head>
+<body>
+<main>
+<h1>Public Proxmox qua <code>https://ai.hangocthanh.io.vn</code></h1>
+<p class="sub">VPS 45.119.87.220 &middot; sslh-mux SNI passthrough &rarr; Tailscale 100.64.0.104:8006 &middot; <span class="badge">ĐỀ XUẤT &mdash; CHƯA APPLY</span></p>
+
+<section>
+<h2>1. Kiến trúc tổng thể</h2>
+<p>sslh chỉ đọc SNI trong TLS ClientHello, không giải mã. Rule xét từ trên xuống, khớp rule đầu tiên thì dừng. Phần xanh là phần thêm mới, phần xám giữ nguyên.</p>
+<img src="1-architecture.png" alt="Kiến trúc: Browser đến sslh :443, rule ai chuyển qua tailscale0 tới Proxmox 100.64.0.104:8006">
+</section>
+
+<section>
+<h2>2. Một request đi như thế nào</h2>
+<p>TLS nối thẳng Browser &harr; Proxmox, cert là của Proxmox. WebSocket/noVNC chạy sẵn. Proxmox thấy IP nguồn 100.64.0.7.</p>
+<img src="2-sequence.png" alt="Sequence: ClientHello, sslh khớp rule ai, connect tới Proxmox qua WireGuard">
+</section>
+
+<section>
+<h2>3. Config trước / sau</h2>
+<p>Chỉ thêm đúng 1 dòng, đặt <b>sau</b> rule vpn6 và <b>trước</b> rule TLS mặc định.</p>
+<img src="3-config-diff.png" alt="Trước: ai rơi vào Caddy và lỗi TLS. Sau: thêm rule ai trước rule mặc định">
+<pre>--- /etc/sslh/sslh.cfg
++++ /etc/sslh/sslh.cfg
+   { name: "tls"; host: "127.0.0.1"; port: "8444"; sni_hostnames: [ "vpn6.hangocthanh.io.vn" ]; },
+<span class="add">+  { name: "tls"; host: "100.64.0.104"; port: "8006"; sni_hostnames: [ "ai.hangocthanh.io.vn" ]; },</span>
+   { name: "tls"; host: "127.0.0.1"; port: "8443"; }</pre>
+</section>
+
+<section>
+<h2>4. Quy trình triển khai</h2>
+<p>Bước 5 (restart sslh-mux, <code>KillMode=control-group</code>) sẽ cắt các kết nối :443 đang mở; client tự nối lại.</p>
+<img src="4-procedure.png" alt="Quy trình: backup, staging, test 18443, install, restart, test ngoài, rollback nếu lỗi">
+</section>
+
+<section>
+<h2>Nguồn Mermaid</h2>
+<ul>
+<li><a href="1-architecture.mmd" download>1-architecture.mmd</a></li>
+<li><a href="2-sequence.mmd" download>2-sequence.mmd</a></li>
+<li><a href="3-config-diff.mmd" download>3-config-diff.mmd</a></li>
+<li><a href="4-procedure.mmd" download>4-procedure.mmd</a></li>
+</ul>
+</section>
+</main>
+</body>
+</html>

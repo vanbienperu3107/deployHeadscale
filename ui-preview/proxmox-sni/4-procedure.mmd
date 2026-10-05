@@ -1,0 +1,13 @@
+flowchart LR
+  A["1. Backup<br/>sslh.cfg.bak-TS<br/>sha256 53b40c99..."] --> B["2. Tạo /root/sslh.cfg.new<br/>+1 dòng ai"]
+  B --> C["3. Test instance phụ<br/>127.0.0.1:18443<br/>không đụng :443"]
+  C --> D{"ai = CN ai?<br/>vpn6, claude, status<br/>cert không đổi?"}
+  D -- "FAIL" --> STOP["DỪNG<br/>production chưa bị chạm"]:::bad
+  D -- "PASS" --> E["4. install vào<br/>/etc/sslh/sslh.cfg"]
+  E --> F["5. restart sslh-mux<br/>(cắt kết nối 443 đang mở,<br/>client tự nối lại)"]:::warn
+  F --> G{"6. Test từ ngoài<br/>8 SNI + DERP 101<br/>+ noVNC"}
+  G -- "PASS" --> OK["XONG"]:::good
+  G -- "FAIL" --> RB["Rollback: restore backup<br/>+ restart sslh-mux"]:::bad
+  classDef good fill:#dcfce7,stroke:#16a34a,color:#14532d
+  classDef bad fill:#fee2e2,stroke:#dc2626,color:#7f1d1d
+  classDef warn fill:#fef3c7,stroke:#d97706,color:#78350f

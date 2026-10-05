@@ -1,0 +1,16 @@
+sequenceDiagram
+  autonumber
+  participant B as Browser
+  participant S as sslh :443 (VPS)
+  participant T as tailscale0 (WireGuard)
+  participant P as Proxmox 100.64.0.104:8006
+  B->>S: TCP SYN :443
+  B->>S: TLS ClientHello (SNI=ai.hangocthanh.io.vn)
+  Note over S: Đọc SNI. Rule ssh? không.<br/>Rule vpn6? không.<br/>Rule ai? KHỚP -> dừng
+  S->>T: connect() 100.64.0.104:8006
+  T->>P: TCP qua WireGuard
+  S->>P: chuyển nguyên ClientHello
+  P-->>B: ServerHello + cert CN=ai.hangocthanh.io.vn
+  Note over B,P: Phiên TLS end-to-end Browser <-> Proxmox<br/>VPS chỉ chuyển byte, không thấy nội dung
+  B->>P: HTTPS: login, API, WebSocket noVNC
+  P-->>B: Response (Proxmox thấy IP nguồn 100.64.0.7)
