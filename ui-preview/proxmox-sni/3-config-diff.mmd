@@ -1,0 +1,17 @@
+flowchart TB
+  subgraph BEFORE["TRƯỚC (/etc/sslh/sslh.cfg hiện tại)"]
+    direction TB
+    a1["7. ssh -> 127.0.0.1:SSH"] --> a2["8. tls SNI vpn6 -> 127.0.0.1:8444"] --> a3["9. tls (default) -> 127.0.0.1:8443"]
+    a4["ai.hangocthanh.io.vn rơi vào rule 9<br/>-> Caddy không có cert -> TLS alert"]:::bad
+    a3 -.-> a4
+  end
+  subgraph AFTER["SAU (thêm đúng 1 dòng)"]
+    direction TB
+    b1["7. ssh -> 127.0.0.1:SSH"] --> b2["8. tls SNI vpn6 -> 127.0.0.1:8444"] --> bN["+ tls SNI ai -> 100.64.0.104:8006"]:::new --> b3["9. tls (default) -> 127.0.0.1:8443"]
+    b4["ai -> Proxmox (cert hợp lệ)<br/>domain khác: không đổi"]:::good
+    bN -.-> b4
+  end
+  BEFORE ==> AFTER
+  classDef new fill:#d1fae5,stroke:#059669,stroke-width:3px,color:#064e3b
+  classDef bad fill:#fee2e2,stroke:#dc2626,color:#7f1d1d
+  classDef good fill:#dcfce7,stroke:#16a34a,color:#14532d

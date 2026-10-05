@@ -1,0 +1,30 @@
+flowchart LR
+  U["Browser / Client<br/>Internet"]
+  subgraph VPS["VPS 45.119.87.220 (vpn6)"]
+    direction TB
+    S{{"sslh-mux :443<br/>/etc/sslh/sslh.cfg<br/>chỉ đọc SNI, KHÔNG giải mã<br/>xét rule từ trên xuống"}}
+    R7["Rule 7: ssh"]
+    R8["Rule 8: SNI vpn6.hangocthanh.io.vn"]
+    RN["Rule MỚI: SNI ai.hangocthanh.io.vn"]
+    R9["Rule 9: TLS mặc định<br/>(mọi SNI khác)"]
+    SSH["sshd 127.0.0.1"]
+    D["derper<br/>127.0.0.1:8444<br/>TLS cert vpn6"]
+    C["memory-caddy<br/>127.0.0.1:8443<br/>TLS cert từng site"]
+    SITES["claude · cms · vpn2<br/>sql · status · view"]
+    TS["tailscale0<br/>100.64.0.7"]
+    S --> R7 --> SSH
+    S --> R8 --> D
+    S --> RN --> TS
+    S --> R9 --> C --> SITES
+  end
+  subgraph TN["Tailnet (Headscale) - WireGuard"]
+    P["Proxmox votam-ai-sv<br/>100.64.0.104:8006<br/>pveproxy terminate TLS<br/>cert LE ai.hangocthanh.io.vn"]
+  end
+  U -- "TCP 443 + TLS ClientHello<br/>SNI = ai.hangocthanh.io.vn" --> S
+  TS -- "TCP raw (TLS nguyên vẹn)" --> P
+  X["Port 8006 public: ĐÓNG"]:::off
+  classDef new fill:#d1fae5,stroke:#059669,stroke-width:3px,color:#064e3b
+  classDef keep fill:#f1f5f9,stroke:#64748b,color:#0f172a
+  classDef off fill:#fee2e2,stroke:#dc2626,color:#7f1d1d
+  class RN,TS,P new
+  class R7,R8,R9,SSH,D,C,SITES keep
