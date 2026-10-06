@@ -1,0 +1,689 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>OpenCode điều khiển Docker trong Proxmox: đặt ở đâu?</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%2317232F'/%3E%3Cpath d='M8 10h16v12H8z' fill='none' stroke='%23E57000' stroke-width='3'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..800&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#EEF2F3;
+  --sheet:#FFFFFF;
+  --ink:#17232F;
+  --ink-2:#4A5B6B;
+  --rule:#C3CED6;
+  --pve:#E57000;
+  --docker:#2463EB;
+  --ok:#2F7D4F;
+  --stop:#B3261E;
+  --ask:#9A6A00;
+  --font:"Archivo",system-ui,"Segoe UI",sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,Consolas,monospace;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--paper);color:var(--ink);font:400 17px/1.6 var(--font)}
+a{color:var(--docker)}
+:focus-visible{outline:3px solid var(--docker);outline-offset:2px}
+.wrap{max-width:1180px;margin:0 auto;padding:0 24px}
+header.top{padding:40px 0 20px}
+h1{font-weight:780;font-stretch:88%;font-size:clamp(30px,4.6vw,54px);line-height:1.04;letter-spacing:-.02em;margin:0 0 14px;max-width:20ch}
+.lede{font-size:19px;max-width:68ch;color:var(--ink-2);margin:0}
+.lede strong{color:var(--ink)}
+
+/* ---------- player ---------- */
+.player{background:var(--sheet);border:1px solid var(--rule);border-radius:14px;margin:28px 0 8px;overflow:hidden;box-shadow:0 1px 0 var(--rule)}
+.stage{position:relative;display:grid;grid-template-columns:minmax(0,1fr) 300px}
+@media (max-width:900px){.stage{grid-template-columns:1fr}}
+svg.topo{display:block;width:100%;height:auto;background:
+  linear-gradient(var(--paper) 1px,transparent 1px) 0 0/24px 24px,
+  linear-gradient(90deg,var(--paper) 1px,transparent 1px) 0 0/24px 24px,#FBFCFC}
+.topo text{font-family:var(--font);fill:var(--ink)}
+.topo .t-sm{font-size:12px;fill:var(--ink-2)}
+.topo .t-md{font-size:15px;font-weight:650}
+.topo .t-lg{font-size:17px;font-weight:750}
+.topo .t-mono{font-family:var(--mono);font-size:11.5px}
+.topo .node{cursor:pointer}
+.topo .node:hover rect.box,.topo .node:focus rect.box{stroke-width:3}
+.topo .node:focus{outline:none}
+.topo .node:focus-visible rect.box{stroke:var(--docker);stroke-width:3.5}
+.fade{opacity:0;transition:opacity .5s}
+.fade.on{opacity:1}
+.agent-glow{opacity:0}
+.side{border-left:1px solid var(--rule);padding:20px 20px 16px;display:flex;flex-direction:column;gap:12px;min-height:100%}
+@media (max-width:900px){.side{border-left:0;border-top:1px solid var(--rule)}}
+.chap-title{font-weight:750;font-size:19px;line-height:1.25;margin:0}
+.caption{margin:0;color:var(--ink-2);font-size:15.5px;min-height:7.5em}
+.detail{border-top:1px dashed var(--rule);padding-top:12px;font-size:14.5px;display:none}
+.detail.on{display:block}
+.detail h3{margin:0 0 6px;font-size:16px}
+.detail p{margin:0 0 6px}
+.detail button{font:inherit;font-size:13px;background:none;border:0;color:var(--docker);padding:0;cursor:pointer;text-decoration:underline}
+.controls{display:flex;align-items:center;gap:12px;padding:12px 16px;border-top:1px solid var(--rule);background:#F6F8F9;flex-wrap:wrap}
+.btn{font:600 14px var(--font);border:1px solid var(--ink);background:var(--ink);color:#fff;border-radius:8px;padding:8px 14px;cursor:pointer;min-width:92px}
+.btn.ghost{background:transparent;color:var(--ink);min-width:0}
+.scrub{flex:1;min-width:180px;accent-color:var(--pve)}
+.time{font:500 13px var(--mono);color:var(--ink-2);min-width:88px;text-align:right}
+.chapters{display:flex;gap:6px;padding:0 16px 14px;background:#F6F8F9;flex-wrap:wrap}
+.chapters button{font:500 13px var(--font);border:1px solid var(--rule);background:#fff;color:var(--ink-2);border-radius:999px;padding:5px 12px;cursor:pointer}
+.chapters button[aria-current="true"]{border-color:var(--pve);color:var(--ink);background:#FFF4EA}
+.hint{font-size:13.5px;color:var(--ink-2);margin:6px 0 0}
+
+/* ---------- sections ---------- */
+section{padding:44px 0 8px}
+h2{font-weight:760;font-stretch:92%;font-size:clamp(24px,3vw,34px);line-height:1.1;margin:0 0 12px;letter-spacing:-.01em}
+.sub{color:var(--ink-2);max-width:70ch;margin:0 0 20px}
+.answer{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:28px;align-items:start}
+@media (max-width:860px){.answer{grid-template-columns:1fr}}
+.answer .big{font-size:22px;line-height:1.45;margin:0;max-width:40ch}
+.answer .big b{background:linear-gradient(transparent 62%,#FFD9B8 62%)}
+.specs{border:1px solid var(--rule);border-radius:10px;background:var(--sheet);padding:4px 18px}
+.specs dl{display:grid;grid-template-columns:auto 1fr;gap:6px 16px;margin:12px 0}
+.specs dt{color:var(--ink-2);font-size:14.5px}
+.specs dd{margin:0;font-weight:600;font-size:15px}
+
+/* options */
+.tabs{display:flex;gap:0;border-bottom:2px solid var(--ink);flex-wrap:wrap}
+.tabs button{font:650 15.5px var(--font);background:none;border:0;padding:12px 18px 10px;cursor:pointer;color:var(--ink-2);border-bottom:4px solid transparent;margin-bottom:-2px}
+.tabs button[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--pve)}
+.tabs .tag{font:500 12px var(--font);margin-left:6px;padding:2px 8px;border-radius:999px;vertical-align:2px}
+.tag.no{background:#F6DAD7;color:var(--stop)}
+.tag.yes{background:#D6EBDD;color:var(--ok)}
+.panel{display:none;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:26px;padding:22px 0}
+.panel.on{display:grid}
+@media (max-width:860px){.panel.on{grid-template-columns:1fr}}
+.panel svg{width:100%;height:auto;background:var(--sheet);border:1px solid var(--rule);border-radius:10px}
+.panel h3{margin:0 0 8px;font-size:19px}
+.panel ul{margin:0;padding-left:20px}
+.panel li{margin:0 0 6px}
+.pro::marker{content:"+  ";color:var(--ok);font-weight:700}
+.con::marker{content:"−  ";color:var(--stop);font-weight:700}
+
+/* permission ladder */
+.ladder{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:0;border:1px solid var(--rule);border-radius:10px;overflow:hidden;background:var(--sheet)}
+@media (max-width:760px){.ladder{grid-template-columns:1fr}}
+.rung{padding:18px 20px;border-right:1px solid var(--rule)}
+.rung:last-child{border-right:0}
+.rung h3{margin:0 0 4px;font-size:18px}
+.rung .verb{font:600 13px var(--mono);display:inline-block;padding:2px 8px;border-radius:5px;margin-bottom:10px}
+.rung.allow .verb{background:#D6EBDD;color:var(--ok)}
+.rung.ask .verb{background:#F7E8C4;color:var(--ask)}
+.rung.deny .verb{background:#F6DAD7;color:var(--stop)}
+.rung code{font:13px var(--mono);display:block;color:var(--ink);margin:2px 0}
+.rung p{font-size:14.5px;color:var(--ink-2);margin:10px 0 0}
+
+/* steps */
+ol.steps{list-style:none;counter-reset:s;margin:0;padding:0}
+ol.steps>li{counter-increment:s;display:grid;grid-template-columns:52px minmax(0,1fr);gap:4px 16px;padding:20px 0;border-top:1px solid var(--rule)}
+ol.steps>li::before{content:counter(s);grid-row:span 3;font:780 34px/1 var(--font);font-stretch:80%;color:var(--pve)}
+ol.steps h3{margin:0;font-size:19px}
+ol.steps p{margin:2px 0 8px;color:var(--ink-2);max-width:72ch}
+.code{position:relative;background:#17232F;color:#E3EAEF;border-radius:9px;padding:14px 16px;font:13.5px/1.55 var(--mono);overflow:auto;margin:4px 0 0;white-space:pre}
+.code .c{color:#8FA3B4}
+.code .k{color:#FFB877}
+.copy{position:absolute;top:8px;right:8px;font:500 12px var(--font);background:#2C3D4E;color:#E3EAEF;border:0;border-radius:6px;padding:5px 10px;cursor:pointer}
+.where{font:600 12.5px var(--font);color:var(--docker);margin:0 0 4px}
+
+.warn{border-left:4px solid var(--stop);background:var(--sheet);padding:14px 18px;border-radius:0 10px 10px 0;margin:18px 0 0;max-width:80ch}
+.warn p{margin:0}
+footer{padding:44px 0 60px;color:var(--ink-2);font-size:14px}
+@media (prefers-reduced-motion:reduce){.fade{transition:none}html{scroll-behavior:auto}}
+</style>
+</head>
+<body>
+<header class="top wrap">
+  <h1>OpenCode điều khiển Docker trong cụm Proxmox nên đặt ở đâu</h1>
+  <p class="lede">Mô hình: 1 server AI chạy Proxmox, 2 VM Ubuntu chạy Docker và 1 VM Windows. Đề xuất: <strong>tạo một VM nhỏ riêng cho OpenCode (vm-agent)</strong>, cho nó điều khiển Docker trên từng VM Ubuntu qua SSH, và dùng VM Windows hoặc máy của bạn làm nơi mở giao diện. Bấm phát để xem luồng hoạt động, bấm vào từng khối để xem chi tiết.</p>
+</header>
+
+<main class="wrap">
+<!-- ================= PLAYER ================= -->
+<div class="player" id="player">
+  <div class="stage">
+    <svg class="topo" id="topo" viewBox="0 0 1000 590" role="img" aria-labelledby="topoTitle">
+      <title id="topoTitle">Sơ đồ: Proxmox chứa VM Ubuntu 1, VM Ubuntu 2, VM Windows, vm-agent chạy OpenCode và LLM</title>
+      <defs>
+        <marker id="arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#4A5B6B"/></marker>
+        <filter id="glow" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="8"/></filter>
+      </defs>
+
+      <!-- Proxmox host -->
+      <g class="node fade" data-in="0" data-node="host" tabindex="0" role="button" aria-label="Proxmox host">
+        <rect class="box" x="30" y="30" width="940" height="460" rx="14" fill="none" stroke="#E57000" stroke-width="2.2"/>
+        <rect x="30" y="30" width="330" height="34" rx="14" fill="#E57000"/>
+        <rect x="30" y="48" width="330" height="16" fill="#E57000"/>
+        <text x="48" y="53" class="t-md" style="fill:#fff">Proxmox VE: server AI (GPU)</text>
+      </g>
+
+      <!-- bridge -->
+      <g class="fade" data-in="2">
+        <line x1="60" y1="335" x2="940" y2="335" stroke="#9AA9B5" stroke-width="2" stroke-dasharray="6 6"/>
+        <text x="62" y="327" class="t-sm">vmbr0: mạng nội bộ giữa các VM (ví dụ 10.10.10.0/24)</text>
+      </g>
+
+      <!-- VM ubuntu 1 -->
+      <g class="node fade" data-in="1.2" data-node="vm1" tabindex="0" role="button" aria-label="VM Ubuntu 1">
+        <rect class="box" x="70" y="90" width="270" height="215" rx="10" fill="#fff" stroke="#17232F" stroke-width="1.6"/>
+        <text x="88" y="116" class="t-md">VM Ubuntu 1</text>
+        <text x="88" y="134" class="t-sm t-mono">10.10.10.11</text>
+      </g>
+      <g class="fade" data-in="6">
+        <rect x="88" y="148" width="72" height="40" rx="6" fill="#E8EFFE" stroke="#2463EB"/><text x="98" y="173" class="t-sm" style="fill:#2463EB">web</text>
+        <rect x="168" y="148" width="72" height="40" rx="6" fill="#E8EFFE" stroke="#2463EB"/><text x="178" y="173" class="t-sm" style="fill:#2463EB">api</text>
+        <rect x="248" y="148" width="72" height="40" rx="6" fill="#E8EFFE" stroke="#2463EB"/><text x="258" y="173" class="t-sm" style="fill:#2463EB">db</text>
+        <rect x="88" y="240" width="232" height="50" rx="6" fill="#2463EB"/>
+        <text x="102" y="261" class="t-md" style="fill:#fff;font-size:14px">dockerd</text>
+        <text x="102" y="280" class="t-sm" style="fill:#DCE6FD">chỉ nghe qua socket nội bộ</text>
+        <line x1="204" y1="188" x2="204" y2="240" stroke="#2463EB" stroke-dasharray="3 3"/>
+      </g>
+
+      <!-- VM ubuntu 2 -->
+      <g class="node fade" data-in="1.8" data-node="vm2" tabindex="0" role="button" aria-label="VM Ubuntu 2">
+        <rect class="box" x="370" y="90" width="270" height="215" rx="10" fill="#fff" stroke="#17232F" stroke-width="1.6"/>
+        <text x="388" y="116" class="t-md">VM Ubuntu 2</text>
+        <text x="388" y="134" class="t-sm t-mono">10.10.10.12</text>
+      </g>
+      <g class="fade" data-in="7">
+        <rect x="388" y="148" width="72" height="40" rx="6" fill="#E8EFFE" stroke="#2463EB"/><text x="398" y="173" class="t-sm" style="fill:#2463EB">ai-app</text>
+        <rect x="468" y="148" width="72" height="40" rx="6" fill="#E8EFFE" stroke="#2463EB"/><text x="478" y="173" class="t-sm" style="fill:#2463EB">worker</text>
+        <rect x="548" y="148" width="72" height="40" rx="6" fill="#E8EFFE" stroke="#2463EB"/><text x="558" y="173" class="t-sm" style="fill:#2463EB">redis</text>
+        <rect x="388" y="240" width="232" height="50" rx="6" fill="#2463EB"/>
+        <text x="402" y="261" class="t-md" style="fill:#fff;font-size:14px">dockerd</text>
+        <text x="402" y="280" class="t-sm" style="fill:#DCE6FD">chỉ nghe qua socket nội bộ</text>
+        <line x1="504" y1="188" x2="504" y2="240" stroke="#2463EB" stroke-dasharray="3 3"/>
+      </g>
+
+      <!-- VM windows -->
+      <g class="node fade" data-in="2.4" data-node="win" tabindex="0" role="button" aria-label="VM Windows">
+        <rect class="box" x="670" y="90" width="270" height="150" rx="10" fill="#fff" stroke="#17232F" stroke-width="1.6"/>
+        <text x="688" y="116" class="t-md">VM Windows</text>
+        <text x="688" y="134" class="t-sm t-mono">10.10.10.13</text>
+        <rect x="688" y="150" width="234" height="72" rx="6" fill="#F3F5F7" stroke="#C3CED6"/>
+        <text x="702" y="176" class="t-sm" style="fill:#17232F;font-weight:600">Trình duyệt: OpenCode Web</text>
+        <text x="702" y="196" class="t-sm">Chỉ là nơi bạn gõ lệnh,</text>
+        <text x="702" y="212" class="t-sm">không cần cài agent ở đây</text>
+      </g>
+
+      <!-- vm-agent -->
+      <g class="agent-glow" id="agentGlow"><rect x="360" y="362" width="290" height="110" rx="14" fill="#E57000" filter="url(#glow)" opacity=".45"/></g>
+      <g class="node fade" data-in="12" data-node="agent" tabindex="0" role="button" aria-label="vm-agent chạy OpenCode">
+        <rect class="box" x="370" y="370" width="270" height="95" rx="10" fill="#17232F" stroke="#17232F" stroke-width="1.6"/>
+        <text x="388" y="396" class="t-md" style="fill:#fff">vm-agent: OpenCode</text>
+        <text x="388" y="414" class="t-sm t-mono" style="fill:#B9C6D1">10.10.10.50</text>
+        <text x="388" y="436" class="t-sm" style="fill:#FFB877">opencode web + docker CLI</text>
+        <text x="388" y="454" class="t-sm" style="fill:#B9C6D1">docker context: vm1, vm2</text>
+      </g>
+
+      <!-- permission gate -->
+      <g class="node fade" data-in="38" data-node="gate" tabindex="0" role="button" aria-label="Cổng phân quyền">
+        <rect class="box" x="70" y="395" width="250" height="70" rx="10" fill="#FFF" stroke="#B3261E" stroke-width="1.6" stroke-dasharray="5 4"/>
+        <text x="86" y="418" class="t-md" style="font-size:14px">Cổng phân quyền OpenCode</text>
+        <text x="86" y="437" class="t-sm" style="fill:#2F7D4F">ps / logs: tự chạy</text>
+        <text x="86" y="455" class="t-sm"><tspan style="fill:#9A6A00">restart: hỏi bạn</tspan>  <tspan style="fill:#B3261E">rm / prune: chặn</tspan></text>
+        <line x1="320" y1="430" x2="370" y2="430" stroke="#B3261E" stroke-dasharray="4 3"/>
+      </g>
+
+      <!-- LLM -->
+      <g class="node fade" data-in="44" data-node="llm" tabindex="0" role="button" aria-label="Mô hình LLM">
+        <rect class="box" x="670" y="370" width="270" height="95" rx="10" fill="#FFF4EA" stroke="#E57000" stroke-width="1.6"/>
+        <text x="688" y="396" class="t-md">LLM cho OpenCode</text>
+        <text x="688" y="418" class="t-sm">VM có GPU passthrough (Ollama/vLLM)</text>
+        <text x="688" y="436" class="t-sm">hoặc API cloud qua proxy</text>
+        <text x="688" y="454" class="t-sm t-mono">http://10.10.10.60:11434</text>
+      </g>
+
+      <!-- you remote -->
+      <g class="node fade" data-in="20" data-node="you" tabindex="0" role="button" aria-label="Bạn truy cập từ xa">
+        <rect class="box" x="395" y="520" width="220" height="50" rx="25" fill="#fff" stroke="#17232F" stroke-width="1.6"/>
+        <text x="417" y="550" class="t-md" style="font-size:14px">Bạn từ xa qua Headscale</text>
+      </g>
+
+      <!-- paths (drawn when needed) -->
+      <path id="pWin"  class="fade" data-in="20" d="M805 240 V350 H600 V370" fill="none" stroke="#4A5B6B" stroke-width="1.6" marker-end="url(#arr)"/>
+      <path id="pYou"  class="fade" data-in="20" d="M505 520 V465" fill="none" stroke="#4A5B6B" stroke-width="1.6" marker-end="url(#arr)"/>
+      <path id="pVm1"  class="fade" data-in="28" d="M420 370 V350 H204 V290" fill="none" stroke="#2463EB" stroke-width="2" marker-end="url(#arr)"/>
+      <path id="pVm2"  class="fade" data-in="28" d="M505 370 V290" fill="none" stroke="#2463EB" stroke-width="2" marker-end="url(#arr)"/>
+      <path id="pLlm"  class="fade" data-in="44" d="M640 418 H670" fill="none" stroke="#E57000" stroke-width="2" marker-end="url(#arr)"/>
+      <text class="fade t-sm" data-in="28" x="214" y="315" style="fill:#2463EB">SSH: docker --context vm1</text>
+      <text class="fade t-sm" data-in="28" x="512" y="320" style="fill:#2463EB">SSH: vm2</text>
+
+      <!-- packets -->
+      <g id="packets"></g>
+      <!-- deny mark -->
+      <g id="denyMark" opacity="0">
+        <circle cx="300" cy="350" r="14" fill="#B3261E"/>
+        <path d="M293 343l14 14M307 343l-14 14" stroke="#fff" stroke-width="3"/>
+        <text x="236" y="380" class="t-sm" style="fill:#B3261E;font-weight:650">docker rm: bị chặn</text>
+      </g>
+    </svg>
+
+    <aside class="side" aria-live="polite">
+      <p class="chap-title" id="chapTitle">Bấm phát để bắt đầu</p>
+      <p class="caption" id="caption">Video dài khoảng 52 giây, chia 7 đoạn. Bạn có thể kéo thanh thời gian, chọn đoạn hoặc bấm vào bất kỳ khối nào trên sơ đồ.</p>
+      <div class="detail" id="detail">
+        <h3 id="dTitle"></h3>
+        <div id="dBody"></div>
+        <button type="button" id="dClose">Đóng và phát tiếp</button>
+      </div>
+    </aside>
+  </div>
+  <div class="controls">
+    <button class="btn" id="play" type="button">Phát</button>
+    <input class="scrub" id="scrub" type="range" min="0" max="52" step="0.1" value="0" aria-label="Thời gian video">
+    <span class="time" id="time">0:00 / 0:52</span>
+    <button class="btn ghost" id="speed" type="button" aria-label="Tốc độ phát">1x</button>
+  </div>
+  <div class="chapters" id="chapters" role="group" aria-label="Các đoạn"></div>
+</div>
+<p class="hint">Phím tắt: Space để phát hoặc dừng, mũi tên trái phải để tua 5 giây.</p>
+
+<!-- ================= ANSWER ================= -->
+<section id="tra-loi">
+  <h2>Trả lời ngắn</h2>
+  <div class="answer">
+    <p class="big">Đừng cài OpenCode lên chính máy Proxmox, cũng đừng rải nó vào từng VM. Hãy <b>tạo một VM (hoặc LXC) riêng tên vm-agent</b>, chỉ cài OpenCode và Docker CLI, rồi trỏ tới Docker của từng VM Ubuntu bằng <b>docker context qua SSH</b>. Windows chỉ dùng để mở giao diện web.</p>
+    <div class="specs">
+      <dl>
+        <dt>Loại máy</dt><dd>VM Ubuntu 24.04 (hoặc LXC unprivileged)</dd>
+        <dt>Cấu hình</dt><dd>2 vCPU, 4 GB RAM, 30 GB disk</dd>
+        <dt>Cài đặt</dt><dd>opencode, docker-ce-cli, git, openssh-client</dd>
+        <dt>Không cài</dt><dd>dockerd, không chạy workload</dd>
+        <dt>Truy cập</dt><dd>opencode web, chỉ bind IP nội bộ/tailnet, có mật khẩu</dd>
+        <dt>Mô hình AI</dt><dd>VM GPU (Ollama/vLLM) hoặc API cloud</dd>
+      </dl>
+    </div>
+  </div>
+</section>
+
+<!-- ================= OPTIONS ================= -->
+<section id="phuong-an">
+  <h2>So sánh 3 vị trí có thể đặt OpenCode</h2>
+  <p class="sub">Chọn từng phương án để xem nó nằm ở đâu và vì sao nên hoặc không nên.</p>
+  <div class="tabs" role="tablist" aria-label="Phương án">
+    <button role="tab" id="tA" aria-controls="oA" aria-selected="false" type="button">Trên host Proxmox<span class="tag no">không nên</span></button>
+    <button role="tab" id="tB" aria-controls="oB" aria-selected="false" type="button">Trong từng VM<span class="tag no">rườm rà</span></button>
+    <button role="tab" id="tC" aria-controls="oC" aria-selected="true" type="button">VM riêng vm-agent<span class="tag yes">đề xuất</span></button>
+  </div>
+
+  <div class="panel" id="oA" role="tabpanel" aria-labelledby="tA">
+    <svg viewBox="0 0 420 220" role="img" aria-label="OpenCode cài trực tiếp trên host Proxmox">
+      <rect x="10" y="10" width="400" height="200" rx="10" fill="none" stroke="#E57000" stroke-width="2"/>
+      <rect x="22" y="22" width="160" height="40" rx="6" fill="#B3261E"/><text x="34" y="47" font-size="13" fill="#fff" font-family="Archivo">OpenCode (root PVE)</text>
+      <rect x="30" y="100" width="110" height="80" rx="6" fill="#fff" stroke="#17232F"/><text x="42" y="124" font-size="13" font-family="Archivo">Ubuntu 1</text>
+      <rect x="155" y="100" width="110" height="80" rx="6" fill="#fff" stroke="#17232F"/><text x="167" y="124" font-size="13" font-family="Archivo">Ubuntu 2</text>
+      <rect x="280" y="100" width="110" height="80" rx="6" fill="#fff" stroke="#17232F"/><text x="292" y="124" font-size="13" font-family="Archivo">Windows</text>
+      <path d="M102 62V100M182 62l28 38M182 50l150 50" stroke="#B3261E" stroke-dasharray="4 3" fill="none"/>
+    </svg>
+    <div>
+      <h3>Cài thẳng trên Proxmox host</h3>
+      <ul>
+        <li class="pro">Nhìn thấy mọi VM, gọi được qm/pct.</li>
+        <li class="con">Agent chạy với quyền root của hypervisor: một lệnh sai có thể tắt hoặc xoá cả 3 VM.</li>
+        <li class="con">Host Proxmox không có Docker; vẫn phải SSH vào VM mới điều khiển được container.</li>
+        <li class="con">Cài thêm Node/Bun lên host làm khó nâng cấp Proxmox, trái khuyến nghị giữ host sạch.</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="panel" id="oB" role="tabpanel" aria-labelledby="tB">
+    <svg viewBox="0 0 420 220" role="img" aria-label="OpenCode cài trong từng VM">
+      <rect x="10" y="10" width="400" height="200" rx="10" fill="none" stroke="#E57000" stroke-width="2"/>
+      <rect x="30" y="40" width="110" height="140" rx="6" fill="#fff" stroke="#17232F"/><text x="42" y="64" font-size="13" font-family="Archivo">Ubuntu 1</text>
+      <rect x="40" y="130" width="90" height="34" rx="5" fill="#9A6A00"/><text x="48" y="152" font-size="12" fill="#fff" font-family="Archivo">OpenCode</text>
+      <rect x="155" y="40" width="110" height="140" rx="6" fill="#fff" stroke="#17232F"/><text x="167" y="64" font-size="13" font-family="Archivo">Ubuntu 2</text>
+      <rect x="165" y="130" width="90" height="34" rx="5" fill="#9A6A00"/><text x="173" y="152" font-size="12" fill="#fff" font-family="Archivo">OpenCode</text>
+      <rect x="280" y="40" width="110" height="140" rx="6" fill="#fff" stroke="#17232F"/><text x="292" y="64" font-size="13" font-family="Archivo">Windows</text>
+      <rect x="290" y="130" width="90" height="34" rx="5" fill="#9A6A00"/><text x="298" y="152" font-size="12" fill="#fff" font-family="Archivo">OpenCode</text>
+    </svg>
+    <div>
+      <h3>Mỗi VM một OpenCode</h3>
+      <ul>
+        <li class="pro">Đơn giản khi chỉ có một VM, lệnh docker chạy cục bộ.</li>
+        <li class="con">3 bản cài, 3 bộ cấu hình, 3 nơi lưu API key của LLM.</li>
+        <li class="con">Không có góc nhìn chung: không so sánh hay di chuyển dịch vụ giữa các VM trong một phiên.</li>
+        <li class="con">Agent nằm cùng máy với workload: nó có thể làm đầy disk, chiếm RAM hoặc tự làm hỏng chính VM nó đang đứng.</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="panel on" id="oC" role="tabpanel" aria-labelledby="tC">
+    <svg viewBox="0 0 420 220" role="img" aria-label="OpenCode nằm trong VM riêng và điều khiển các VM khác qua SSH">
+      <rect x="10" y="10" width="400" height="200" rx="10" fill="none" stroke="#E57000" stroke-width="2"/>
+      <rect x="30" y="30" width="110" height="70" rx="6" fill="#fff" stroke="#17232F"/><text x="42" y="54" font-size="13" font-family="Archivo">Ubuntu 1</text><rect x="42" y="66" width="86" height="22" rx="4" fill="#2463EB"/><text x="50" y="82" font-size="11" fill="#fff" font-family="Archivo">dockerd</text>
+      <rect x="155" y="30" width="110" height="70" rx="6" fill="#fff" stroke="#17232F"/><text x="167" y="54" font-size="13" font-family="Archivo">Ubuntu 2</text><rect x="167" y="66" width="86" height="22" rx="4" fill="#2463EB"/><text x="175" y="82" font-size="11" fill="#fff" font-family="Archivo">dockerd</text>
+      <rect x="280" y="30" width="110" height="70" rx="6" fill="#fff" stroke="#17232F"/><text x="292" y="54" font-size="13" font-family="Archivo">Windows</text><text x="292" y="80" font-size="11" fill="#4A5B6B" font-family="Archivo">trình duyệt</text>
+      <rect x="140" y="140" width="140" height="50" rx="6" fill="#17232F"/><text x="154" y="170" font-size="13" fill="#fff" font-family="Archivo">vm-agent: OpenCode</text>
+      <path d="M180 140L85 100M210 140V100M335 100L260 140" stroke="#2F7D4F" stroke-width="1.6" fill="none"/>
+    </svg>
+    <div>
+      <h3>VM riêng vm-agent (đề xuất)</h3>
+      <ul>
+        <li class="pro">Một nơi duy nhất chứa cấu hình, quyền, key LLM và lịch sử phiên.</li>
+        <li class="pro">Tách khỏi workload và khỏi hypervisor; snapshot hoặc xoá vm-agent không ảnh hưởng dịch vụ.</li>
+        <li class="pro">Một phiên OpenCode thấy cả vm1 và vm2 nhờ <code>docker --context</code>.</li>
+        <li class="pro">Thêm VM mới chỉ cần thêm 1 context và 1 SSH key.</li>
+        <li class="con">Tốn thêm khoảng 4 GB RAM và phải quản lý SSH key.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ================= PERMISSIONS ================= -->
+<section id="phan-quyen">
+  <h2>Ba mức quyền cho lệnh Docker</h2>
+  <p class="sub">OpenCode có cấu hình <code>permission</code> với 3 hành động allow, ask, deny; quy tắc khớp sau cùng sẽ thắng. Chia lệnh Docker theo mức rủi ro như sau.</p>
+  <div class="ladder">
+    <div class="rung allow"><span class="verb">allow</span><h3>Xem trạng thái</h3>
+      <code>docker --context * ps</code><code>docker --context * logs</code><code>docker --context * inspect</code><code>docker --context * stats --no-stream</code>
+      <p>Chỉ đọc, chạy tự động để agent chẩn đoán nhanh.</p></div>
+    <div class="rung ask"><span class="verb">ask</span><h3>Thay đổi có thể hoàn tác</h3>
+      <code>docker --context * restart</code><code>docker --context * pull</code><code>ssh vm* docker compose up -d</code>
+      <p>OpenCode dừng lại hỏi bạn trước khi chạy.</p></div>
+    <div class="rung deny"><span class="verb">deny</span><h3>Mất dữ liệu</h3>
+      <code>docker --context * rm</code><code>docker --context * volume rm</code><code>docker --context * system prune</code>
+      <p>Chặn hẳn, kể cả khi bật chế độ --auto.</p></div>
+  </div>
+  <div class="warn"><p><b>Lưu ý bảo mật:</b> user thuộc nhóm <code>docker</code> trên VM đích tương đương root của VM đó. Cổng phân quyền của OpenCode chỉ là lớp bảo vệ trong agent, không phải sandbox. Vì vậy hãy giới hạn SSH key theo IP của vm-agent, không mở Docker API qua TCP, và snapshot VM trước các thay đổi lớn.</p></div>
+</section>
+
+<!-- ================= STEPS ================= -->
+<section id="trien-khai">
+  <h2>Các bước triển khai</h2>
+  <p class="sub">Làm theo thứ tự. IP dùng ví dụ, thay bằng IP thật của bạn.</p>
+  <ol class="steps">
+    <li>
+      <h3>Tạo vm-agent trên Proxmox</h3>
+      <p>Tạo VM Ubuntu 24.04, 2 vCPU, 4 GB RAM, gắn vào vmbr0, đặt IP tĩnh 10.10.10.50. Không bật GPU passthrough cho VM này.</p>
+      <p class="where">Chạy trên vm-agent</p>
+<div class="code"><button class="copy" type="button">Sao chép</button><span class="c"># Docker CLI (không cài dockerd) + OpenCode</span>
+sudo install -m0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+echo "deb [signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(. /etc/os-release; echo $VERSION_CODENAME) stable" | sudo tee /etc/apt/sources.list.d/docker.list
+sudo apt update &amp;&amp; sudo apt install -y docker-ce-cli docker-compose-plugin git
+curl -fsSL https://opencode.ai/install | bash</div>
+    </li>
+    <li>
+      <h3>Tạo user riêng trên mỗi VM Ubuntu</h3>
+      <p>User <code>opencode-agent</code> trong nhóm docker, chỉ chấp nhận key đến từ IP của vm-agent.</p>
+      <p class="where">Chạy trên VM Ubuntu 1 và VM Ubuntu 2</p>
+<div class="code"><button class="copy" type="button">Sao chép</button>sudo adduser --disabled-password --gecos "" opencode-agent
+sudo usermod -aG docker opencode-agent
+sudo install -d -m700 -o opencode-agent /home/opencode-agent/.ssh
+<span class="c"># dán public key của vm-agent, khoá theo IP nguồn</span>
+echo 'from="10.10.10.50",no-agent-forwarding,no-X11-forwarding ssh-ed25519 AAAA... vm-agent' \
+  | sudo tee /home/opencode-agent/.ssh/authorized_keys
+sudo chown opencode-agent /home/opencode-agent/.ssh/authorized_keys &amp;&amp; sudo chmod 600 /home/opencode-agent/.ssh/authorized_keys</div>
+    </li>
+    <li>
+      <h3>Khai báo docker context trên vm-agent</h3>
+      <p>Mỗi VM là một context. Docker CLI tự mở SSH tới socket <code>/var/run/docker.sock</code> của VM đích, không cần mở cổng 2375.</p>
+      <p class="where">Chạy trên vm-agent</p>
+<div class="code"><button class="copy" type="button">Sao chép</button>ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519 -N ""
+docker context create vm1 --docker "host=ssh://opencode-agent@10.10.10.11"
+docker context create vm2 --docker "host=ssh://opencode-agent@10.10.10.12"
+docker --context vm1 ps   <span class="c"># kiểm tra</span>
+docker --context vm2 ps</div>
+      <p>Với <code>docker compose</code>, file compose nằm trên VM đích, nên dùng <code>ssh opencode-agent@10.10.10.11 'cd /opt/stack &amp;&amp; docker compose up -d'</code>, hoặc giữ các file compose trong một repo git trên vm-agent.</p>
+    </li>
+    <li>
+      <h3>Cấu hình quyền cho OpenCode</h3>
+      <p>Đặt file trong thư mục dự án ops trên vm-agent, ví dụ <code>~/infra/opencode.json</code>.</p>
+<div class="code"><button class="copy" type="button">Sao chép</button>{
+  "$schema": "https://opencode.ai/config.json",
+  "permission": {
+    "bash": {
+      <span class="k">"*": "ask",</span>
+      "docker --context * ps*": "allow",
+      "docker --context * logs *": "allow",
+      "docker --context * inspect *": "allow",
+      "docker --context * stats --no-stream*": "allow",
+      "docker --context * restart *": "ask",
+      "ssh opencode-agent@* docker compose *": "ask",
+      "docker --context * rm *": "deny",
+      "docker --context * volume rm *": "deny",
+      "docker --context * system prune*": "deny"
+    },
+    "external_directory": "deny"
+  }
+}</div>
+      <p>Thêm <code>AGENTS.md</code> trong cùng thư mục, mô tả vm1 chạy gì, vm2 chạy gì và quy ước luôn dùng <code>--context</code>. Agent sẽ đọc file này ở mỗi phiên.</p>
+    </li>
+    <li>
+      <h3>Mở OpenCode Web cho Windows và cho bạn từ xa</h3>
+      <p>Chạy dạng service, chỉ bind IP nội bộ (hoặc IP tailnet của Headscale), bắt buộc mật khẩu. Không mở port ra Internet.</p>
+<div class="code"><button class="copy" type="button">Sao chép</button><span class="c"># /etc/systemd/system/opencode-web.service</span>
+[Service]
+User=ops
+WorkingDirectory=/home/ops/infra
+Environment=OPENCODE_SERVER_PASSWORD=<span class="k">doi-mat-khau-manh</span>
+ExecStart=/home/ops/.opencode/bin/opencode web --hostname 10.10.10.50 --port 4096
+Restart=on-failure
+[Install]
+WantedBy=multi-user.target</div>
+      <p>Trên VM Windows mở <code>http://10.10.10.50:4096</code>. Từ xa, cài Tailscale client lên vm-agent, join Headscale và truy cập bằng IP tailnet.</p>
+    </li>
+    <li>
+      <h3>Trỏ OpenCode tới mô hình AI</h3>
+      <p>Nếu server AI có GPU, passthrough GPU cho một VM riêng chạy Ollama hoặc vLLM, rồi khai báo provider tương thích OpenAI trong <code>opencode.json</code>. Nếu dùng API cloud, chỉ cần lưu key trên vm-agent. Mô hình nhỏ có thể gọi tool kém; hãy thử lệnh chỉ đọc trước.</p>
+    </li>
+    <li>
+      <h3>Kiểm tra và snapshot</h3>
+      <p>Hỏi OpenCode: "liệt kê container đang chạy trên vm1 và vm2". Nó phải tự chạy <code>ps</code>, hỏi bạn khi <code>restart</code> và bị chặn khi <code>rm</code>. Sau đó snapshot vm-agent trong Proxmox để có điểm quay lại.</p>
+    </li>
+  </ol>
+</section>
+
+<section id="windows">
+  <h2>Nếu VM Windows cũng chạy Docker</h2>
+  <p class="sub">Khuyến nghị giữ Windows làm máy client. Nếu bắt buộc chạy container ở đó, bật OpenSSH Server trên Windows, đảm bảo lệnh <code>docker</code> có trong PATH của phiên SSH, rồi tạo thêm <code>docker context create win --docker "host=ssh://user@10.10.10.13"</code>. Cách này kém ổn định hơn Linux vì Docker Desktop chạy qua WSL2, nên kiểm tra kỹ trước khi giao cho agent.</p>
+</section>
+</main>
+
+<footer class="wrap">
+  <p>Tài liệu tham khảo: <a href="https://opencode.ai/docs/server/">OpenCode Server</a>, <a href="https://opencode.ai/docs/permissions/">OpenCode Permissions</a>, <a href="https://docs.docker.com/engine/manage-resources/contexts/">Docker contexts</a>. Bản đề xuất ngày 06/10/2026.</p>
+</footer>
+
+<script>
+(function(){
+  "use strict";
+  var DUR = 52;
+  var chapters = [
+    {t:0,  title:"Server AI chạy Proxmox", text:"Một máy vật lý chạy Proxmox VE. Bên trong là 3 VM: hai Ubuntu và một Windows, nối với nhau qua bridge vmbr0."},
+    {t:6,  title:"Docker nằm trong VM Ubuntu", text:"Mỗi VM Ubuntu có dockerd riêng và các container. Docker chỉ nghe trên socket nội bộ, không mở cổng TCP 2375 ra mạng."},
+    {t:12, title:"Thêm vm-agent cho OpenCode", text:"Tạo một VM nhỏ riêng. Nó chỉ có OpenCode và Docker CLI, không chạy workload. Đây là bộ não điều khiển duy nhất."},
+    {t:20, title:"Bạn ra lệnh từ Windows hoặc từ xa", text:"Mở OpenCode Web trên trình duyệt của VM Windows, hoặc từ laptop qua Headscale. Server có mật khẩu và chỉ bind IP nội bộ."},
+    {t:28, title:"OpenCode gọi Docker qua SSH", text:"Agent chạy docker --context vm1 hoặc vm2. Docker CLI mở SSH bằng user opencode-agent tới socket của VM đích và trả kết quả về."},
+    {t:38, title:"Cổng phân quyền chặn lệnh nguy hiểm", text:"Lệnh xem tự chạy, restart cần bạn đồng ý, rm và prune bị chặn. Gói lệnh bị chặn dừng ngay tại vm-agent."},
+    {t:44, title:"Mô hình AI phía sau", text:"OpenCode gửi prompt tới LLM: VM có GPU passthrough chạy Ollama/vLLM, hoặc API cloud. Đây là toàn bộ mô hình đề xuất."}
+  ];
+  var packets = [
+    {path:"pWin", t:21,   d:2.2, c:"#4A5B6B"},
+    {path:"pYou", t:24,   d:1.6, c:"#4A5B6B"},
+    {path:"pVm1", t:29,   d:2.2, c:"#2463EB"},
+    {path:"pVm2", t:31.5, d:1.8, c:"#2463EB"},
+    {path:"pVm1", t:34,   d:2.2, c:"#2463EB", rev:true},
+    {path:"pVm1", t:39.5, d:2.2, c:"#B3261E", stop:0.42},
+    {path:"pVm2", t:41,   d:1.6, c:"#2F7D4F"},
+    {path:"pLlm", t:45,   d:1.2, c:"#E57000"},
+    {path:"pLlm", t:47.5, d:1.2, c:"#E57000", rev:true},
+    {path:"pWin", t:49.5, d:2.2, c:"#4A5B6B", rev:true}
+  ];
+  var details = {
+    host:{h:"Proxmox host", b:"<p>Hypervisor giữ nguyên sạch: không cài OpenCode, Node hay Docker lên đây. Chỉ dùng web UI Proxmox để tạo VM, snapshot, backup.</p>"},
+    vm1:{h:"VM Ubuntu 1", b:"<p>Chạy Docker và workload. Chỉ cần thêm user <code>opencode-agent</code> trong nhóm docker và SSH key giới hạn theo IP 10.10.10.50.</p>"},
+    vm2:{h:"VM Ubuntu 2", b:"<p>Cấu hình giống VM 1. Có thể thêm VM thứ ba sau này bằng một lệnh <code>docker context create</code>.</p>"},
+    win:{h:"VM Windows", b:"<p>Vai trò client: mở OpenCode Web trên trình duyệt. Không cần cài OpenCode. Nếu Windows chạy Docker, xem mục cuối trang.</p>"},
+    agent:{h:"vm-agent", b:"<p>2 vCPU, 4 GB RAM. Cài opencode, docker-ce-cli, git. Lưu opencode.json, AGENTS.md, SSH key và key LLM. Snapshot định kỳ.</p>"},
+    gate:{h:"Cổng phân quyền", b:"<p>Khối <code>permission.bash</code> trong opencode.json: allow cho lệnh xem, ask cho restart/pull/compose up, deny cho rm, volume rm, system prune.</p>"},
+    llm:{h:"LLM", b:"<p>GPU của server AI nên passthrough cho một VM riêng chạy Ollama/vLLM. OpenCode kết nối như provider tương thích OpenAI.</p>"},
+    you:{h:"Truy cập từ xa", b:"<p>Join vm-agent vào Headscale, mở <code>http://IP-tailnet:4096</code>. Không public cổng 4096 ra Internet.</p>"}
+  };
+
+  var reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  var svg = document.getElementById("topo");
+  var fades = svg.querySelectorAll("[data-in]");
+  var pk = document.getElementById("packets");
+  var deny = document.getElementById("denyMark");
+  var glow = document.getElementById("agentGlow");
+  var playBtn = document.getElementById("play");
+  var scrub = document.getElementById("scrub");
+  var timeEl = document.getElementById("time");
+  var speedBtn = document.getElementById("speed");
+  var chapTitle = document.getElementById("chapTitle");
+  var caption = document.getElementById("caption");
+  var chapWrap = document.getElementById("chapters");
+  var detail = document.getElementById("detail");
+  var t = 0, playing = false, last = 0, speed = 1, curChap = -1, started = false;
+
+  var NS = "http://www.w3.org/2000/svg";
+  packets.forEach(function(p){
+    p.el = document.createElementNS(NS,"circle");
+    p.el.setAttribute("r","7"); p.el.setAttribute("fill",p.c);
+    p.el.setAttribute("stroke","#fff"); p.el.setAttribute("stroke-width","2");
+    p.el.style.display = "none";
+    p.pathEl = document.getElementById(p.path);
+    p.len = p.pathEl.getTotalLength();
+    pk.appendChild(p.el);
+  });
+
+  chapters.forEach(function(c,i){
+    var b = document.createElement("button");
+    b.type = "button"; b.textContent = (i+1)+". "+c.title;
+    b.addEventListener("click",function(){ seek(c.t+0.01); if(!playing) play(); });
+    chapWrap.appendChild(b); c.btn = b;
+  });
+
+  function fmt(s){ s=Math.max(0,Math.floor(s)); return Math.floor(s/60)+":"+("0"+(s%60)).slice(-2); }
+
+  function render(){
+    fades.forEach(function(el){
+      el.classList.toggle("on", started && t >= parseFloat(el.getAttribute("data-in")));
+    });
+    packets.forEach(function(p){
+      var k = (t - p.t)/p.d;
+      var lim = p.stop || 1;
+      if(k < 0 || k > lim + (p.stop ? 0.9 : 0)){ p.el.style.display="none"; return; }
+      var f = Math.min(k, lim);
+      if(p.rev) f = 1 - f;
+      var pt = p.pathEl.getPointAtLength(f*p.len);
+      p.el.setAttribute("cx",pt.x); p.el.setAttribute("cy",pt.y);
+      p.el.style.display = "";
+    });
+    deny.setAttribute("opacity", (t>=40.4 && t<44) ? 1 : 0);
+    var g = 0;
+    if(t>=12 && t<16) g = 1 - Math.abs(t-14)/2;
+    glow.style.opacity = Math.max(0,g);
+    var ci = 0;
+    for(var i=0;i<chapters.length;i++){ if(t>=chapters[i].t) ci=i; }
+    if(started && ci !== curChap){
+      curChap = ci;
+      chapTitle.textContent = (ci+1)+"/"+chapters.length+": "+chapters[ci].title;
+      caption.textContent = chapters[ci].text;
+      chapters.forEach(function(c,j){ c.btn.setAttribute("aria-current", j===ci ? "true":"false"); });
+    }
+    scrub.value = t.toFixed(1);
+    timeEl.textContent = fmt(t)+" / "+fmt(DUR);
+  }
+
+  function frame(now){
+    if(!playing) return;
+    var dt = (now - last)/1000; last = now;
+    t += dt*speed;
+    if(t >= DUR){ t = DUR; render(); pause(); playBtn.textContent = "Phát lại"; return; }
+    render();
+    requestAnimationFrame(frame);
+  }
+  function play(){
+    if(t >= DUR) t = 0;
+    started = true; playing = true; detail.classList.remove("on");
+    playBtn.textContent = "Dừng";
+    last = performance.now();
+    if(reduce){ /* reduced motion: jump per chapter instead of continuous animation */
+      render(); return stepReduced();
+    }
+    requestAnimationFrame(frame);
+  }
+  var reducedTimer = null;
+  function stepReduced(){
+    clearTimeout(reducedTimer);
+    reducedTimer = setTimeout(function(){
+      if(!playing) return;
+      var next = chapters.filter(function(c){ return c.t > t+0.01; })[0];
+      if(!next){ t = DUR; render(); pause(); playBtn.textContent="Phát lại"; return; }
+      t = next.t + 0.01; render(); stepReduced();
+    }, 6000/speed);
+  }
+  function pause(){ playing = false; clearTimeout(reducedTimer); playBtn.textContent = "Phát"; }
+  function seek(v){ started = true; t = Math.max(0, Math.min(DUR, v)); curChap = -1; render(); if(playing && reduce) stepReduced(); }
+
+  playBtn.addEventListener("click", function(){ playing ? pause() : play(); });
+  scrub.addEventListener("input", function(){ seek(parseFloat(scrub.value)); });
+  speedBtn.addEventListener("click", function(){
+    speed = speed === 1 ? 1.5 : (speed === 1.5 ? 2 : 1);
+    speedBtn.textContent = speed+"x";
+  });
+  document.addEventListener("keydown", function(e){
+    var tag = (e.target.tagName||"").toLowerCase();
+    if(tag === "input" || tag === "textarea" || tag === "button" || e.target.getAttribute("role")==="tab") return;
+    if(e.code === "Space"){ e.preventDefault(); playing ? pause() : play(); }
+    if(e.key === "ArrowRight"){ seek(t+5); }
+    if(e.key === "ArrowLeft"){ seek(t-5); }
+  });
+
+  function openDetail(key){
+    var d = details[key]; if(!d) return;
+    pause();
+    document.getElementById("dTitle").textContent = d.h;
+    document.getElementById("dBody").innerHTML = d.b;
+    detail.classList.add("on");
+  }
+  svg.querySelectorAll(".node").forEach(function(n){
+    n.addEventListener("click", function(e){ e.stopPropagation(); openDetail(n.getAttribute("data-node")); });
+    n.addEventListener("keydown", function(e){ if(e.key==="Enter"||e.key===" "){ e.preventDefault(); e.stopPropagation(); openDetail(n.getAttribute("data-node")); } });
+  });
+  document.getElementById("dClose").addEventListener("click", function(){ detail.classList.remove("on"); play(); });
+
+  /* show the full diagram as a poster before playback */
+  /* play() restarts from 0 because t === DUR */
+  started = true; t = DUR; render();
+  chapTitle.textContent = "Toàn cảnh mô hình đề xuất";
+  caption.textContent = "Bấm Phát để xem từng bước dựng mô hình (khoảng 52 giây, 7 đoạn), hoặc bấm vào một khối để đọc chi tiết.";
+  chapters.forEach(function(c){ c.btn.setAttribute("aria-current","false"); });
+  curChap = -1; scrub.value = 0; timeEl.textContent = "0:00 / "+fmt(DUR);
+
+  /* tabs */
+  var tabs = Array.prototype.slice.call(document.querySelectorAll('[role="tab"]'));
+  function sel(tab){
+    tabs.forEach(function(x){
+      var on = x === tab;
+      x.setAttribute("aria-selected", on ? "true" : "false");
+      x.tabIndex = on ? 0 : -1;
+      document.getElementById(x.getAttribute("aria-controls")).classList.toggle("on", on);
+    });
+  }
+  tabs.forEach(function(x,i){
+    x.tabIndex = x.getAttribute("aria-selected")==="true" ? 0 : -1;
+    x.addEventListener("click", function(){ sel(x); });
+    x.addEventListener("keydown", function(e){
+      if(e.key==="ArrowRight"||e.key==="ArrowLeft"){
+        var n = tabs[(i + (e.key==="ArrowRight"?1:-1) + tabs.length) % tabs.length];
+        sel(n); n.focus();
+      }
+    });
+  });
+
+  /* copy buttons */
+  document.querySelectorAll(".copy").forEach(function(b){
+    b.addEventListener("click", function(){
+      var txt = b.parentNode.innerText.replace(/^Sao chép\s*|^Đã chép\s*/,"");
+      var done = function(){ b.textContent = "Đã chép"; setTimeout(function(){ b.textContent = "Sao chép"; }, 1500); };
+      if(navigator.clipboard){ navigator.clipboard.writeText(txt).then(done, function(){ b.textContent = "Chép thất bại"; }); }
+    });
+  });
+})();
+</script>
+</body>
+</html>
