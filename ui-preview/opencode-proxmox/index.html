@@ -119,6 +119,7 @@ h2{font-weight:760;font-stretch:92%;font-size:clamp(24px,3vw,34px);line-height:1
 ol.steps{list-style:none;counter-reset:s;margin:0;padding:0}
 ol.steps>li{counter-increment:s;display:grid;grid-template-columns:52px minmax(0,1fr);gap:4px 16px;padding:20px 0;border-top:1px solid var(--rule)}
 ol.steps>li::before{content:counter(s);grid-row:span 3;font:780 34px/1 var(--font);font-stretch:80%;color:var(--pve)}
+ol.steps>li>*{grid-column:2}
 ol.steps h3{margin:0;font-size:19px}
 ol.steps p{margin:2px 0 8px;color:var(--ink-2);max-width:72ch}
 .code{position:relative;background:#17232F;color:#E3EAEF;border-radius:9px;padding:14px 16px;font:13.5px/1.55 var(--mono);overflow:auto;margin:4px 0 0;white-space:pre}
@@ -130,6 +131,13 @@ ol.steps p{margin:2px 0 8px;color:var(--ink-2);max-width:72ch}
 .warn{border-left:4px solid var(--stop);background:var(--sheet);padding:14px 18px;border-radius:0 10px 10px 0;margin:18px 0 0;max-width:80ch}
 .warn p{margin:0}
 footer{padding:44px 0 60px;color:var(--ink-2);font-size:14px}
+@media (max-width:560px){
+  .wrap{padding:0 16px}
+  ol.steps>li{grid-template-columns:1fr;gap:8px;padding:18px 0}
+  ol.steps>li::before{grid-row:auto;grid-column:1;font-size:28px}
+  ol.steps>li>*{grid-column:1}
+  .code{font-size:13px;padding:14px 12px}
+}
 @media (prefers-reduced-motion:reduce){.fade{transition:none}html{scroll-behavior:auto}}
 </style>
 </head>
