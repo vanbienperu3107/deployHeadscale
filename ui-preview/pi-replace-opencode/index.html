@@ -1,0 +1,636 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pi thay thế OpenCode — Implementation Plan</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'/%3E">
+<style>
+:root{--bg:#f4f1ea;--paper:#fffdf8;--ink:#1b2320;--mute:#5d665f;--line:#ddd3c2;--accent:#155e4b;--code:#f0e8da;--mark:#fdf1c7}
+@media (prefers-color-scheme:dark){:root{--bg:#141816;--paper:#1b201d;--ink:#e7ece8;--mute:#9aa59e;--line:#2f3833;--accent:#6fcfae;--code:#232b27;--mark:#3a3420}}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:17px/1.65 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans",sans-serif}
+.layout{display:grid;grid-template-columns:280px minmax(0,1fr);gap:40px;max-width:1280px;margin:0 auto;padding:32px 24px 96px}
+nav.toc{position:sticky;top:20px;align-self:start;max-height:calc(100vh - 40px);overflow:auto;font-size:14px;line-height:1.45;padding-right:8px}
+nav.toc .title{font-weight:800;letter-spacing:.06em;text-transform:uppercase;font-size:12px;color:var(--mute);margin:0 0 10px}
+nav.toc a{display:block;color:var(--ink);text-decoration:none;padding:5px 8px;border-radius:8px}
+nav.toc a:hover{background:var(--code)}
+nav.toc a.d3{padding-left:22px;color:var(--mute)}
+main{background:var(--paper);border:1px solid var(--line);border-radius:22px;padding:clamp(20px,4vw,56px);min-width:0}
+.dl{display:flex;flex-wrap:wrap;gap:10px;margin:0 0 28px}
+.dl a{display:inline-flex;align-items:center;min-height:44px;padding:10px 16px;border-radius:12px;background:var(--accent);color:#fff;text-decoration:none;font-weight:700}
+.dl a.alt{background:transparent;color:var(--accent);border:1px solid var(--accent)}
+h1{font-size:clamp(30px,5vw,46px);line-height:1.08;letter-spacing:-.03em;margin:0 0 18px}
+h2{font-size:27px;margin:56px 0 14px;padding-top:18px;border-top:1px solid var(--line)}
+h3{font-size:21px;margin:40px 0 10px}
+h1 .anchor{display:none}h2,h3{position:relative}h2 .anchor,h3 .anchor{margin-left:.35em;opacity:0;color:var(--mute);text-decoration:none}
+h2:hover .anchor,h3:hover .anchor{opacity:1}
+p,li{max-width:78ch}
+a{color:var(--accent)}
+blockquote{margin:16px 0;padding:12px 18px;border-left:4px solid var(--accent);background:var(--code);border-radius:0 12px 12px 0}
+code{font:15px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:var(--code);padding:2px 6px;border-radius:6px;overflow-wrap:anywhere}
+pre{background:var(--code);padding:16px 18px;border-radius:14px;overflow-x:auto;border:1px solid var(--line)}
+pre code{padding:0;background:none;font-size:14.5px;overflow-wrap:normal;white-space:pre}
+ul,ol{padding-left:24px}
+li{margin:6px 0}
+li.task{list-style:none;position:relative;margin-left:-4px;padding-left:30px}
+li.task .box{position:absolute;left:0;top:5px;width:18px;height:18px;border:2px solid var(--accent);border-radius:5px}
+.table-wrap{overflow-x:auto;margin:18px 0;border:1px solid var(--line);border-radius:14px}
+table{border-collapse:collapse;width:100%;font-size:15px}
+th,td{text-align:left;vertical-align:top;padding:10px 12px;border-bottom:1px solid var(--line)}
+th{background:var(--code);white-space:nowrap}
+tr:last-child td{border-bottom:0}
+strong{font-weight:750}
+hr{border:0;border-top:1px solid var(--line);margin:40px 0}
+.meta{color:var(--mute);font-size:14px;margin:-6px 0 22px}
+@media (max-width:960px){.layout{grid-template-columns:1fr;padding:12px 10px 64px;gap:12px}
+ nav.toc{position:static;max-height:none;background:var(--paper);border:1px solid var(--line);border-radius:16px;padding:14px}
+ nav.toc details summary{cursor:pointer;font-weight:750;min-height:40px;display:flex;align-items:center}
+ main{border-radius:16px;padding:18px 14px}
+ body{font-size:16px}
+ pre code{font-size:13.5px}
+ th,td{padding:8px 9px;font-size:14px}}
+</style>
+</head>
+<body>
+<div class="layout">
+<nav class="toc" aria-label="Mục lục"><details open><summary class="title">Mục lục</summary>
+<a class="d2" href="#global-constraints">Global Constraints</a>
+<a class="d2" href="#review-focus">Review Focus</a>
+<a class="d2" href="#file-structure">File Structure</a>
+<a class="d3" href="#task-1-khởi-tạo-package-pi-workspace-kit-và-test-harness">Task 1: Khởi tạo package <code>pi-workspace-kit</code> và test harness</a>
+<a class="d3" href="#task-2-extension-chặn-quyền-tương-đương-opencode">Task 2: Extension chặn quyền tương đương OpenCode</a>
+<a class="d3" href="#task-3-extension-memory-blocks-tương-thích-opencode-agent-memory">Task 3: Extension memory blocks tương thích <code>opencode-agent-memory</code></a>
+<a class="d3" href="#task-4-port-google-ai-search-plus-và-figma-token-refresh">Task 4: Port <code>google_ai_search_plus</code> và Figma token refresh</a>
+<a class="d3" href="#task-5-workspace-guard-giới-hạn-thư-mục-ghi">Task 5: Workspace guard (giới hạn thư mục ghi)</a>
+<a class="d3" href="#task-6-workflow-lite-gate-commands-agents-trạng-thái">Task 6: Workflow Lite gate (commands + agents + trạng thái)</a>
+<a class="d3" href="#task-7-fork-pi-mobile-bridge-allowlist-cwd-và-ẩn-đường-dẫn">Task 7: Fork pi-mobile bridge — allowlist cwd và ẩn đường dẫn</a>
+<a class="d3" href="#task-8-image-pi-server-và-cấu-hình-chuyển-đổi">Task 8: Image <code>pi-server</code> và cấu hình chuyển đổi</a>
+<a class="d3" href="#task-9-thêm-pi-server-vào-compose-song-song-opencode">Task 9: Thêm <code>pi-server</code> vào compose (song song OpenCode)</a>
+<a class="d3" href="#task-10-truy-cập-từ-điện-thoại-bridge-tau-qua-tailnet">Task 10: Truy cập từ điện thoại (bridge + Tau qua tailnet)</a>
+<a class="d3" href="#task-11-chuyển-telegram-gateway-sang-pi-tùy-chọn-theo-cờ">Task 11: Chuyển Telegram gateway sang Pi (tùy chọn theo cờ)</a>
+<a class="d3" href="#task-12-bộ-nghiệm-thu-cắt-chuyển-và-rollback">Task 12: Bộ nghiệm thu, cắt chuyển và rollback</a>
+<a class="d2" href="#phụ-lục-a-bằng-chứng-đã-đo-2026-10-09-2026-10-13-container-1-5-gb">Phụ lục A — Bằng chứng đã đo (2026-10-09 → 2026-10-13, container 1,5 GB)</a>
+<a class="d2" href="#phụ-lục-b-ca-nghiệm-thu-task-12">Phụ lục B — Ca nghiệm thu (Task 12)</a>
+<a class="d2" href="#phụ-lục-c-rủi-ro-còn-lại">Phụ lục C — Rủi ro còn lại</a>
+</details></nav>
+<main>
+<div class="dl"><a href="./pi-replace-opencode-plan.md" download>Tải file .md</a><a class="alt" href="./pi-replace-opencode-plan.md">Mở Markdown gốc</a><a class="alt" href="../">Tất cả preview</a></div>
+<p class="meta">Publish ngày 2026-10-13 · Plan kỹ thuật, chưa triển khai · Nguồn: phiên đánh giá Pi vs OpenCode</p>
+<h1 id="pi-thay-thế-opencode-implementation-plan">Pi thay thế OpenCode — Implementation Plan<a class="anchor" href="#pi-thay-thế-opencode-implementation-plan" aria-label="Liên kết tới mục này">#</a></h1>
+<blockquote>
+<p><strong>For agentic workers:</strong> REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (<code>- [ ]</code>) syntax for tracking.</p>
+</blockquote>
+<p><strong>Goal:</strong> Thay OpenCode 1.18.33 bằng Pi coding agent (<code>@earendil-works/pi-coding-agent</code> 1.1.x) làm harness agent chính của người dùng, giữ nguyên CLIProxy, 13 MCP, skills, memory, chính sách quyền và truy cập từ điện thoại; chạy song song có rollback cho tới khi cắt chuyển.</p>
+<p><strong>Architecture:</strong> Một image <code>pi-server</code> mới (Pi + extensions nội bộ + bridge WebSocket của pi-mobile) chạy cạnh <code>opencode-server</code> hiện tại trên cùng host, cùng mạng <code>edge</code>, không publish cổng. Hành vi riêng của workspace (chặn quyền kiểu OpenCode, memory blocks, Google AI search, Figma token, workflow gate, giới hạn thư mục) được port thành <strong>Pi extensions</strong> trong một Pi package nội bộ <code>pi-workspace-kit</code>. Truy cập từ xa đi qua bridge (Android, pi-mobile) và một web UI (pi-tau-web-server) chỉ trong tailnet; cắt chuyển theo từng bề mặt, rollback bằng cách bật lại OpenCode.</p>
+<p><strong>Tech Stack:</strong> Pi 1.1.x (Node ≥22.19), TypeScript + vitest cho extensions, pi-mobile bridge (Node 24, pnpm 10.33), pi-tau-web-server 1.1.x, Docker Compose trên vpn4, GitHub Actions (repo <code>TelegramAgent</code>, <code>deployHeadscale</code>), Python pytest cho test compose/policy hiện có.</p>
+<p><strong>Spec:</strong> Không có spec riêng. Plan này dựa trên các nguồn đã kiểm chứng trong phiên 2026-10-07 → 2026-10-13:</p>
+<ul>
+<li><p>Kiến trúc đích: <code>AI_Coworker_Architecture_Plan_v3.7.md</code> (người dùng đính kèm).</p>
+</li>
+<li><p>Bằng chứng chạy thật trong <code>/tmp/pi-eval/</code> (Pi 1.1.0 + CLIProxy + 13 MCP + extension quyền + RPC + compaction + pi-web + Tau + pi-mobile bridge). Bảng kết quả ở Phụ lục A.</p>
+</li>
+<li><p>Cấu hình OpenCode hiện tại: <code>/home/node/.config/opencode/opencode.json</code>, <code>AGENTS.md</code>, <code>.opencode/workflow-policy.md</code>, <code>feature-workflow.md</code>, <code>RESEARCH-MCP-POLICY.md</code>.</p>
+</li>
+<li><p>Hạ tầng hiện tại: repo <code>vanbienperu3107/TelegramAgent</code> (<code>docker-compose.yml</code>, <code>docker/Dockerfile.opencode-server</code>, <code>.github/workflows/deploy.yml</code>, <code>tests/test_compose.py</code>).</p>
+</li>
+</ul>
+<h2 id="global-constraints">Global Constraints<a class="anchor" href="#global-constraints" aria-label="Liên kết tới mục này">#</a></h2>
+<ul>
+<li><p>Pi phiên bản ghim chính xác <code>@earendil-works/pi-coding-agent@1.1.0</code> (không <code>latest</code>, không <code>^</code>). Nâng cấp là một PR riêng có chạy lại Task 12.</p>
+</li>
+<li><p>Node runtime trong image Pi: <code>node:22-bookworm-slim</code> (≥22.19.0). Bridge pi-mobile cần Node <code>&gt;=24</code> → chạy bằng binary Node 24 riêng trong cùng image, ghim <code>v24.21.0</code> kèm kiểm sha256.</p>
+</li>
+<li><p>Model mặc định: <code>cliproxy/claude-opus-5</code>; provider <code>cliproxy</code> dùng <code>api: &quot;openai-completions&quot;</code>, <code>baseUrl: &quot;http://cliproxy:8317/v1&quot;</code>; khoá đọc bằng <code>&quot;apiKey&quot;: &quot;!tr -d &#39;\\n&#39; &lt; /run/secrets/cliproxy-key&quot;</code>. Không bao giờ ghi khoá literal vào file.</p>
+</li>
+<li><p>Telemetry tắt: <code>PI_TELEMETRY=0</code>, settings <code>enableInstallTelemetry: false</code>, <code>enableAnalytics: false</code>.</p>
+</li>
+<li><p>Container Pi <strong>không</strong> có <code>ports:</code>; mọi service có <code>mem_limit</code>, <code>oom_score_adj</code>, giới hạn log — giữ đúng các test trong <code>tests/test_compose.py</code>. Tổng <code>mem_limit</code> các service trên vpn4 ≤ 1856 MB (<code>test_tong_ngan_sach_ram_khong_vuot_1856mb</code>).</p>
+</li>
+<li><p><code>mem_limit</code> của <code>pi-server</code>: 768m (đo thực tế: Pi 116–624 MB/phiên, bridge ~100 MB). Trong giai đoạn song song, <code>opencode-server</code> giảm từ 1536m xuống 896m để tổng vẫn ≤ 1856 MB; hoàn nguyên 1536m khi rollback.</p>
+</li>
+<li><p>Thư mục skills: <code>/opt/skills</code> (ro) và <code>/workspace/.skills-global</code>. Memory: giữ file Markdown hiện có <code>/home/node/.config/opencode/memory/*.md</code> và <code>&lt;project&gt;/.opencode/memory/project.md</code> làm nguồn dữ liệu (không copy, không đổi định dạng frontmatter).</p>
+</li>
+<li><p>Chính sách bash phải tương đương block <code>permission.bash</code> hiện tại: <code>*</code> allow; deny <code>rm *</code>, <code>sudo *</code>, <code>systemctl *</code>, <code>docker *</code>, <code>kubectl *</code>, <code>git reset --hard*</code>; <code>github_*</code> MCP = ask. Lệnh nối (<code>&amp;&amp;</code>, <code>||</code>, <code>;</code>, <code>|</code>, xuống dòng) đánh giá từng đoạn, nghiêm nhất thắng. <code>ask</code> không có UI ⇒ block.</p>
+</li>
+<li><p>Bridge chỉ bind trong mạng Docker/tailnet, xác thực Bearer token, <code>bridge_set_cwd</code> chỉ chấp nhận thư mục trong allowlist <code>/workspace/Project</code> và <code>/workspace/opencode-sandbox</code> (sau <code>realpath</code>).</p>
+</li>
+<li><p>Không push thẳng <code>main</code>; mỗi task một branch/PR; dùng <code>/workspace/.bin/gh</code>. Secrets chỉ qua GitHub Actions secrets hoặc <code>/run/secrets</code>.</p>
+</li>
+<li><p>Ngôn ngữ thông báo người dùng trong extension: tiếng Việt có dấu.</p>
+</li>
+</ul>
+<h2 id="review-focus">Review Focus<a class="anchor" href="#review-focus" aria-label="Liên kết tới mục này">#</a></h2>
+<ol>
+<li><p><strong>Lệnh nguy hiểm đi vòng qua codemode/MCP hoặc qua <code>user_bash</code> (<code>!cmd</code> trong TUI)</strong> — người dùng mong chặn giống OpenCode bất kể đường gọi. Test thêm ở Task 2 (<code>blocks_user_bash_rm</code>, <code>blocks_mcp_github_inside_codemode</code>).</p>
+</li>
+<li><p><strong>Bridge nhận <code>cwd</code> là symlink trỏ ra ngoài allowlist</strong> (<code>/workspace/Project/link -&gt; /home/node/.ssh</code>) — phải bị từ chối sau <code>realpath</code>. Test ở Task 7 (<code>rejects_symlink_escape</code>).</p>
+</li>
+<li><p><strong>Hai thiết bị cùng điều khiển một session, máy trước rớt mạng</strong> — máy sau phải giành quyền sau tối đa <code>BRIDGE_RECONNECT_GRACE_MS</code> (đặt 30000) chứ không treo vĩnh viễn. Test ở Task 8 (<code>second_device_takes_control_after_grace</code>).</p>
+</li>
+<li><p><strong>Container Pi bị OOM/restart giữa lượt chạy</strong> — phiên phải resume được từ file JSONL, không mất lịch sử. Test ở Task 9 (<code>session_survives_container_restart</code>).</p>
+</li>
+<li><p><strong>Memory block vượt <code>limit</code> hoặc frontmatter hỏng</strong> — tool phải từ chối ghi và báo lỗi, không cắt cụt hay ghi đè mất dữ liệu. Test ở Task 3 (<code>rejects_over_limit</code>, <code>rejects_corrupt_frontmatter_without_writing</code>).</p>
+</li>
+</ol>
+<hr>
+<h2 id="file-structure">File Structure<a class="anchor" href="#file-structure" aria-label="Liên kết tới mục này">#</a></h2>
+<p>Repo mới <strong><code>vanbienperu3107/pi-workspace-kit</code></strong> (Pi package nội bộ, TypeScript):</p>
+<pre><code>pi-workspace-kit/
+├── package.json                  # &quot;pi&quot;: { &quot;extensions&quot;: [...], &quot;skills&quot;: [], &quot;prompts&quot;: [...] }
+├── tsconfig.json
+├── vitest.config.ts
+├── src/
+│   ├── shared/test-harness.ts    # fake ExtensionAPI cho unit test
+│   ├── permission/policy.ts      # glob + chain evaluation (thuần, không I/O)
+│   ├── permission/index.ts       # đăng ký tool_call + user_bash handler
+│   ├── memory/store.ts           # đọc/ghi block Markdown + frontmatter
+│   ├── memory/index.ts           # tools memory_list/memory_set/memory_replace + inject vào system prompt
+│   ├── google-search/index.ts    # tool google_ai_search_plus (port từ plugin OpenCode)
+│   ├── figma-token/index.ts      # chạy figma-token-sync.py khi session_start
+│   ├── workspace-guard/index.ts  # chặn write/edit/bash ngoài allowlist cwd
+│   └── workflow-gate/index.ts    # /analyze /implement /review /verify + trạng thái gate
+├── prompts/                      # analyze.md implement.md review.md verify.md
+├── agents/                       # workflow-analyst.md workflow-implementer.md workflow-reviewer.md
+└── test/                         # *.test.ts tương ứng từng module
+</code></pre>
+<p>Repo <strong><code>vanbienperu3107/TelegramAgent</code></strong> (sửa):</p>
+<pre><code>docker/Dockerfile.pi-server       # tạo mới
+docker/pi/models.json.template    # tạo mới
+docker/pi/settings.json           # tạo mới
+docker/pi/mcp.json.template       # tạo mới (13 server)
+docker/pi/APPEND_SYSTEM.md        # tạo mới — gộp instructions
+docker/pi/entrypoint.sh           # tạo mới — bridge + tau
+docker-compose.yml                # thêm service pi-server, volume pi_data
+scripts/pi/convert-opencode-config.py   # tạo mới
+scripts/pi/verify-pi-config.cjs         # tạo mới
+scripts/pi/smoke.sh                     # tạo mới
+.github/workflows/build-images.yml      # thêm build pi-server
+.github/workflows/deploy.yml            # thêm bước verify + smoke pi
+.github/workflows/pi-acceptance.yml     # tạo mới (Task 12)
+tests/test_compose.py                   # thêm test cho pi-server
+tests/test_pi_config.py                 # tạo mới
+</code></pre>
+<p>Fork <strong><code>vanbienperu3107/pi-mobile</code></strong> (từ <code>ayagmar/pi-mobile</code>), sửa <code>bridge/src/server.ts</code> + <code>bridge/src/config.ts</code> + test.</p>
+<hr>
+<h3 id="task-1-khởi-tạo-package-pi-workspace-kit-và-test-harness">Task 1: Khởi tạo package <code>pi-workspace-kit</code> và test harness<a class="anchor" href="#task-1-khởi-tạo-package-pi-workspace-kit-và-test-harness" aria-label="Liên kết tới mục này">#</a></h3>
+<p><strong>Files:</strong></p>
+<ul>
+<li><p>Create: <code>package.json</code>, <code>tsconfig.json</code>, <code>vitest.config.ts</code>, <code>src/shared/test-harness.ts</code>, <code>test/harness.test.ts</code>, <code>.github/workflows/ci.yml</code></p>
+</li>
+</ul>
+<p><strong>Interfaces:</strong></p>
+<ul>
+<li><p>Produces:</p>
+<ul>
+<li><p><code>createFakePi(): FakePi</code> với <code>FakePi.on(event, handler)</code>, <code>FakePi.emit&lt;T&gt;(event, payload, ctx?): Promise&lt;T[]&gt;</code>, <code>FakePi.tools: Map&lt;string, ToolDef&gt;</code>, <code>FakePi.commands: Map&lt;string, CommandDef&gt;</code>, <code>FakePi.registerTool</code>, <code>FakePi.registerCommand</code>.</p>
+</li>
+<li><p><code>fakeCtx({ hasUI?: boolean, select?: (title, options) =&gt; Promise&lt;string|undefined&gt;, cwd?: string }): ExtensionContext</code>.</p>
+</li>
+<li><p><code>package.json</code> field <code>&quot;pi&quot;: { &quot;extensions&quot;: [&quot;./src/permission/index.ts&quot;, &quot;./src/memory/index.ts&quot;, &quot;./src/google-search/index.ts&quot;, &quot;./src/figma-token/index.ts&quot;, &quot;./src/workspace-guard/index.ts&quot;, &quot;./src/workflow-gate/index.ts&quot;], &quot;prompts&quot;: [&quot;./prompts&quot;] }</code>.</p>
+</li>
+<li><p>devDependency <code>@earendil-works/pi-coding-agent@1.1.0</code> (chỉ để lấy type), <code>vitest</code>, <code>typescript</code>.</p>
+</li>
+</ul>
+</li>
+<li class="task"><span class="box" aria-hidden="true"></span><strong>Step 1: Write the failing test</strong> <code>test/harness.test.ts</code></li>
+</ul>
+<pre><code class="language-ts">it(&quot;fake pi dispatches tool_call and returns handler results in order&quot;, async () =&gt; {
+  const pi = createFakePi();
+  pi.on(&quot;tool_call&quot;, async () =&gt; undefined);
+  pi.on(&quot;tool_call&quot;, async () =&gt; ({ block: true, reason: &quot;x&quot; }));
+  const r = await pi.emit(&quot;tool_call&quot;, { toolName: &quot;bash&quot;, input: { command: &quot;ls&quot; } }, fakeCtx());
+  expect(r).toEqual([undefined, { block: true, reason: &quot;x&quot; }]);
+});
+</code></pre>
+<ul>
+<li class="task"><span class="box" aria-hidden="true"></span><strong>Step 2: Run</strong> <code>npx vitest run test/harness.test.ts</code> — Expected: FAIL (<code>createFakePi</code> not defined)</li>
+<li class="task"><span class="box" aria-hidden="true"></span><strong>Step 3: Implement <code>createFakePi()</code> và <code>fakeCtx()</code></strong> trong <code>src/shared/test-harness.ts</code> (Map handler theo event, gọi tuần tự, <code>await</code>).</li>
+<li class="task"><span class="box" aria-hidden="true"></span><strong>Step 4: Run</strong> <code>npx vitest run</code> — Expected: PASS; <code>npx tsc --noEmit</code> exit 0</li>
+<li class="task"><span class="box" aria-hidden="true"></span><strong>Step 5: CI</strong> <code>.github/workflows/ci.yml</code>: Node 22.19, <code>npm ci &amp;&amp; npx tsc --noEmit &amp;&amp; npx vitest run</code> trên push mọi branch.</li>
+<li class="task"><span class="box" aria-hidden="true"></span><strong>Step 6: Commit</strong> <code>git commit -m &quot;chore: scaffold pi-workspace-kit with fake extension harness&quot;</code></li>
+</ul>
+<h3 id="task-2-extension-chặn-quyền-tương-đương-opencode">Task 2: Extension chặn quyền tương đương OpenCode<a class="anchor" href="#task-2-extension-chặn-quyền-tương-đương-opencode" aria-label="Liên kết tới mục này">#</a></h3>
+<p><strong>Files:</strong></p>
+<ul>
+<li><p>Create: <code>src/permission/policy.ts</code>, <code>src/permission/index.ts</code>, <code>test/permission.policy.test.ts</code>, <code>test/permission.extension.test.ts</code></p>
+</li>
+</ul>
+<p><strong>Interfaces:</strong></p>
+<ul>
+<li><p>Consumes: <code>createFakePi</code>, <code>fakeCtx</code> (Task 1).</p>
+</li>
+<li><p>Produces:</p>
+<ul>
+<li><p><code>type Action = &quot;allow&quot; | &quot;ask&quot; | &quot;deny&quot;</code></p>
+</li>
+<li><p><code>interface PermissionRules { bash: Array&lt;[glob: string, action: Action]&gt;; tools: Array&lt;[pattern: string, action: Action]&gt; }</code></p>
+</li>
+<li><p><code>const DEFAULT_RULES: PermissionRules</code> — bash đúng Global Constraints; tools: <code>[[&quot;mcp__github__*&quot;, &quot;ask&quot;]]</code>.</p>
+</li>
+<li><p><code>decideBash(command: string, rules: PermissionRules): Action</code> — last-match-wins mỗi đoạn, nghiêm nhất giữa các đoạn.</p>
+</li>
+<li><p><code>decideTool(toolName: string, rules: PermissionRules): Action</code></p>
+</li>
+<li><p>default export <code>(pi: ExtensionAPI) =&gt; void</code> đăng ký <code>tool_call</code> và <code>user_bash</code>.</p>
+</li>
+<li><p>Đọc override từ <code>&lt;agent-dir&gt;/permission.json</code> nếu có (cùng schema <code>PermissionRules</code>).</p>
+</li>
+</ul>
+</li>
+<li class="task"><span class="box" aria-hidden="true"></span><strong>Step 1: Write failing policy tests</strong></li>
+</ul>
+<pre><code class="language-ts">it.each([
+  [&quot;ls -la&quot;, &quot;allow&quot;], [&quot;rm -rf /tmp/x&quot;, &quot;deny&quot;], [&quot;sudo id&quot;, &quot;deny&quot;],
+  [&quot;git reset --hard HEAD~1&quot;, &quot;deny&quot;], [&quot;docker ps&quot;, &quot;deny&quot;],
+  [&quot;echo hi &amp;&amp; rm -rf x&quot;, &quot;deny&quot;], [&quot;echo a; sudo id&quot;, &quot;deny&quot;],
+  [&quot;cat f | kubectl apply -f -&quot;, &quot;deny&quot;], [&quot;git status&quot;, &quot;allow&quot;],
+])(&quot;decideBash(%s) = %s&quot;, (cmd, want) =&gt; expect(decideBash(cmd, DEFAULT_RULES)).toBe(want));
+it(&quot;mcp github is ask&quot;, () =&gt; expect(decideTool(&quot;mcp__github__get_me&quot;, DEFAULT_RULES)).toBe(&quot;ask&quot;));
+it(&quot;other mcp allow&quot;, () =&gt; expect(decideTool(&quot;mcp__research_search__searxng_web_search&quot;, DEFAULT_RULES)).toBe(&quot;allow&quot;));
+</code></pre>
+<ul>
+<li class="task"><span class="box" aria-hidden="true"></span><strong>Step 2: Write failing extension tests</strong></li>
+</ul>
+<pre><code class="language-ts">it(&quot;deny returns block with Vietnamese reason&quot;, async () =&gt; {
+  const [r] = await emitToolCall(&quot;bash&quot;, { command: &quot;rm -rf x&quot; }, fakeCtx({ hasUI: true }));
+  expect(r).toEqual({ block: true, reason: &quot;Bị chặn bởi chính sách: rm -rf x&quot; });
+});
+it(&quot;ask without UI blocks&quot;, async () =&gt; {
+  const [r] = await emitToolCall(&quot;mcp__github__get_me&quot;, {}, fakeCtx({ hasUI: false }));
+  expect(r?.block).toBe(true);
+});
+it(&quot;ask with UI &#39;Cho phép&#39; allows&quot;, async () =&gt; {
+  const [r] = await emitToolCall(&quot;mcp__github__get_me&quot;, {}, fakeCtx({ hasUI: true, select: async () =&gt; &quot;Cho phép&quot; }));
+  expect(r).toBeUndefined();
+});
+it(&quot;blocks_user_bash_rm&quot;, async () =&gt; {
+  const [r] = await pi.emit(&quot;user_bash&quot;, { command: &quot;rm -rf x&quot; }, fakeCtx({ hasUI: true }));
+  expect(r).toMatchObject({ result: { exitCode: 1 } });
+});
+it(&quot;blocks_mcp_github_inside_codemode&quot;, async () =&gt; {
+  // codemode phát tool_call riêng cho từng MCP tool — đã đo ở Phụ lục A dòng A9
+  const [r] = await emitToolCall(&quot;mcp__github__get_me&quot;, {}, fakeCtx({ hasUI: false }));
+  expect(r?.block).toBe(true);
+});
+</code></pre>
+<ul>
+<li class="task"><span class="box" aria-hidden="true"></span><strong>Step 3: Run</strong> <code>npx vitest run test/permission*</code> — Expected: FAIL</li>
+<li class="task"><span class="box" aria-hidden="true"></span><strong>Step 4: Implement</strong> <code>policy.ts</code> (glob → RegExp, <code>*</code> = <code>.*</code>, dotall; tách chuỗi bằng <code>/&amp;&amp;|\|\||;|\||\n/</code>) và <code>index.ts</code> (UI select với lựa chọn <code>[&quot;Cho phép&quot;, &quot;Từ chối&quot;]</code>; <code>user_bash</code> trả <code>{ result: { exitCode: 1, output: reason } }</code> khi deny).</li>
+<li class="task"><span class="box" aria-hidden="true"></span><strong>Step 5: Run</strong> <code>npx vitest run</code> — Expected: PASS</li>
+<li class="task"><span class="box" aria-hidden="true"></span><strong>Step 6: Commit</strong> <code>feat(permission): port OpenCode bash/MCP permission policy to Pi</code></li>
+</ul>
+<h3 id="task-3-extension-memory-blocks-tương-thích-opencode-agent-memory">Task 3: Extension memory blocks tương thích <code>opencode-agent-memory</code><a class="anchor" href="#task-3-extension-memory-blocks-tương-thích-opencode-agent-memory" aria-label="Liên kết tới mục này">#</a></h3>
+<p><strong>Files:</strong></p>
+<ul>
+<li><p>Create: <code>src/memory/store.ts</code>, <code>src/memory/index.ts</code>, <code>test/memory.store.test.ts</code>, <code>test/memory.extension.test.ts</code>, <code>test/fixtures/memory/human.md</code></p>
+</li>
+</ul>
+<p><strong>Interfaces:</strong></p>
+<ul>
+<li><p>Produces:</p>
+<ul>
+<li><p><code>interface MemoryBlock { label: string; scope: &quot;global&quot; | &quot;project&quot;; description: string; limit: number; readOnly: boolean; value: string; path: string }</code></p>
+</li>
+<li><p><code>listBlocks(opts: { globalDir: string; projectDir?: string }): Promise&lt;MemoryBlock[]&gt;</code></p>
+</li>
+<li><p><code>setBlock(opts, input: { label: string; scope: &quot;global&quot;|&quot;project&quot;; value: string; description?: string; limit?: number }): Promise&lt;MemoryBlock&gt;</code></p>
+</li>
+<li><p><code>replaceInBlock(opts, input: { label: string; scope?: &quot;global&quot;|&quot;project&quot;; oldText: string; newText: string }): Promise&lt;MemoryBlock&gt;</code></p>
+</li>
+<li><p>Tools đăng ký: <code>memory_list</code>, <code>memory_set</code>, <code>memory_replace</code> (schema giống OpenCode tool cùng tên).</p>
+</li>
+<li><p><code>before_agent_start</code> thêm section <code>&lt;memory_blocks&gt;</code> chứa mọi block (label, description, chars_current/chars_limit, value).</p>
+</li>
+<li><p>Thư mục: <code>globalDir = process.env.PI_MEMORY_GLOBAL_DIR ?? &quot;/home/node/.config/opencode/memory&quot;</code>, <code>projectDir = &lt;cwd&gt;/.opencode/memory</code>.</p>
+</li>
+</ul>
+</li>
+<li class="task"><span class="box" aria-hidden="true"></span><strong>Step 1: Write failing store tests</strong> — fixture <code>human.md</code> copy định dạng hiện có (frontmatter <code>description</code>, <code>label</code>, <code>limit: 5000</code>, <code>read_only: false</code>).</li>
+</ul>
+<pre><code class="language-ts">it(&quot;lists global and project blocks with sizes&quot;, async () =&gt; {
+  const blocks = await listBlocks({ globalDir: G, projectDir: P });
+  expect(blocks.map(b =&gt; `${b.scope}:${b.label}`)).toEqual([&quot;global:human&quot;, &quot;global:persona&quot;, &quot;project:project&quot;]);
+});
+it(&quot;replaceInBlock keeps frontmatter byte-identical&quot;, async () =&gt; { /* đọc file trước/sau, so frontmatter */ });
+it(&quot;rejects_over_limit&quot;, async () =&gt; {
+  await expect(setBlock(o, { label: &quot;human&quot;, scope: &quot;global&quot;, value: &quot;x&quot;.repeat(5001) })).rejects.toThrow(&quot;vượt giới hạn 5000&quot;);
+});
+it(&quot;rejects_corrupt_frontmatter_without_writing&quot;, async () =&gt; { /* file thiếu &#39;---&#39; đóng → throw, mtime không đổi */ });
+it(&quot;replace with missing oldText throws and does not write&quot;, async () =&gt; {});
+it(&quot;read_only block cannot be written&quot;, async () =&gt; {});
+</code></pre>
+<ul>
+<li class="task"><span class="box" aria-hidden="true"></span><strong>Step 2: Run</strong> — Expected: FAIL</li>
+<li class="task"><span class="box" aria-hidden="true"></span><strong>Step 3: Implement</strong> store (parse frontmatter bằng <code>yaml</code> đã có trong deps của Pi; ghi atomic: file tạm cùng thư mục + <code>rename</code>).</li>
+<li class="task"><span class="box" aria-hidden="true"></span><strong>Step 4: Write failing extension test</strong>: sau <code>before_agent_start</code>, prompt chứa <code>&lt;memory_blocks&gt;</code> và <code>label: human</code>.</li>
+<li class="task"><span class="box" aria-hidden="true"></span><strong>Step 5: Implement</strong> <code>index.ts</code>; <strong>Run</strong> <code>npx vitest run</code> — PASS</li>
+<li class="task"><span class="box" aria-hidden="true"></span><strong>Step 6: Commit</strong> <code>feat(memory): memory blocks compatible with opencode-agent-memory files</code></li>
+</ul>
+<h3 id="task-4-port-google-ai-search-plus-và-figma-token-refresh">Task 4: Port <code>google_ai_search_plus</code> và Figma token refresh<a class="anchor" href="#task-4-port-google-ai-search-plus-và-figma-token-refresh" aria-label="Liên kết tới mục này">#</a></h3>
+<p><strong>Files:</strong></p>
+<ul>
+<li><p>Create: <code>src/google-search/index.ts</code>, <code>src/figma-token/index.ts</code>, <code>test/google-search.test.ts</code>, <code>test/figma-token.test.ts</code></p>
+</li>
+</ul>
+<p><strong>Interfaces:</strong></p>
+<ul>
+<li><p>Consumes: logic từ <code>/workspace/.tools/google-ai-search-plugin/src/index.ts</code> (giữ nguyên <code>GoogleAIModeManager</code>, đường dẫn Chromium <code>/workspace/.browser/ms-playwright/chromium-1244/chrome-linux64/chrome</code>).</p>
+</li>
+<li><p>Produces:</p>
+<ul>
+<li><p>Tool <code>google_ai_search_plus</code> với params <code>{ query: string; timeout?: number (5–120, mặc định 30); followUp?: boolean }</code>, trả text Markdown.</p>
+</li>
+<li><p>Khi trang trả &quot;Google is blocking automated access&quot; → kết quả text bắt đầu bằng <code>BLOCKED:</code> để model chuyển ngay sang <code>mcp__research_search__searxng_web_search</code> (theo memory người dùng).</p>
+</li>
+<li><p><code>figma-token</code>: trên <code>session_start</code> chạy <code>python3 /home/node/.config/opencode/figma-token-sync.py</code> qua <code>execFile</code>, timeout 20 s, chỉ log lỗi, không chặn session.</p>
+</li>
+</ul>
+</li>
+<li class="task"><span class="box" aria-hidden="true"></span><strong>Step 1: Failing tests</strong>: tool đăng ký đúng tên + schema; khi <code>GoogleAIModeManager.search</code> ném lỗi chứa &quot;blocking automated access&quot; thì kết quả bắt đầu <code>BLOCKED:</code>; figma: <code>execFile</code> được gọi đúng 1 lần với đúng argv, lỗi không làm <code>session_start</code> throw.</li>
+<li class="task"><span class="box" aria-hidden="true"></span><strong>Step 2: Run</strong> — FAIL</li>
+<li class="task"><span class="box" aria-hidden="true"></span><strong>Step 3: Implement</strong> (inject <code>searchImpl</code> và <code>execFileImpl</code> để test thay được).</li>
+<li class="task"><span class="box" aria-hidden="true"></span><strong>Step 4: Run</strong> <code>npx vitest run</code> — PASS</li>
+<li class="task"><span class="box" aria-hidden="true"></span><strong>Step 5: Commit</strong> <code>feat: port google_ai_search_plus and figma token refresh to Pi</code></li>
+</ul>
+<h3 id="task-5-workspace-guard-giới-hạn-thư-mục-ghi">Task 5: Workspace guard (giới hạn thư mục ghi)<a class="anchor" href="#task-5-workspace-guard-giới-hạn-thư-mục-ghi" aria-label="Liên kết tới mục này">#</a></h3>
+<p><strong>Files:</strong></p>
+<ul>
+<li><p>Create: <code>src/workspace-guard/index.ts</code>, <code>test/workspace-guard.test.ts</code></p>
+</li>
+</ul>
+<p><strong>Interfaces:</strong></p>
+<ul>
+<li><p>Produces:</p>
+<ul>
+<li><p><code>isInsideAllowed(target: string, allow: string[]): Promise&lt;boolean&gt;</code> — so sánh sau <code>fs.realpath</code> (đường dẫn chưa tồn tại: realpath thư mục cha gần nhất).</p>
+</li>
+<li><p>Allowlist từ env <code>PI_WRITE_ALLOW</code> (phân cách <code>:</code>), mặc định <code>/workspace:/tmp</code>.</p>
+</li>
+<li><p>Chặn <code>write</code>/<code>edit</code> có <code>path</code> ngoài allowlist; chặn <code>bash</code> có <code>cd</code>/redirect <code>&gt;</code>/<code>&gt;&gt;</code> tới đường dẫn tuyệt đối ngoài allowlist (heuristic, ghi rõ trong README là không thay sandbox).</p>
+</li>
+</ul>
+</li>
+<li class="task"><span class="box" aria-hidden="true"></span><strong>Step 1: Failing tests</strong>: <code>/workspace/Project/a.txt</code> allow; <code>/home/node/.ssh/id</code> deny; symlink <code>/workspace/x -&gt; /etc</code> deny; <code>echo k &gt; /etc/passwd</code> deny.</li>
+<li class="task"><span class="box" aria-hidden="true"></span><strong>Step 2–4:</strong> Run FAIL → implement → PASS</li>
+<li class="task"><span class="box" aria-hidden="true"></span><strong>Step 5: Commit</strong> <code>feat(guard): restrict write targets to allowlisted directories</code></li>
+</ul>
+<h3 id="task-6-workflow-lite-gate-commands-agents-trạng-thái">Task 6: Workflow Lite gate (commands + agents + trạng thái)<a class="anchor" href="#task-6-workflow-lite-gate-commands-agents-trạng-thái" aria-label="Liên kết tới mục này">#</a></h3>
+<p><strong>Files:</strong></p>
+<ul>
+<li><p>Create: <code>src/workflow-gate/index.ts</code>, <code>prompts/analyze.md</code>, <code>prompts/implement.md</code>, <code>prompts/review.md</code>, <code>prompts/verify.md</code>, <code>agents/*.md</code>, <code>test/workflow-gate.test.ts</code></p>
+</li>
+</ul>
+<p><strong>Interfaces:</strong></p>
+<ul>
+<li><p>Consumes: nội dung <code>.opencode/commands/*.md</code>, <code>.opencode/agents/*.md</code>, <code>.opencode/workflow-policy.md</code> (copy, chỉ đổi cú pháp frontmatter nếu Pi cần).</p>
+</li>
+<li><p>Produces:</p>
+<ul>
+<li><p>Commands <code>/analyze</code>, <code>/implement</code>, <code>/review</code>, <code>/verify</code> (prompt templates).</p>
+</li>
+<li><p>Tool <code>workflow_gate</code> params <code>{ level: &quot;normal&quot;|&quot;high&quot;|&quot;xhigh&quot;; verdict: &quot;PASS&quot;|&quot;REQUEST_CHANGES&quot;|&quot;BLOCKED&quot;; revision: string; evidence: string }</code>; lưu entry vào session (custom entry <code>workflow_gate</code>).</p>
+</li>
+<li><p><code>tool_call</code> handler: khi chưa có verdict <code>PASS</code> cho cả 3 mức với <code>revision</code> = <code>git rev-parse HEAD</code> hiện tại, chặn <code>bash</code> khớp <code>git push*</code> và <code>gh pr merge*</code> với lý do &quot;Chưa đủ gate Normal/High/XHigh cho revision <sha>&quot;.</p>
+</li>
+</ul>
+</li>
+<li class="task"><span class="box" aria-hidden="true"></span><strong>Step 1: Failing tests</strong>: push bị chặn khi thiếu gate; cho qua khi đủ 3 PASS cùng revision; đổi revision làm mất hiệu lực; verdict REQUEST_CHANGES ở high không cho xhigh PASS được ghi (thứ tự bắt buộc).</li>
+<li class="task"><span class="box" aria-hidden="true"></span><strong>Step 2–4:</strong> FAIL → implement (lấy HEAD qua <code>execFile(&quot;git&quot;, [&quot;rev-parse&quot;,&quot;HEAD&quot;], { cwd })</code>) → PASS</li>
+<li class="task"><span class="box" aria-hidden="true"></span><strong>Step 5: Commit</strong> <code>feat(workflow): enforce Normal→High→XHigh gate before push/merge</code></li>
+</ul>
+<h3 id="task-7-fork-pi-mobile-bridge-allowlist-cwd-và-ẩn-đường-dẫn">Task 7: Fork pi-mobile bridge — allowlist cwd và ẩn đường dẫn<a class="anchor" href="#task-7-fork-pi-mobile-bridge-allowlist-cwd-và-ẩn-đường-dẫn" aria-label="Liên kết tới mục này">#</a></h3>
+<p><strong>Files (repo fork <code>pi-mobile</code>):</strong></p>
+<ul>
+<li><p>Modify: <code>bridge/src/config.ts</code> (thêm <code>BRIDGE_ALLOWED_CWDS</code>), <code>bridge/src/server.ts:983-1015</code> (nhánh <code>bridge_set_cwd</code>), nhánh <code>bridge_list_sessions</code></p>
+</li>
+<li><p>Test: <code>bridge/test/server.test.ts</code>, <code>bridge/test/config.test.ts</code></p>
+</li>
+</ul>
+<p><strong>Interfaces:</strong></p>
+<ul>
+<li><p>Produces:</p>
+<ul>
+<li><p>Env <code>BRIDGE_ALLOWED_CWDS</code> (phân cách <code>:</code>), bắt buộc khác rỗng khi <code>BRIDGE_HOST</code> không phải loopback.</p>
+</li>
+<li><p><code>bridge_set_cwd</code> ngoài allowlist → <code>bridge_error</code> code <code>cwd_not_allowed</code>.</p>
+</li>
+<li><p><code>bridge_sessions</code> thay đường dẫn tuyệt đối bằng đường dẫn tương đối so với root allowlist chứa nó.</p>
+</li>
+</ul>
+</li>
+<li class="task"><span class="box" aria-hidden="true"></span><strong>Step 1: Failing tests</strong></li>
+</ul>
+<pre><code class="language-ts">it(&quot;rejects cwd outside allowlist&quot;, /* /home/node/.ssh → cwd_not_allowed */);
+it(&quot;rejects_symlink_escape&quot;, /* &lt;allow&gt;/link -&gt; /etc → cwd_not_allowed */);
+it(&quot;accepts nested dir inside allowlist&quot;, /* &lt;allow&gt;/a/b → bridge_cwd_set */);
+it(&quot;config refuses non-loopback host without allowlist&quot;, /* parse throws */);
+it(&quot;sessions payload contains no absolute allowlisted root&quot;, /* JSON không chứa &#39;/workspace/Project/&#39; */);
+</code></pre>
+<ul>
+<li class="task"><span class="box" aria-hidden="true"></span><strong>Step 2: Run</strong> <code>(cd bridge &amp;&amp; pnpm vitest run test/server.test.ts)</code> — FAIL</li>
+<li class="task"><span class="box" aria-hidden="true"></span><strong>Step 3: Implement</strong> (dùng <code>fs.promises.realpath</code>, so <code>path.relative</code> không bắt đầu <code>..</code>).</li>
+<li class="task"><span class="box" aria-hidden="true"></span><strong>Step 4: Run</strong> <code>(cd bridge &amp;&amp; pnpm run check)</code> — Expected: lint, typecheck, toàn bộ test PASS (baseline 87 + 5 mới).</li>
+<li class="task"><span class="box" aria-hidden="true"></span><strong>Step 5: Commit + PR trong fork</strong>; mở PR ngược lên <code>ayagmar/pi-mobile</code> (không chờ merge).</li>
+</ul>
+<h3 id="task-8-image-pi-server-và-cấu-hình-chuyển-đổi">Task 8: Image <code>pi-server</code> và cấu hình chuyển đổi<a class="anchor" href="#task-8-image-pi-server-và-cấu-hình-chuyển-đổi" aria-label="Liên kết tới mục này">#</a></h3>
+<p><strong>Files (repo <code>TelegramAgent</code>):</strong></p>
+<ul>
+<li><p>Create: <code>docker/Dockerfile.pi-server</code>, <code>docker/pi/models.json.template</code>, <code>docker/pi/settings.json</code>, <code>docker/pi/mcp.json.template</code>, <code>docker/pi/APPEND_SYSTEM.md</code>, <code>docker/pi/entrypoint.sh</code>, <code>scripts/pi/convert-opencode-config.py</code>, <code>scripts/pi/verify-pi-config.cjs</code>, <code>tests/test_pi_config.py</code></p>
+</li>
+<li><p>Modify: <code>.github/workflows/build-images.yml</code></p>
+</li>
+</ul>
+<p><strong>Interfaces:</strong></p>
+<ul>
+<li><p>Consumes: package <code>pi-workspace-kit</code> (Task 1–6, cài bằng <code>pi install git:github.com/vanbienperu3107/pi-workspace-kit@&lt;tag&gt;</code>), fork bridge (Task 7, ghim commit SHA).</p>
+</li>
+<li><p>Produces:</p>
+<ul>
+<li><p>Image <code>ghcr.io/vanbienperu3107/pi-server:&lt;git-sha&gt;</code>; user <code>node</code>; <code>PI_CODING_AGENT_DIR=/home/node/.pi/agent</code>; <code>PI_TELEMETRY=0</code>; tini làm PID 1; cùng gói apt với <code>Dockerfile.opencode-server</code> (git, openssh-client, ripgrep, ca-certificates, curl, tini, python3, graphviz).</p>
+</li>
+<li><p><code>convert-opencode-config.py &lt;opencode.json&gt; &lt;out-dir&gt;</code> sinh <code>mcp.json</code> theo bảng chuyển đổi chính thức của Pi: <code>local</code> → <code>command</code>+<code>args</code>; <code>environment</code> → <code>env</code>; <code>{env:X}</code> → <code>${X}</code>; <code>{file:P}</code> → <code>&quot;!cat P&quot;</code>; <code>remote</code> → <code>url</code>+<code>headers</code>; khoá Tavily chuyển từ query <code>tavilyApiKey=</code> sang header <code>Authorization: Bearer ${TAVILY_API_KEY}</code>; <code>enabled:false</code> giữ nguyên; <code>codegraph</code> và <code>research_search</code> đặt <code>&quot;exposure&quot;: &quot;direct&quot;</code> (đo ở A4: codemode gọi sai tên và bỏ sót caller), các server còn lại giữ <code>codemode</code>.</p>
+</li>
+<li><p><code>APPEND_SYSTEM.md</code> = nối <code>AGENTS.md</code> + <code>feature-workflow.md</code> + <code>RESEARCH-MCP-POLICY.md</code> (sinh lúc build, có header nguồn + sha256 từng file).</p>
+</li>
+<li><p><code>entrypoint.sh</code>: chạy bridge (<code>BRIDGE_HOST=0.0.0.0</code> trong mạng Docker, <code>BRIDGE_PORT=8787</code>, <code>BRIDGE_ALLOWED_CWDS=/workspace/Project:/workspace/opencode-sandbox</code>, <code>BRIDGE_PI_COMMAND=pi</code>) và <code>pi-tau-web-server --host 0.0.0.0 --port 3001</code> với <code>TAU_USER/TAU_PASS</code> từ secret; thoát khi một trong hai chết.</p>
+</li>
+<li><p><code>verify-pi-config.cjs</code>: exit≠0 nếu thiếu model mặc định trong <code>models.json</code>, nếu có khoá literal, nếu thiếu bất kỳ server nào đang <code>enabled</code> trong <code>opencode.json</code>.</p>
+</li>
+</ul>
+</li>
+<li class="task"><span class="box" aria-hidden="true"></span><strong>Step 1: Failing tests</strong> <code>tests/test_pi_config.py</code></li>
+</ul>
+<pre><code class="language-python">def test_convert_maps_all_13_servers(tmp_path): ...  # tên server trùng 1-1, enabled giữ nguyên
+def test_convert_moves_tavily_key_to_header(tmp_path): ...  # url không còn &quot;tavilyApiKey=&quot;
+def test_codegraph_and_research_search_direct(tmp_path): ...  # exposure == &quot;direct&quot;
+def test_convert_file_refs_become_command(tmp_path): ...    # &quot;{file:/x}&quot; -&gt; &quot;!cat /x&quot;
+def test_no_literal_secret_in_outputs(tmp_path): ...        # regex tvly-|ghp_|figd_|sk- không xuất hiện
+def test_models_template_uses_secret_file(): ...            # apiKey bắt đầu bằng &quot;!&quot;
+def test_settings_telemetry_off(): ...
+def test_dockerfile_pins_pi_and_node24_sha(): ...           # &quot;@earendil-works/pi-coding-agent@1.1.0&quot; và sha256 node v24.21.0
+</code></pre>
+<ul>
+<li class="task"><span class="box" aria-hidden="true"></span><strong>Step 2: Run</strong> <code>pytest tests/test_pi_config.py -q</code> — FAIL</li>
+<li class="task"><span class="box" aria-hidden="true"></span><strong>Step 3: Implement</strong> script/template/Dockerfile.</li>
+<li class="task"><span class="box" aria-hidden="true"></span><strong>Step 4: Run</strong> <code>pytest -q</code> (toàn repo) — PASS; <code>docker build -f docker/Dockerfile.pi-server .</code> chạy trong CI <code>build-images.yml</code> — PASS.</li>
+<li class="task"><span class="box" aria-hidden="true"></span><strong>Step 5: Commit</strong> <code>feat(pi): pi-server image and OpenCode→Pi config converter</code></li>
+</ul>
+<h3 id="task-9-thêm-pi-server-vào-compose-song-song-opencode">Task 9: Thêm <code>pi-server</code> vào compose (song song OpenCode)<a class="anchor" href="#task-9-thêm-pi-server-vào-compose-song-song-opencode" aria-label="Liên kết tới mục này">#</a></h3>
+<p><strong>Files:</strong></p>
+<ul>
+<li><p>Modify: <code>docker-compose.yml</code>, <code>tests/test_compose.py</code>, <code>.github/workflows/deploy.yml</code></p>
+</li>
+<li><p>Create: <code>scripts/pi/smoke.sh</code></p>
+</li>
+</ul>
+<p><strong>Interfaces:</strong></p>
+<ul>
+<li><p>Consumes: image Task 8.</p>
+</li>
+<li><p>Produces:</p>
+<ul>
+<li><p>Service <code>pi-server</code>: <code>mem_limit: 768m</code>, <code>memswap_limit: 1280m</code>, <code>oom_score_adj: 800</code>, <code>pids_limit: 512</code>, <code>security_opt: [&quot;no-new-privileges:true&quot;]</code>, <code>cap_drop: [ALL]</code>, <code>env_file: .env.pi</code>, không <code>ports:</code>, <code>networks: [opencode_net, edge]</code>, <code>working_dir: ${DEFAULT_PROJECT_PATH:?...}</code>, volumes: <code>./workspace:/workspace</code>, <code>pi_data:/home/node/.pi/agent/sessions</code>, <code>./skill_new:/opt/skills:ro</code>, <code>./workspace/opencode-mcp-research/image-data:/research-images:ro</code>, secret file <code>cliproxy-key</code>; healthcheck <code>curl -sS -o /dev/null --max-time 5 http://127.0.0.1:8787/health</code> (bridge chạy <code>BRIDGE_ENABLE_HEALTH_ENDPOINT=true</code>).</p>
+</li>
+<li><p><code>opencode-server.mem_limit</code> 1536m → 896m (đánh dấu comment &quot;song song Pi, hoàn nguyên khi rollback&quot;).</p>
+</li>
+<li><p><code>smoke.sh</code> (chạy trong container <code>pi-server</code>): <code>pi --version</code> = 1.1.0; <code>pi mcp list</code> có ≥10 <code>connected</code>; <code>pi --no-session -p &quot;Reply with exactly: PONG&quot;</code> in <code>PONG</code>; RPC <code>get_state</code> qua bridge trả <code>provider=cliproxy</code>.</p>
+</li>
+</ul>
+</li>
+<li class="task"><span class="box" aria-hidden="true"></span><strong>Step 1: Failing tests</strong> thêm vào <code>tests/test_compose.py</code></li>
+</ul>
+<pre><code class="language-python">def test_du_bon_service(services): assert set(services) &gt;= {&quot;telegram-gateway&quot;,&quot;opencode-server&quot;,&quot;pi-server&quot;,&quot;pg-tunnel&quot;}
+def test_pi_server_khong_publish_cong(services): assert &quot;ports&quot; not in services[&quot;pi-server&quot;]
+def test_pi_server_khong_o_db_net(services): assert &quot;db_net&quot; not in services[&quot;pi-server&quot;][&quot;networks&quot;]
+def test_pi_sessions_giu_qua_deploy(services, compose): assert &quot;pi_data&quot; in compose[&quot;volumes&quot;]
+# test_tong_ngan_sach_ram_khong_vuot_1856mb hiện có phải tiếp tục PASS
+</code></pre>
+<ul>
+<li class="task"><span class="box" aria-hidden="true"></span><strong>Step 2: Run</strong> <code>pytest tests/test_compose.py -q</code> — FAIL</li>
+<li class="task"><span class="box" aria-hidden="true"></span><strong>Step 3: Implement</strong> compose + deploy bước &quot;verify-pi-config&quot; và &quot;smoke pi&quot; sau <code>docker compose up -d</code>; nếu smoke fail → <code>docker compose stop pi-server</code> và job FAIL (OpenCode không bị động tới).</li>
+<li class="task"><span class="box" aria-hidden="true"></span><strong>Step 4: Run</strong> <code>pytest -q</code> — PASS; dispatch <code>deploy.yml</code> trên branch; theo dõi run tới khi xong; Expected: bước smoke in <code>PONG</code> và <code>provider=cliproxy</code>.</li>
+<li class="task"><span class="box" aria-hidden="true"></span><strong>Step 5: Test restart</strong> — <code>session_survives_container_restart</code>: trong deploy job, tạo session qua bridge với code word, <code>docker restart pi-server</code>, <code>switch_session</code> cùng file, hỏi lại code word → khớp.</li>
+<li class="task"><span class="box" aria-hidden="true"></span><strong>Step 6: Commit</strong> <code>feat(deploy): run pi-server alongside opencode-server on vpn4</code></li>
+</ul>
+<h3 id="task-10-truy-cập-từ-điện-thoại-bridge-tau-qua-tailnet">Task 10: Truy cập từ điện thoại (bridge + Tau qua tailnet)<a class="anchor" href="#task-10-truy-cập-từ-điện-thoại-bridge-tau-qua-tailnet" aria-label="Liên kết tới mục này">#</a></h3>
+<p><strong>Files:</strong></p>
+<ul>
+<li><p>Modify: <code>edge-vpn4/Caddyfile</code> trong <code>deployHeadscale</code> <strong>chỉ</strong> nếu người dùng duyệt route; mặc định không đổi Caddy.</p>
+</li>
+<li><p>Create: <code>docs/pi-remote-access.md</code> (repo <code>TelegramAgent</code>)</p>
+</li>
+</ul>
+<p><strong>Interfaces:</strong></p>
+<ul>
+<li><p>Consumes: service <code>pi-server</code> (Task 9), fork pi-mobile (Task 7).</p>
+</li>
+<li><p>Produces:</p>
+<ul>
+<li><p>Truy cập mặc định: <code>tailscale serve</code> trên vpn4 → <code>https://vpn4.&lt;tailnet&gt;.ts.net:8787</code> (bridge) và <code>:3001</code> (Tau), chỉ trong tailnet; không mở Internet công cộng.</p>
+</li>
+<li><p>APK pi-mobile build từ fork qua CI fork (job Android có sẵn); sửa lỗi detekt <code>SessionsScreen</code> complexity 17 &gt; 15 bằng tách composable con.</p>
+</li>
+</ul>
+</li>
+<li class="task"><span class="box" aria-hidden="true"></span><strong>Step 1: Failing check</strong>: từ runner CI tham gia tailnet (khoá ephemeral), <code>curl -H &quot;Authorization: Bearer $TOKEN&quot; https://vpn4.../health</code> — FAIL (chưa có serve).</li>
+<li class="task"><span class="box" aria-hidden="true"></span><strong>Step 2: Implement</strong> <code>tailscale serve</code> cấu hình lưu bền (<code>tailscale serve --bg --https=8787 http://pi-server:8787</code> qua container sidecar trong mạng <code>edge</code>, hoặc trên host — chọn host vì đã có tailscaled).</li>
+<li class="task"><span class="box" aria-hidden="true"></span><strong>Step 3: Run</strong> check lại — PASS 200; không token → 401.</li>
+<li class="task"><span class="box" aria-hidden="true"></span><strong>Step 4: Android emulator E2E</strong> trong fork pi-mobile: dùng <code>reactivecircus/android-emulator-runner@v2</code> (API 34, x86_64) giống <code>adroidClient/.github/workflows/android-emulator.yml</code>; bridge thật trong job (Pi 1.1 + CLIProxy secret); Espresso/UiAutomator: thêm host, gửi prompt, nhận câu trả lời, duyệt quyền &quot;Cho phép&quot;. Expected: PASS + ảnh chụp artifact.</li>
+<li class="task"><span class="box" aria-hidden="true"></span><strong>Step 5: Commit</strong> <code>docs(pi): remote access via tailnet for bridge and Tau</code></li>
+</ul>
+<h3 id="task-11-chuyển-telegram-gateway-sang-pi-tùy-chọn-theo-cờ">Task 11: Chuyển Telegram gateway sang Pi (tùy chọn theo cờ)<a class="anchor" href="#task-11-chuyển-telegram-gateway-sang-pi-tùy-chọn-theo-cờ" aria-label="Liên kết tới mục này">#</a></h3>
+<p><strong>Files (repo <code>TelegramAgent</code>):</strong></p>
+<ul>
+<li><p>Create: <code>src/services/pi-client.ts</code>, <code>tests/pi-client.test.ts</code></p>
+</li>
+<li><p>Modify: <code>src/services/task-runner.ts</code>, <code>src/config.ts</code></p>
+</li>
+</ul>
+<p><strong>Interfaces:</strong></p>
+<ul>
+<li><p>Consumes: bridge WebSocket (Task 7/9).</p>
+</li>
+<li><p>Produces:</p>
+<ul>
+<li><p><code>interface AgentBackend { taoSession(tuaDe?: string): Promise&lt;{ id: string }&gt;; guiPrompt(a: { sessionID: string; text: string }): Promise&lt;void&gt;; huy(sessionID: string): Promise&lt;void&gt;; traLoiQuyen(sessionID: string, requestID: string, traLoi: &quot;once&quot;|&quot;reject&quot;): Promise&lt;void&gt;; suKien(sessionID: string): AsyncIterable&lt;SuKienChung&gt; }</code></p>
+</li>
+<li><p><code>OpenCodeClient</code> hiện có được bọc thành <code>OpenCodeBackend implements AgentBackend</code>; <code>PiBridgeBackend implements AgentBackend</code> mới.</p>
+</li>
+<li><p>Env <code>AGENT_BACKEND=opencode|pi</code> (mặc định <code>opencode</code>).</p>
+</li>
+<li><p>Ánh xạ: <code>prompt_async</code> → RPC <code>prompt</code>; <code>abort</code> → <code>abort</code>; <code>permission.asked</code> ↔ <code>extension_ui_request(select)</code>; trả lời <code>once</code> → <code>&quot;Cho phép&quot;</code>, <code>reject</code> → <code>&quot;Từ chối&quot;</code>; <code>always</code> không hỗ trợ ở Pi → coi như <code>once</code> và báo người dùng.</p>
+</li>
+</ul>
+</li>
+<li class="task"><span class="box" aria-hidden="true"></span><strong>Step 1: Failing tests</strong> với fake WebSocket server: prompt → nhận <code>agent_settled</code> → <code>vanTraLoiCuoi</code> đúng text; duyệt quyền round-trip; huỷ trong 1 s.</li>
+<li class="task"><span class="box" aria-hidden="true"></span><strong>Step 2–4:</strong> FAIL → implement → <code>npm test</code> PASS (toàn bộ test cũ vẫn PASS với <code>AGENT_BACKEND=opencode</code>).</li>
+<li class="task"><span class="box" aria-hidden="true"></span><strong>Step 5: Commit</strong> <code>feat(gateway): pluggable agent backend with Pi bridge implementation</code></li>
+</ul>
+<h3 id="task-12-bộ-nghiệm-thu-cắt-chuyển-và-rollback">Task 12: Bộ nghiệm thu, cắt chuyển và rollback<a class="anchor" href="#task-12-bộ-nghiệm-thu-cắt-chuyển-và-rollback" aria-label="Liên kết tới mục này">#</a></h3>
+<p><strong>Files:</strong></p>
+<ul>
+<li><p>Create: <code>.github/workflows/pi-acceptance.yml</code>, <code>docs/pi-cutover-runbook.md</code>, <code>scripts/pi/acceptance/*.sh</code></p>
+</li>
+</ul>
+<p><strong>Interfaces:</strong></p>
+<ul>
+<li><p>Consumes: mọi task trước.</p>
+</li>
+<li><p>Produces: workflow dispatch chạy trên vpn4 (ssh-action như <code>deploy.yml</code>) các ca A1–A12 (Phụ lục B), xuất <code>acceptance-&lt;sha&gt;.md</code> làm artifact; runbook cắt chuyển 3 bước và rollback.</p>
+</li>
+<li class="task"><span class="box" aria-hidden="true"></span><strong>Step 1: Viết ca nghiệm thu dạng script</strong> (mỗi ca exit 0/1, in <code>PASS</code>/<code>FAIL</code> + bằng chứng).</li>
+<li class="task"><span class="box" aria-hidden="true"></span><strong>Step 2: Dispatch</strong> <code>pi-acceptance.yml</code> — Expected: 12/12 PASS cho commit đang deploy.</li>
+<li class="task"><span class="box" aria-hidden="true"></span><strong>Step 3: Cắt chuyển bề mặt 1 — người dùng hằng ngày</strong>: Tau/pi-mobile qua tailnet làm bề mặt chính 7 ngày; OpenCode vẫn chạy. Ghi lại lỗi vào issue.</li>
+<li class="task"><span class="box" aria-hidden="true"></span><strong>Step 4: Cắt chuyển bề mặt 2 — Telegram</strong>: đặt <code>AGENT_BACKEND=pi</code>, deploy, chạy A11 trên Telegram thật.</li>
+<li class="task"><span class="box" aria-hidden="true"></span><strong>Step 5: Cắt chuyển bề mặt 3 — tắt OpenCode</strong>: <code>docker compose stop opencode-server</code>, nâng <code>pi-server.mem_limit</code> lên 1280m, giữ image + volume <code>opencode_data</code> 30 ngày.</li>
+<li class="task"><span class="box" aria-hidden="true"></span><strong>Step 6: Rollback (thử thật một lần trước bước 5)</strong>: <code>AGENT_BACKEND=opencode</code>, <code>opencode-server.mem_limit</code> 1536m, <code>docker compose up -d opencode-server</code>, <code>docker compose stop pi-server</code>; Expected: <code>/global/health</code> 200 trong 60 s và phiên OpenCode cũ còn nguyên.</li>
+<li class="task"><span class="box" aria-hidden="true"></span><strong>Step 7: Commit</strong> <code>docs(pi): acceptance suite, cutover and rollback runbook</code></li>
+</ul>
+<hr>
+<h2 id="phụ-lục-a-bằng-chứng-đã-đo-2026-10-09-2026-10-13-container-1-5-gb">Phụ lục A — Bằng chứng đã đo (2026-10-09 → 2026-10-13, container 1,5 GB)<a class="anchor" href="#phụ-lục-a-bằng-chứng-đã-đo-2026-10-09-2026-10-13-container-1-5-gb" aria-label="Liên kết tới mục này">#</a></h2>
+<div class="table-wrap"><table><thead><tr><th>#</th><th>Hạng mục</th><th>Kết quả</th></tr></thead><tbody><tr><td>A1</td><td>Pi 1.1.0 + CLIProxy (openai-completions, anthropic-messages)</td><td>PASS, 3–4 s</td></tr>
+<tr><td>A2</td><td>13 MCP qua <code>mcp.json</code></td><td>10 connected, 3 disabled có chủ ý; wiki 502 do backend</td></tr>
+<tr><td>A3</td><td>Transport MCP remote</td><td>6/7 streamable HTTP; không server nào SSE cũ</td></tr>
+<tr><td>A4</td><td>MCP gọi thật (research_search, codegraph)</td><td>PASS; codemode gọi sai tên lần đầu, codegraph bỏ sót 2/7 caller</td></tr>
+<tr><td>A5</td><td>Pi mặc định</td><td>không chặn lệnh nào</td></tr>
+<tr><td>A6</td><td>Extension quyền (deny / ask không UI / chuỗi lệnh / MCP github)</td><td>PASS</td></tr>
+<tr><td>A7</td><td>Duyệt quyền qua RPC, Tau (trình duyệt mobile), pi-mobile bridge</td><td>PASS cả ba</td></tr>
+<tr><td>A8</td><td>Abort / steer / reconnect / lock</td><td>0,02 s / PASS / resumed / control_lock_denied</td></tr>
+<tr><td>A9</td><td>Compaction</td><td>17,3K token → tóm tắt có cấu trúc; nhớ đúng dữ kiện sau nén</td></tr>
+<tr><td>A10</td><td>Bài sửa bug (cùng model)</td><td>Pi 19–31 s, ~16–43K token, 116–460 MB; OpenCode 130 s, ~927K token, ~1 GB</td></tr>
+<tr><td>A11</td><td>Tuân thủ quy trình</td><td>Pi bỏ qua worktree; OpenCode tuân thủ ⇒ Task 6 bắt buộc</td></tr>
+<tr><td>A12</td><td>pi-mobile bridge <code>pnpm run check</code></td><td>87/87; lỗ hổng cwd tùy ý + lộ đường dẫn ⇒ Task 7</td></tr>
+<tr><td>A13</td><td>App Android pi-mobile</td><td>BLOCKED (không KVM) ⇒ Task 10 Step 4</td></tr></tbody></table></div>
+<h2 id="phụ-lục-b-ca-nghiệm-thu-task-12">Phụ lục B — Ca nghiệm thu (Task 12)<a class="anchor" href="#phụ-lục-b-ca-nghiệm-thu-task-12" aria-label="Liên kết tới mục này">#</a></h2>
+<div class="table-wrap"><table><thead><tr><th>ID</th><th>Ca</th><th>Kỳ vọng</th></tr></thead><tbody><tr><td>AC1</td><td><code>pi -p</code> với model mặc định</td><td>trả lời, exit 0</td></tr>
+<tr><td>AC2</td><td><code>pi mcp list</code></td><td>≥10 connected, đúng danh sách enabled</td></tr>
+<tr><td>AC3</td><td><code>rm -rf</code>, <code>sudo</code>, <code>git reset --hard</code> qua tool, qua chuỗi lệnh, qua <code>!cmd</code></td><td>đều bị chặn</td></tr>
+<tr><td>AC4</td><td><code>mcp__github__*</code> không UI</td><td>bị chặn; có UI → hỏi</td></tr>
+<tr><td>AC5</td><td>memory_list/set/replace trên file thật</td><td>đọc/ghi đúng, frontmatter giữ nguyên</td></tr>
+<tr><td>AC6</td><td><code>git push</code> khi thiếu gate</td><td>bị chặn với lý do tiếng Việt</td></tr>
+<tr><td>AC7</td><td>Ghi file ngoài <code>/workspace</code>, <code>/tmp</code></td><td>bị chặn</td></tr>
+<tr><td>AC8</td><td>Bridge: cwd ngoài allowlist, symlink thoát</td><td><code>cwd_not_allowed</code></td></tr>
+<tr><td>AC9</td><td>Hai thiết bị, máy đầu rớt mạng</td><td>máy sau giành quyền ≤ 30 s</td></tr>
+<tr><td>AC10</td><td>Restart container giữa phiên</td><td>resume được, dữ kiện còn</td></tr>
+<tr><td>AC11</td><td>Telegram với <code>AGENT_BACKEND=pi</code></td><td>prompt, duyệt quyền, huỷ hoạt động</td></tr>
+<tr><td>AC12</td><td>Rollback</td><td>OpenCode health 200 ≤ 60 s, phiên cũ còn</td></tr></tbody></table></div>
+<h2 id="phụ-lục-c-rủi-ro-còn-lại">Phụ lục C — Rủi ro còn lại<a class="anchor" href="#phụ-lục-c-rủi-ro-còn-lại" aria-label="Liên kết tới mục này">#</a></h2>
+<ul>
+<li><p>Pi không có sandbox; ranh giới thật là container (<code>cap_drop: [ALL]</code>, <code>no-new-privileges</code>, không Docker socket).</p>
+</li>
+<li><p>Extension bên thứ ba thực thi trong tiến trình Pi; chỉ cài package ghim theo commit/tag sau khi review.</p>
+</li>
+<li><p>pi-mobile mới cam kết Pi 0.80; fork phải tự chạy ca nghiệm thu khi nâng Pi.</p>
+</li>
+<li><p>Codemode làm chất lượng gọi tool kém hơn; codegraph khai báo <code>exposure: &quot;direct&quot;</code> trong <code>mcp.json</code>.</p>
+</li>
+<li><p><code>always</code> (cho phép vĩnh viễn) của OpenCode không có tương đương trực tiếp; Task 11 hạ về <code>once</code>.</p>
+</li>
+</ul>
+
+</main>
+</div>
+</body>
+</html>
