@@ -1,0 +1,1393 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>AI Coworker Architecture & Deployment Plan v3.9</title><link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'/%3E"><style>
+:root{--bg:#f4f1ea;--paper:#fffdf8;--ink:#1b2320;--mute:#5d665f;--line:#ddd3c2;--accent:#155e4b;--code:#f0e8da}@media(prefers-color-scheme:dark){:root{--bg:#141816;--paper:#1b201d;--ink:#e7ece8;--mute:#9aa59e;--line:#2f3833;--accent:#6fcfae;--code:#232b27}}*{box-sizing:border-box}html{scroll-behavior:smooth;-webkit-text-size-adjust:100%}body{margin:0;background:var(--bg);color:var(--ink);font:17px/1.65 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans",sans-serif}.layout{display:grid;grid-template-columns:280px minmax(0,1fr);gap:40px;max-width:1280px;margin:0 auto;padding:32px 24px 96px}nav.toc{position:sticky;top:20px;align-self:start;max-height:calc(100vh - 40px);overflow:auto;font-size:14px;line-height:1.45;padding-right:8px}nav.toc .title{font-weight:800;letter-spacing:.06em;text-transform:uppercase;font-size:12px;color:var(--mute);margin:0 0 10px}nav.toc a{display:block;color:var(--ink);text-decoration:none;padding:5px 8px;border-radius:8px}nav.toc a:hover{background:var(--code)}nav.toc a.d3{padding-left:22px;color:var(--mute)}nav.toc.toc-mobile{display:none}main{background:var(--paper);border:1px solid var(--line);border-radius:22px;padding:clamp(20px,4vw,56px);min-width:0}.dl{display:flex;flex-wrap:wrap;gap:10px;margin:0 0 28px}.dl a{display:inline-flex;align-items:center;min-height:44px;padding:10px 16px;border-radius:12px;background:var(--accent);color:#fff;text-decoration:none;font-weight:700}.dl a.alt{background:transparent;color:var(--accent);border:1px solid var(--accent)}h1{font-size:clamp(30px,5vw,46px);line-height:1.08;letter-spacing:-.03em;margin:0 0 18px}h2{font-size:27px;margin:56px 0 14px;padding-top:18px;border-top:1px solid var(--line)}h3{font-size:21px;margin:40px 0 10px}h2,h3{position:relative}h2 .anchor,h3 .anchor{margin-left:.35em;opacity:0;color:var(--mute);text-decoration:none}h2:hover .anchor,h3:hover .anchor{opacity:1}p,li{max-width:78ch}a{color:var(--accent)}blockquote{margin:16px 0;padding:12px 18px;border-left:4px solid var(--accent);background:var(--code);border-radius:0 12px 12px 0}code{font:15px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:var(--code);padding:2px 6px;border-radius:6px;overflow-wrap:anywhere}pre{background:var(--code);padding:16px 18px;border-radius:14px;overflow-x:auto;border:1px solid var(--line)}pre code{padding:0;background:none;font-size:14.5px;overflow-wrap:normal;white-space:pre}ul,ol{padding-left:24px}li{margin:6px 0}li.task{list-style:none;position:relative;margin-left:-4px;padding-left:30px}li.task .box{position:absolute;left:0;top:5px;width:18px;height:18px;border:2px solid var(--accent);border-radius:5px}.table-wrap{overflow-x:auto;margin:18px 0;border:1px solid var(--line);border-radius:14px}table{border-collapse:collapse;width:100%;font-size:15px}th,td{text-align:left;vertical-align:top;padding:10px 12px;border-bottom:1px solid var(--line)}th{background:var(--code);white-space:nowrap}tr:last-child td{border-bottom:0}strong{font-weight:750}hr{border:0;border-top:1px solid var(--line);margin:40px 0}.meta{color:var(--mute);font-size:14px;margin:-6px 0 22px}@media(max-width:960px){.layout{grid-template-columns:1fr;padding:12px 10px 64px;gap:12px}nav.toc.toc-desktop{display:none}nav.toc.toc-mobile{display:block;position:static;align-self:auto;max-height:none;overflow:visible;background:var(--paper);border:1px solid var(--line);border-radius:16px;padding:14px}nav.toc.toc-mobile summary{cursor:pointer;font-weight:750;min-height:40px;display:flex;align-items:center}nav.toc.toc-mobile .title{margin:0}main{border-radius:16px;padding:18px 14px}body{font-size:16px}pre code{font-size:13.5px}th,td{padding:8px 9px;font-size:14px}}
+</style></head><body><div class="layout"><nav class="toc toc-desktop" aria-label="Table of contents"><p class="title">Contents</p><a class="d2" href="#1-architectural-decision">1. Architectural Decision</a>
+<a class="d2" href="#hỏi">HỎI</a>
+<a class="d2" href="#tìm-hiểu">TÌM HIỂU</a>
+<a class="d2" href="#làm-việc">LÀM VIỆC</a>
+<a class="d2" href="#6-1-explicit-selection">6.1 Explicit Selection</a>
+<a class="d2" href="#6-2-active-task-continuation">6.2 Active Task Continuation</a>
+<a class="d2" href="#6-3-side-query-isolation">6.3 Side Query Isolation</a>
+<a class="d2" href="#6-4-deterministic-rules">6.4 Deterministic Rules</a>
+<a class="d2" href="#6-5-ai-classification-only-for-ambiguity">6.5 AI Classification Only for Ambiguity</a>
+<a class="d2" href="#7-1-selected-stack">7.1 Selected Stack</a>
+<a class="d2" href="#7-2-router-output-contract">7.2 Router Output Contract</a>
+<a class="d2" href="#7-3-router-call">7.3 Router Call</a>
+<a class="d2" href="#7-4-transition-validator">7.4 Transition Validator</a>
+<a class="d2" href="#7-5-safe-fallback">7.5 Safe Fallback</a>
+<a class="d2" href="#8-1-small-router-framework-options">8.1 Small Router Framework Options</a>
+<a class="d2" href="#8-2-decision-rule">8.2 Decision Rule</a>
+<a class="d2" href="#8-3-structured-output-options">8.3 Structured Output Options</a>
+<a class="d2" href="#16-1-setup">16.1 Setup</a>
+<a class="d2" href="#16-2-thread-identity">16.2 Thread Identity</a>
+<a class="d2" href="#16-3-state-rule">16.3 State Rule</a>
+<a class="d2" href="#16-4-interrupt">16.4 Interrupt</a>
+<a class="d2" href="#16-5-retention">16.5 Retention</a>
+<a class="d2" href="#router">Router</a>
+<a class="d2" href="#chat">CHAT</a>
+<a class="d2" href="#research">RESEARCH</a>
+<a class="d2" href="#coworker-master">COWORKER Master</a>
+<a class="d2" href="#pi-worker">Pi Worker</a>
+<a class="d2" href="#pi-reviewer">Pi Reviewer</a>
+<a class="d2" href="#router">Router</a>
+<a class="d2" href="#checkpointer">Checkpointer</a>
+<a class="d2" href="#pi">Pi</a>
+<a class="d2" href="#mobile-operator-surface">Mobile Operator Surface</a>
+<a class="d2" href="#router">Router</a>
+<a class="d2" href="#ai-sdk-zod">AI SDK / Zod</a>
+<a class="d2" href="#langgraph-postgressaver">LangGraph / PostgresSaver</a>
+<a class="d2" href="#pi-worktree-quality">Pi / Worktree / Quality</a>
+<a class="d2" href="#m0-router-foundation">M0 — Router Foundation</a>
+<a class="d2" href="#m1-pi-workspace-kit">M1 — Pi Workspace Kit</a>
+<a class="d2" href="#m2-coworker-harness-h1">M2 — Coworker Harness H1</a>
+<a class="d2" href="#m3-postgressaver-production">M3 — PostgresSaver Production</a>
+<a class="d2" href="#m4-requirement-output-context">M4 — Requirement / Output / Context</a>
+<a class="d2" href="#m5-complexity-dag-multi-agent">M5 — Complexity / DAG / Multi-Agent</a>
+<a class="d2" href="#m6-cross-device">M6 — Cross-device</a>
+<a class="d2" href="#m7-execution-learning">M7 — Execution Learning</a>
+<a class="d2" href="#low-9-5-10">LOW — 9.5/10</a>
+<a class="d2" href="#normal-9-2-10">NORMAL — 9.2/10</a>
+<a class="d2" href="#high-8-9-10">HIGH — 8.9/10</a>
+<a class="d3" href="#h1-router-evaluation">H1 Router Evaluation</a>
+<a class="d3" href="#h2-prompt-schema-versioning">H2 Prompt / Schema Versioning</a>
+<a class="d3" href="#h3-provider-failure-policy">H3 Provider Failure Policy</a>
+<a class="d3" href="#h4-upgrade-discipline">H4 Upgrade Discipline</a>
+<a class="d2" href="#xhigh-8-6-10-before-production-calibration-9-5-10-after-corrections">XHIGH — 8.6/10 before production calibration; ~9.5/10 after corrections</a>
+<a class="d3" href="#x1-deterministic-authority">X1 Deterministic Authority</a>
+<a class="d3" href="#x2-cost-containment">X2 Cost Containment</a>
+<a class="d3" href="#x3-unsafe-escalation-prevention">X3 Unsafe Escalation Prevention</a>
+<a class="d3" href="#x4-long-term-decision-record">X4 Long-Term Decision Record</a>
+<a class="d2" href="#xhigh-final-assessment">XHIGH Final Assessment</a></nav><nav class="toc toc-mobile" aria-label="Table of contents"><details><summary class="title">Contents</summary><a class="d2" href="#1-architectural-decision">1. Architectural Decision</a>
+<a class="d2" href="#hỏi">HỎI</a>
+<a class="d2" href="#tìm-hiểu">TÌM HIỂU</a>
+<a class="d2" href="#làm-việc">LÀM VIỆC</a>
+<a class="d2" href="#6-1-explicit-selection">6.1 Explicit Selection</a>
+<a class="d2" href="#6-2-active-task-continuation">6.2 Active Task Continuation</a>
+<a class="d2" href="#6-3-side-query-isolation">6.3 Side Query Isolation</a>
+<a class="d2" href="#6-4-deterministic-rules">6.4 Deterministic Rules</a>
+<a class="d2" href="#6-5-ai-classification-only-for-ambiguity">6.5 AI Classification Only for Ambiguity</a>
+<a class="d2" href="#7-1-selected-stack">7.1 Selected Stack</a>
+<a class="d2" href="#7-2-router-output-contract">7.2 Router Output Contract</a>
+<a class="d2" href="#7-3-router-call">7.3 Router Call</a>
+<a class="d2" href="#7-4-transition-validator">7.4 Transition Validator</a>
+<a class="d2" href="#7-5-safe-fallback">7.5 Safe Fallback</a>
+<a class="d2" href="#8-1-small-router-framework-options">8.1 Small Router Framework Options</a>
+<a class="d2" href="#8-2-decision-rule">8.2 Decision Rule</a>
+<a class="d2" href="#8-3-structured-output-options">8.3 Structured Output Options</a>
+<a class="d2" href="#16-1-setup">16.1 Setup</a>
+<a class="d2" href="#16-2-thread-identity">16.2 Thread Identity</a>
+<a class="d2" href="#16-3-state-rule">16.3 State Rule</a>
+<a class="d2" href="#16-4-interrupt">16.4 Interrupt</a>
+<a class="d2" href="#16-5-retention">16.5 Retention</a>
+<a class="d2" href="#router">Router</a>
+<a class="d2" href="#chat">CHAT</a>
+<a class="d2" href="#research">RESEARCH</a>
+<a class="d2" href="#coworker-master">COWORKER Master</a>
+<a class="d2" href="#pi-worker">Pi Worker</a>
+<a class="d2" href="#pi-reviewer">Pi Reviewer</a>
+<a class="d2" href="#router">Router</a>
+<a class="d2" href="#checkpointer">Checkpointer</a>
+<a class="d2" href="#pi">Pi</a>
+<a class="d2" href="#mobile-operator-surface">Mobile Operator Surface</a>
+<a class="d2" href="#router">Router</a>
+<a class="d2" href="#ai-sdk-zod">AI SDK / Zod</a>
+<a class="d2" href="#langgraph-postgressaver">LangGraph / PostgresSaver</a>
+<a class="d2" href="#pi-worktree-quality">Pi / Worktree / Quality</a>
+<a class="d2" href="#m0-router-foundation">M0 — Router Foundation</a>
+<a class="d2" href="#m1-pi-workspace-kit">M1 — Pi Workspace Kit</a>
+<a class="d2" href="#m2-coworker-harness-h1">M2 — Coworker Harness H1</a>
+<a class="d2" href="#m3-postgressaver-production">M3 — PostgresSaver Production</a>
+<a class="d2" href="#m4-requirement-output-context">M4 — Requirement / Output / Context</a>
+<a class="d2" href="#m5-complexity-dag-multi-agent">M5 — Complexity / DAG / Multi-Agent</a>
+<a class="d2" href="#m6-cross-device">M6 — Cross-device</a>
+<a class="d2" href="#m7-execution-learning">M7 — Execution Learning</a>
+<a class="d2" href="#low-9-5-10">LOW — 9.5/10</a>
+<a class="d2" href="#normal-9-2-10">NORMAL — 9.2/10</a>
+<a class="d2" href="#high-8-9-10">HIGH — 8.9/10</a>
+<a class="d3" href="#h1-router-evaluation">H1 Router Evaluation</a>
+<a class="d3" href="#h2-prompt-schema-versioning">H2 Prompt / Schema Versioning</a>
+<a class="d3" href="#h3-provider-failure-policy">H3 Provider Failure Policy</a>
+<a class="d3" href="#h4-upgrade-discipline">H4 Upgrade Discipline</a>
+<a class="d2" href="#xhigh-8-6-10-before-production-calibration-9-5-10-after-corrections">XHIGH — 8.6/10 before production calibration; ~9.5/10 after corrections</a>
+<a class="d3" href="#x1-deterministic-authority">X1 Deterministic Authority</a>
+<a class="d3" href="#x2-cost-containment">X2 Cost Containment</a>
+<a class="d3" href="#x3-unsafe-escalation-prevention">X3 Unsafe Escalation Prevention</a>
+<a class="d3" href="#x4-long-term-decision-record">X4 Long-Term Decision Record</a>
+<a class="d2" href="#xhigh-final-assessment">XHIGH Final Assessment</a></details></nav><main><div class="dl"><a href="./AI_Coworker_Architecture_Plan_v3.9.md" download>Download Markdown</a><a class="alt" href="./AI_Coworker_Architecture_Plan_v3.9.md">Open Markdown</a><a class="alt" href="../">All previews</a></div><p class="meta">Version 3.9 · Deterministic router · AI SDK + Zod · Pi-native execution · LangGraph control plane · PostgresSaver checkpoints</p><h1 id="ai-coworker-architecture-amp-deployment-plan-v3-9">AI Coworker Architecture &amp; Deployment Plan v3.9</h1>
+<h1 id="version-3-9-deterministic-router-ai-sdk-zod-classification-plane">Version 3.9 — Deterministic Router + AI SDK / Zod Classification Plane</h1>
+<h2 id="1-architectural-decision">1. Architectural Decision<a class="anchor" href="#1-architectural-decision" aria-label="Link to this section">#</a></h2>
+<p>v3.9 preserves the Pi-native architecture from v3.8.</p>
+<p>New decision:</p>
+<pre><code class="language-text">Execution classification
+→ deterministic code first
+→ AI SDK + Zod only for ambiguous messages
+→ transition validation in code
+→ LangGraph only after COWORKER is selected
+</code></pre>
+<p>Do NOT use LangGraph to classify every message.</p>
+<p>Do NOT use a multi-agent workflow to choose between:</p>
+<pre><code class="language-text">HỎI
+TÌM HIỂU
+LÀM VIỆC
+</code></pre>
+<p>The router is a small control component.</p>
+<pre><code class="language-text">small state
+small schema
+short timeout
+low-cost model profile
+strict output
+deterministic fallback
+</code></pre>
+<hr>
+<h1 id="2-v3-9-final-architecture">2. v3.9 Final Architecture</h1>
+<pre><code class="language-text">                                  WINDOWS / MOBILE
+                                        │
+                                        ▼
+                                    OPEN WEBUI
+                                        │
+        Native Chat / History / Notes / Memory / Knowledge / Files
+                                        │
+                                        ▼
+                          COWORKER GATEWAY API
+                                        │
+                                        ▼
+                           EXECUTION CLASSIFICATION PLANE
+                                        │
+                 ┌──────────────────────┼──────────────────────┐
+                 ▼                      ▼                      ▼
+          Explicit Selector       Active Task Rule       Deterministic Rules
+                 │                      │                      │
+                 └──────────────────────┴───────────┬──────────┘
+                                                      ▼
+                                               ambiguity?
+                                               ┌────┴────┐
+                                              NO         YES
+                                              │           │
+                                              ▼           ▼
+                                      Authoritative   AI SDK + Zod
+                                      Rule Result     Fast Router Model
+                                              │           │
+                                              └─────┬─────┘
+                                                    ▼
+                                         Transition Validator
+                                                    │
+                         ┌──────────────────────────┼──────────────────────────┐
+                         ▼                          ▼                          ▼
+                       HỎI                      TÌM HIỂU                    LÀM VIỆC
+                       CHAT                     RESEARCH                    COWORKER
+                         │                          │                          │
+                         ▼                          ▼                          ▼
+                   Pi Direct /                Native Research /        COWORKER HARNESS
+                   Native Chat                 Pi Research Profile              │
+                                                                              ▼
+                                                             LANGGRAPH + POSTGRESSAVER
+                                                                              │
+                       ┌──────────────────────────────────────────────────────┼──────────────────────────────────────────────────────┐
+                       ▼                                                      ▼                                                      ▼
+             Requirement / Output Contract                            Context / Evidence                                 Task / DAG / Quality
+                       │                                                      │                                                      │
+                       └──────────────────────────────────────────────────────┴──────────────────────────────┬───────────────────────┘
+                                                                                                               ▼
+                                                                                                      Pi RPC Executor Adapter
+                                                                                                               │
+                                                                 ┌─────────────────────────────────────────────┼─────────────────────────────────────────────┐
+                                                                 ▼                                             ▼                                             ▼
+                                                          Pi Worker                                     Pi Researcher                                  Pi Reviewer
+                                                          worktree                                      logical workspace                              read-only
+                                                                 │                                             │                                             │
+                                                                 └─────────────────────────────────────────────┴─────────────────────────────────────────────┘
+                                                                                                               ▼
+                                                                                                             FINAL
+                                                                                                               │
+                                                                                                           OPEN WEBUI
+</code></pre>
+<hr>
+<h1 id="3-user-facing-work-types">3. User-Facing Work Types</h1>
+<p>The user sees:</p>
+<pre><code class="language-text">HỎI
+TÌM HIỂU
+LÀM VIỆC
+</code></pre>
+<p>Backend mapping:</p>
+<pre><code class="language-text">HỎI       → CHAT
+TÌM HIỂU  → RESEARCH
+LÀM VIỆC  → COWORKER
+</code></pre>
+<h2 id="hỏi">HỎI<a class="anchor" href="#hỏi" aria-label="Link to this section">#</a></h2>
+<pre><code class="language-text">Goal:
+Answer directly.
+
+Typical execution:
+Open WebUI / Pi Direct
+→ CLIProxy
+→ Answer
+
+No task lifecycle.
+No LangGraph.
+No PostgresSaver.
+</code></pre>
+<h2 id="tìm-hiểu">TÌM HIỂU<a class="anchor" href="#tìm-hiểu" aria-label="Link to this section">#</a></h2>
+<pre><code class="language-text">Goal:
+Find current or verified information.
+
+Typical execution:
+Native Search / Fetch
+or Pi Research Profile
+→ Evidence-aware answer
+
+No full Coworker lifecycle by default.
+</code></pre>
+<h2 id="làm-việc">LÀM VIỆC<a class="anchor" href="#làm-việc" aria-label="Link to this section">#</a></h2>
+<pre><code class="language-text">Goal:
+Complete a multi-step task.
+
+Typical execution:
+Coworker Harness
+→ LangGraph
+→ PostgresSaver
+→ Requirement / Context / Task / Quality lifecycle
+→ Final
+</code></pre>
+<hr>
+<h1 id="4-router-responsibility-boundary">4. Router Responsibility Boundary</h1>
+<p>Router answers:</p>
+<pre><code class="language-text">HOW should this message execute?
+</code></pre>
+<p>Router does NOT answer:</p>
+<pre><code class="language-text">What exact requirements does the user have?
+What is the final task complexity?
+What worktree should be created?
+What tool should be called?
+What permission should be granted?
+</code></pre>
+<p>Responsibility table:</p>
+<div class="table-wrap"><table><thead><tr><th>Component</th><th>Authoritative Question</th><th>Non-Responsibility</th></tr></thead><tbody><tr><td>Execution Router</td><td>HỎI / TÌM HIỂU / LÀM VIỆC?</td><td>mutate requirements</td></tr>
+<tr><td>Requirement Controller</td><td>What does user want?</td><td>select model/tool policy</td></tr>
+<tr><td>Complexity Controller</td><td>How much Coworker orchestration?</td><td>override explicit work type silently</td></tr>
+<tr><td>LangGraph</td><td>Which workflow node runs next?</td><td>own Pi transcript</td></tr>
+<tr><td>Pi</td><td>What does one agent execute?</td><td>push / merge / create worktree</td></tr>
+<tr><td>PostgresSaver</td><td>Where did graph pause?</td><td>semantic truth / evidence truth</td></tr>
+<tr><td>Context Ledger</td><td>What is trusted context?</td><td>workflow transition</td></tr>
+<tr><td>Evidence Ledger</td><td>What was verified for this revision?</td><td>raw agent memory</td></tr></tbody></table></div>
+<hr>
+<h1 id="5-router-inputs">5. Router Inputs</h1>
+<p>Router reads only light control context:</p>
+<pre><code class="language-yaml">router_input:
+  message_id: MSG-501
+  current_message: &quot;phần security thì sao?&quot;
+
+  explicit_mode: AUTO | HỎI | TÌM HIỂU | LÀM VIỆC | null
+
+  active_task:
+    task_id: TASK-100 | null
+    status: ACTIVE | WAITING_CLARIFICATION | null
+    display_mode: LÀM VIỆC | null
+    topic_fingerprint: &quot;...&quot; | null
+
+  conversation_state:
+    last_mode: CHAT | RESEARCH | COWORKER | null
+    last_message_summary: &quot;...&quot; | null
+
+  current_project:
+    project_id: PROJECT-7 | null
+
+  recent_message_summary:
+    - &quot;...&quot;
+</code></pre>
+<p>Router must NOT load:</p>
+<pre><code class="language-text">full Open WebUI chat
+Pi session transcript
+raw Context Ledger records
+all project notes
+all research sources
+all tool traces
+full requirement contracts
+</code></pre>
+<p>before mode selection.</p>
+<hr>
+<h1 id="6-classification-decision-policy">6. Classification Decision Policy</h1>
+<p>Priority:</p>
+<pre><code class="language-text">USER_EXPLICIT
+&gt;
+ACTIVE_TASK_CONTINUATION
+&gt;
+SIDE_QUERY_ISOLATION
+&gt;
+DETERMINISTIC_RULE
+&gt;
+AI_SDK_CLASSIFIER
+&gt;
+SAFE_FALLBACK
+</code></pre>
+<h2 id="6-1-explicit-selection">6.1 Explicit Selection<a class="anchor" href="#6-1-explicit-selection" aria-label="Link to this section">#</a></h2>
+<pre><code class="language-text">User selects HỎI
+→ HỎI
+
+User selects TÌM HIỂU
+→ TÌM HIỂU
+
+User selects LÀM VIỆC
+→ LÀM VIỆC
+</code></pre>
+<p>No model may silently override explicit selection.</p>
+<h2 id="6-2-active-task-continuation">6.2 Active Task Continuation<a class="anchor" href="#6-2-active-task-continuation" aria-label="Link to this section">#</a></h2>
+<pre><code class="language-text">Active task: TASK-100 AI Coworker
+
+User:
+&quot;phần security thì sao?&quot;
+
+Result:
+display_mode = LÀM VIỆC
+execution_mode = COWORKER
+mode_source = ACTIVE_TASK_CONTINUATION
+task_id = TASK-100
+</code></pre>
+<h2 id="6-3-side-query-isolation">6.3 Side Query Isolation<a class="anchor" href="#6-3-side-query-isolation" aria-label="Link to this section">#</a></h2>
+<pre><code class="language-text">Active task: TASK-100
+
+User:
+&quot;1 USD bằng bao nhiêu PEN?&quot;
+
+Result:
+display_mode = HỎI
+execution_mode = CHAT
+side_query = true
+parent_task_id = TASK-100
+</code></pre>
+<p>Side query must not enter Parent Context Ledger unless explicitly promoted.</p>
+<h2 id="6-4-deterministic-rules">6.4 Deterministic Rules<a class="anchor" href="#6-4-deterministic-rules" aria-label="Link to this section">#</a></h2>
+<p>Examples:</p>
+<pre><code class="language-text">&quot;tạo plan&quot;
+&quot;triển khai&quot;
+&quot;sửa code&quot;
+&quot;review phương án&quot;
+&quot;thiết kế architecture&quot;
+→ LÀM VIỆC
+
+&quot;tìm giá hiện tại&quot;
+&quot;tìm hiểu phiên bản mới&quot;
+&quot;so sánh hiện nay&quot;
+→ TÌM HIỂU
+
+&quot;SSE là gì?&quot;
+&quot;dịch đoạn này&quot;
+&quot;Kafka partition là gì?&quot;
+→ HỎI
+</code></pre>
+<p>Deterministic match must record:</p>
+<pre><code class="language-text">rule_id
+rule_version
+rule_result
+</code></pre>
+<h2 id="6-5-ai-classification-only-for-ambiguity">6.5 AI Classification Only for Ambiguity<a class="anchor" href="#6-5-ai-classification-only-for-ambiguity" aria-label="Link to this section">#</a></h2>
+<p>Examples:</p>
+<pre><code class="language-text">&quot;xem giúp tôi cái này&quot;
+&quot;bạn xử lý phần này được không&quot;
+&quot;nên làm gì tiếp&quot;
+</code></pre>
+<p>These may require context-sensitive classification.</p>
+<p>Only then call:</p>
+<pre><code class="language-text">AI SDK + Zod
+</code></pre>
+<hr>
+<h1 id="7-ai-sdk-zod-router">7. AI SDK + Zod Router</h1>
+<h2 id="7-1-selected-stack">7.1 Selected Stack<a class="anchor" href="#7-1-selected-stack" aria-label="Link to this section">#</a></h2>
+<pre><code class="language-text">AI SDK
++
+@ai-sdk/openai-compatible
++
+Zod
++
+CLIProxy
+</code></pre>
+<p>Why:</p>
+<pre><code class="language-text">existing CLIProxy is OpenAI-compatible
+TypeScript-native
+structured output schema
+provider abstraction
+usage telemetry
+small router surface
+no separate DSL or code generator
+</code></pre>
+<h2 id="7-2-router-output-contract">7.2 Router Output Contract<a class="anchor" href="#7-2-router-output-contract" aria-label="Link to this section">#</a></h2>
+<pre><code class="language-typescript">const RouterResultSchema = z.object({
+  displayMode: z.enum([&quot;HỎI&quot;, &quot;TÌM HIỂU&quot;, &quot;LÀM VIỆC&quot;]),
+
+  executionMode: z.enum([&quot;CHAT&quot;, &quot;RESEARCH&quot;, &quot;COWORKER&quot;]),
+
+  confidence: z.enum([&quot;HIGH&quot;, &quot;MEDIUM&quot;, &quot;LOW&quot;]),
+
+  complexityHint: z.enum([
+    &quot;SIMPLE&quot;,
+    &quot;MEDIUM&quot;,
+    &quot;COMPLEX&quot;,
+    &quot;XHIGH&quot;,
+  ]),
+
+  continuation: z.boolean(),
+  sideQuery: z.boolean(),
+  needsEscalationProposal: z.boolean(),
+
+  reasons: z.array(z.enum([
+    &quot;DIRECT_ANSWER&quot;,
+    &quot;CURRENT_OR_VERIFIED_INFORMATION&quot;,
+    &quot;EXTERNAL_RESEARCH&quot;,
+    &quot;ACTIVE_TASK_CONTINUATION&quot;,
+    &quot;PERSISTENT_TASK_STATE&quot;,
+    &quot;MULTIPLE_DELIVERABLES&quot;,
+    &quot;ARCHITECTURE_OR_DECISION&quot;,
+    &quot;IMPLEMENTATION_OR_EXECUTION&quot;,
+    &quot;QUALITY_REVIEW_REQUIRED&quot;,
+    &quot;SIDE_QUERY&quot;,
+    &quot;USER_EXPLICIT&quot;,
+  ])).min(1).max(5),
+});
+</code></pre>
+<p>The classifier may emit:</p>
+<pre><code class="language-text">complexityHint
+</code></pre>
+<p>The classifier may NOT emit:</p>
+<pre><code class="language-text">authoritative complexity level
+task state transition
+tool selection
+permission decision
+worktree path
+SQL query
+free-form execution mode
+</code></pre>
+<h2 id="7-3-router-call">7.3 Router Call<a class="anchor" href="#7-3-router-call" aria-label="Link to this section">#</a></h2>
+<pre><code class="language-typescript">const result = await generateObject({
+  model: cliproxy.chatModel(&quot;FAST_ROUTER_MODEL&quot;),
+  schema: RouterResultSchema,
+  temperature: 0,
+  prompt: routerPrompt(lightRouterInput),
+});
+</code></pre>
+<p>Rules:</p>
+<pre><code class="language-text">timeout = 5 seconds
+max retry = 1
+temperature = 0
+small model profile
+no tools
+no browsing
+no MCP
+</code></pre>
+<h2 id="7-4-transition-validator">7.4 Transition Validator<a class="anchor" href="#7-4-transition-validator" aria-label="Link to this section">#</a></h2>
+<p>AI output is advisory until code validates it.</p>
+<pre><code class="language-text">AI SDK + Zod Result
+        ↓
+Transition Validator
+        ├── explicit selection respected?
+        ├── active task continuation respected?
+        ├── side query isolated?
+        ├── valid display/execution mapping?
+        ├── research escalation only proposed?
+        └── complexity remains hint only?
+        ↓
+Authoritative Route Result
+</code></pre>
+<p>Invalid model result:</p>
+<pre><code class="language-text">INVALID_ROUTER_OUTPUT
+→ SAFE_FALLBACK
+</code></pre>
+<h2 id="7-5-safe-fallback">7.5 Safe Fallback<a class="anchor" href="#7-5-safe-fallback" aria-label="Link to this section">#</a></h2>
+<p>If classifier timeout, provider error, schema error or validation error:</p>
+<pre><code class="language-text">active task continuation
+→ COWORKER
+
+explicit selection
+→ explicit selection
+
+high-risk deterministic rule
+→ COWORKER
+
+otherwise
+→ CHAT
+  confidence = LOW
+  mode_source = SAFE_FALLBACK
+</code></pre>
+<p>Safe fallback does NOT silently initiate expensive Coworker workflow.</p>
+<hr>
+<h1 id="8-component-selection-record">8. Component Selection Record</h1>
+<h2 id="8-1-small-router-framework-options">8.1 Small Router Framework Options<a class="anchor" href="#8-1-small-router-framework-options" aria-label="Link to this section">#</a></h2>
+<div class="table-wrap"><table><thead><tr><th>Option</th><th>Strength</th><th>Weakness</th><th>Fit for v3.9</th><th>Decision</th></tr></thead><tbody><tr><td>Deterministic TypeScript only</td><td>zero model cost, lowest latency, explainable</td><td>cannot resolve semantic ambiguity</td><td>mandatory first layer</td><td>USE</td></tr>
+<tr><td>AI SDK + Zod</td><td>existing CLIProxy compatibility, TS-native, structured result, usage</td><td>adds AI SDK package/runtime</td><td>best ambiguity layer</td><td>SELECT</td></tr>
+<tr><td>TypeChat</td><td>lightweight, MIT, schema repair</td><td>npm release old, separate model abstraction, less aligned with existing CLIProxy adapter</td><td>acceptable fallback candidate</td><td>NOT SELECTED NOW</td></tr>
+<tr><td>BAML</td><td>typed prompt DSL, retry/fallback, function tests</td><td>separate DSL/generator; v0/v1 documentation transition; too much for three-mode router</td><td>possible future prompt platform</td><td>DEFER</td></tr>
+<tr><td>LangGraph</td><td>durable workflows, interrupt, retry</td><td>excessive for per-message classification</td><td>COWORKER only</td><td>REJECT FOR ROUTER</td></tr>
+<tr><td>Embedding / classifier model</td><td>low marginal cost at high scale</td><td>needs labeled dataset, drift maintenance, weak context understanding</td><td>later if volume justifies</td><td>DEFER</td></tr></tbody></table></div>
+<h2 id="8-2-decision-rule">8.2 Decision Rule<a class="anchor" href="#8-2-decision-rule" aria-label="Link to this section">#</a></h2>
+<pre><code class="language-text">M0 / M1
+→ Deterministic TypeScript + AI SDK + Zod
+
+If router prompt/schema becomes a large managed prompt library
+→ evaluate BAML
+
+If ≥ 10,000 labeled routes and latency/cost dominates
+→ evaluate trained classifier / embedding layer
+
+Never use LangGraph solely to route a message.
+</code></pre>
+<h2 id="8-3-structured-output-options">8.3 Structured Output Options<a class="anchor" href="#8-3-structured-output-options" aria-label="Link to this section">#</a></h2>
+<div class="table-wrap"><table><thead><tr><th>Option</th><th>Validation</th><th>Retry / Repair</th><th>Provider Coupling</th><th>Decision</th></tr></thead><tbody><tr><td>AI SDK + Zod</td><td>Zod schema</td><td>application-owned</td><td>OpenAI-compatible adapter</td><td>SELECT for router</td></tr>
+<tr><td>TypeChat</td><td>TypeScript schema</td><td>built-in repair interaction</td><td>model adapter required</td><td>fallback candidate</td></tr>
+<tr><td>BAML</td><td>BAML types</td><td>declarative retry/fallback</td><td>broad provider support</td><td>defer</td></tr>
+<tr><td>raw JSON.parse</td><td>none</td><td>manual</td><td>none</td><td>REJECT</td></tr>
+<tr><td>free-form text</td><td>none</td><td>prompt-only</td><td>none</td><td>REJECT</td></tr></tbody></table></div>
+<hr>
+<h1 id="9-router-component-diagram">9. Router Component Diagram</h1>
+<pre><code class="language-text">┌───────────────────────────────────────────────────────────────────────────┐
+│                            COWORKER GATEWAY API                            │
+│                                                                           │
+│  POST /route                                                              │
+│  { message_id, current_message, explicit_mode, active_task, ... }        │
+└────────────────────────────────────┬──────────────────────────────────────┘
+                                     │
+                                     ▼
+┌───────────────────────────────────────────────────────────────────────────┐
+│                         ROUTER INPUT NORMALIZER                            │
+│                                                                           │
+│  - trim / size limit                                                       │
+│  - active task metadata only                                               │
+│  - recent message summary only                                             │
+│  - no raw transcript retrieval                                             │
+└────────────────────────────────────┬──────────────────────────────────────┘
+                                     │
+                                     ▼
+┌───────────────────────────────────────────────────────────────────────────┐
+│                         DETERMINISTIC RULE ENGINE                          │
+│                                                                           │
+│  USER_EXPLICIT                                                            │
+│  ACTIVE_TASK_CONTINUATION                                                  │
+│  SIDE_QUERY_ISOLATION                                                      │
+│  HIGH_RISK_WORK                                                            │
+│  OBVIOUS_WORK / RESEARCH / CHAT                                            │
+└───────────────┬───────────────────────────────────────────┬───────────────┘
+                │ decisive                                  │ ambiguous
+                ▼                                            ▼
+┌───────────────────────────────────────┐       ┌────────────────────────────┐
+│ AUTHORITATIVE RULE RESULT              │       │ AI SDK CLASSIFIER          │
+│                                       │       │                            │
+│ source = DETERMINISTIC_RULE           │       │ FAST_ROUTER_MODEL          │
+│ confidence = HIGH                     │       │ temperature = 0            │
+└───────────────────┬───────────────────┘       │ Zod RouterResultSchema      │
+                    │                           │ timeout = 5s               │
+                    │                           └──────────────┬─────────────┘
+                    │                                          │
+                    └─────────────────────┬────────────────────┘
+                                          ▼
+┌───────────────────────────────────────────────────────────────────────────┐
+│                           TRANSITION VALIDATOR                             │
+│                                                                           │
+│  - displayMode ↔ executionMode mapping                                   │
+│  - explicit selection precedence                                          │
+│  - side query isolation                                                   │
+│  - COWORKER continuation lineage                                          │
+│  - complexityHint is advisory                                             │
+└────────────────────────────────────┬──────────────────────────────────────┘
+                                     │
+                                     ▼
+┌───────────────────────────────────────────────────────────────────────────┐
+│                            ROUTE RECORD WRITER                            │
+│                                                                           │
+│  execution_run                                                            │
+│  router_input_snapshot (redacted/light)                                   │
+│  router_output                                                            │
+│  rules_triggered                                                          │
+│  model/profile/version                                                    │
+│  latency / usage / fallback                                               │
+└────────────────────────────────────┬──────────────────────────────────────┘
+                                     │
+                 ┌───────────────────┼────────────────────┐
+                 ▼                   ▼                    ▼
+              CHAT                RESEARCH             COWORKER
+             direct              research             LangGraph
+</code></pre>
+<hr>
+<h1 id="10-router-output-contract">10. Router Output Contract</h1>
+<pre><code class="language-json">{
+  &quot;run_id&quot;: &quot;RUN-501&quot;,
+  &quot;message_id&quot;: &quot;MSG-501&quot;,
+  &quot;task_id&quot;: null,
+
+  &quot;display_mode&quot;: &quot;TÌM HIỂU&quot;,
+  &quot;execution_mode&quot;: &quot;RESEARCH&quot;,
+
+  &quot;mode_source&quot;: &quot;AI_SDK_CLASSIFIER&quot;,
+  &quot;confidence&quot;: &quot;MEDIUM&quot;,
+  &quot;complexity_hint&quot;: &quot;SIMPLE&quot;,
+
+  &quot;continuation&quot;: false,
+  &quot;side_query&quot;: false,
+  &quot;needs_escalation_proposal&quot;: false,
+
+  &quot;reasons&quot;: [
+    &quot;CURRENT_OR_VERIFIED_INFORMATION&quot;,
+    &quot;EXTERNAL_RESEARCH&quot;
+  ],
+
+  &quot;rules_triggered&quot;: [],
+  &quot;router_version&quot;: &quot;ROUTER-v1&quot;,
+  &quot;schema_version&quot;: &quot;ROUTE-SCHEMA-v1&quot;,
+  &quot;model_profile&quot;: &quot;FAST_ROUTER_MODEL&quot;,
+  &quot;latency_ms&quot;: 412,
+  &quot;created_at&quot;: &quot;...&quot;
+}
+</code></pre>
+<p><code>complexity_hint</code> remains advisory.</p>
+<pre><code class="language-text">Router = hint
+Complexity Controller = authority
+</code></pre>
+<hr>
+<h1 id="11-route-transition-matrix">11. Route Transition Matrix</h1>
+<div class="table-wrap"><table><thead><tr><th>From</th><th>To</th><th>Allowed</th><th>Authority</th><th>Rule</th></tr></thead><tbody><tr><td>CHAT</td><td>RESEARCH</td><td>yes</td><td>router / user</td><td>current verification emerged</td></tr>
+<tr><td>RESEARCH</td><td>COWORKER</td><td>yes</td><td>user approval or non-explicit escalation</td><td>work-shaped deliverables emerged</td></tr>
+<tr><td>COWORKER</td><td>CHAT side query</td><td>yes</td><td>deterministic isolation</td><td>unrelated short question</td></tr>
+<tr><td>CHAT side query</td><td>COWORKER</td><td>yes</td><td>active task continuation</td><td>answer complete, return to parent</td></tr>
+<tr><td>COWORKER</td><td>CHAT</td><td>no direct downgrade</td><td>user/task closure</td><td>must preserve task lineage</td></tr>
+<tr><td>any</td><td>explicit user mode</td><td>yes</td><td>user</td><td>explicit selection wins</td></tr></tbody></table></div>
+<p>Every transition persists:</p>
+<pre><code class="language-text">old_mode
+new_mode
+source
+reason
+user_override
+task_id
+parent_run_id
+timestamp
+</code></pre>
+<hr>
+<h1 id="12-complexity-controller">12. Complexity Controller</h1>
+<p>Router returns only a hint.</p>
+<p>Complexity Controller runs after Requirement Contract and Output Contract.</p>
+<pre><code class="language-text">Requirement Contract
+      +
+Output Contract
+      +
+Deterministic dimensions
+      +
+Semantic assessment
+      +
+Hard risk overrides
+      ↓
+Authoritative Processing Level
+</code></pre>
+<p>User-facing:</p>
+<pre><code class="language-text">NHẸ
+VỪA
+NẶNG
+RẤT NẶNG
+</code></pre>
+<p>Backend:</p>
+<pre><code class="language-text">SIMPLE
+MEDIUM
+COMPLEX
+XHIGH
+</code></pre>
+<hr>
+<h1 id="13-pi-native-execution-harness">13. Pi-Native Execution Harness</h1>
+<p>Pi remains the only agent execution harness.</p>
+<pre><code class="language-text">Pi
+→ agent loop
+→ MCP client
+→ tools
+→ session JSONL
+→ local compaction
+→ extension hooks
+→ RPC transport
+</code></pre>
+<p>Pi does NOT own:</p>
+<pre><code class="language-text">task state transitions
+worktree creation
+push
+merge
+evidence truth
+workflow checkpoint
+</code></pre>
+<p>Pi profiles:</p>
+<pre><code class="language-text">FAST_ROUTER
+REQUIREMENT_ANALYST
+RESEARCHER
+CODE_WORKER
+STANDARD_REVIEWER
+INDEPENDENT_REVIEWER
+ADVERSARIAL_REVIEWER
+SYNTHESIS_AGENT
+</code></pre>
+<hr>
+<h1 id="14-langgraph-postgressaver-plane">14. LangGraph + PostgresSaver Plane</h1>
+<p>LangGraph activates only for:</p>
+<pre><code class="language-text">LÀM VIỆC
+</code></pre>
+<p>LangGraph owns:</p>
+<pre><code class="language-text">current node
+pending branches
+retry
+interrupt
+fan-out / fan-in
+resume position
+workflow transition legality
+</code></pre>
+<p>PostgresSaver owns:</p>
+<pre><code class="language-text">durable graph checkpoint
+</code></pre>
+<p>PostgresSaver does NOT own:</p>
+<pre><code class="language-text">Pi transcript
+semantic context
+verified evidence
+Open WebUI chat history
+</code></pre>
+<pre><code class="language-text">PostgresSaver
+= where did workflow pause?
+
+Context Ledger
+= what does system know and trust?
+
+Evidence Ledger
+= what did system verify for this revision?
+</code></pre>
+<hr>
+<h1 id="15-persistence-component-selection-record">15. Persistence Component Selection Record</h1>
+<div class="table-wrap"><table><thead><tr><th>Component</th><th>Scope</th><th>Durable Across Restart</th><th>Use in v3.9</th><th>Do Not Use For</th></tr></thead><tbody><tr><td>Pi session JSONL</td><td>one Pi session</td><td>yes</td><td>transcript / local compaction / Pi resume</td><td>workflow authority</td></tr>
+<tr><td>PostgresSaver</td><td>one LangGraph thread</td><td>yes</td><td>workflow checkpoints / interrupts / time travel</td><td>semantic context</td></tr>
+<tr><td>PostgresStore</td><td>cross-thread app data</td><td>yes</td><td>future long-term strategy/preference store</td><td>checkpoint state</td></tr>
+<tr><td>Context Ledger</td><td>task/project semantic state</td><td>yes</td><td>requirement, decisions, evidence context</td><td>graph node position</td></tr>
+<tr><td>Evidence Ledger</td><td>verified run/revision facts</td><td>yes</td><td>tests, gate verdicts, artifacts</td><td>raw transcript</td></tr>
+<tr><td>Redis queue</td><td>job transport</td><td>depends</td><td>later concurrency only</td><td>source of truth</td></tr>
+<tr><td>MemorySaver</td><td>process memory</td><td>no</td><td>unit test / local spike only</td><td>production</td></tr>
+<tr><td>SQLiteSaver</td><td>local file</td><td>yes</td><td>local developer environment</td><td>multi-instance production</td></tr></tbody></table></div>
+<p>Decision:</p>
+<pre><code class="language-text">Production workflow checkpoint
+→ PostgresSaver
+
+Development / unit test
+→ MemorySaver
+
+Long-term cross-thread strategy memory
+→ PostgresStore or dedicated strategy tables
+</code></pre>
+<hr>
+<h1 id="16-postgressaver-detailed-rules">16. PostgresSaver Detailed Rules</h1>
+<h2 id="16-1-setup">16.1 Setup<a class="anchor" href="#16-1-setup" aria-label="Link to this section">#</a></h2>
+<pre><code class="language-typescript">const checkpointer = PostgresSaver.fromConnString(
+  process.env.LANGGRAPH_DATABASE_URL,
+  { schema: &quot;coworker&quot; }
+);
+
+await checkpointer.setup();
+</code></pre>
+<p><code>setup()</code> runs only in controlled migration/deploy.</p>
+<p>Never from Pi worker.</p>
+<h2 id="16-2-thread-identity">16.2 Thread Identity<a class="anchor" href="#16-2-thread-identity" aria-label="Link to this section">#</a></h2>
+<pre><code class="language-text">thread_id = execution_run_id
+</code></pre>
+<p>Rules:</p>
+<pre><code class="language-text">immutable
+UUID / generated ID
+&lt; 255 characters
+not user text
+not workspace path
+not credential
+</code></pre>
+<h2 id="16-3-state-rule">16.3 State Rule<a class="anchor" href="#16-3-state-rule" aria-label="Link to this section">#</a></h2>
+<p>Checkpoint state stores only reference-sized data:</p>
+<pre><code class="language-typescript">CoworkerState = {
+  execution_run_id,
+  task_id,
+  requirement_version,
+  output_contract_version,
+  task_dag_version,
+  complexity_level,
+  worktree_ids,
+  pi_run_ids,
+  evidence_map_version,
+  pending_interrupt,
+  status
+}
+</code></pre>
+<p>Never store:</p>
+<pre><code class="language-text">full prompt
+full Pi messages
+raw tool output
+research page content
+image bytes
+credentials
+</code></pre>
+<h2 id="16-4-interrupt">16.4 Interrupt<a class="anchor" href="#16-4-interrupt" aria-label="Link to this section">#</a></h2>
+<pre><code class="language-text">LangGraph node
+  ↓
+interrupt(PUSH_APPROVAL)
+  ↓
+PostgresSaver checkpoint
+  ↓
+Open WebUI / mobile answer
+  ↓
+Command({ resume: value })
+  ↓
+same thread_id
+  ↓
+resume
+</code></pre>
+<h2 id="16-5-retention">16.5 Retention<a class="anchor" href="#16-5-retention" aria-label="Link to this section">#</a></h2>
+<pre><code class="language-text">RUNNING / WAITING_APPROVAL / BLOCKED
+→ retain
+
+PASSED / DELIVERED
+→ hot checkpoint 30 days
+
+FAILED / CANCELLED / SUPERSEDED
+→ hot checkpoint 14 days
+
+development / test
+→ 24 hours
+</code></pre>
+<p>Retention job must:</p>
+<pre><code class="language-text">skip active thread
+archive audit artifact if required
+delete complete thread through supported saver API
+record audit event
+</code></pre>
+<hr>
+<h1 id="17-evidence-ledger">17. Evidence Ledger</h1>
+<pre><code class="language-text">execution_run
+route_record
+requirement_contract
+output_contract
+task_event
+check_run
+gate_verdict
+pi_run
+tool_outcome
+artifact
+final_result
+</code></pre>
+<p>Gate validity:</p>
+<pre><code class="language-text">same revision
++
+NORMAL PASS
++
+HIGH PASS
++
+XHIGH PASS
++
+explicit user approval
+=
+PUSH ALLOWED
+</code></pre>
+<p>Any source revision change:</p>
+<pre><code class="language-text">old gate verdicts
+→ STALE
+</code></pre>
+<hr>
+<h1 id="18-workspace-pi-codegraph-flow">18. Workspace / Pi / CodeGraph Flow</h1>
+<pre><code class="language-text">LÀM VIỆC task includes source write
+  ↓
+Coworker Harness
+  ↓
+WorktreeManager.create()
+  ↓
+task/&lt;task-id&gt;/&lt;subtask-id&gt;
+  ↓
+codegraph init &lt;worktree&gt; --yes
+  ↓
+codegraph explore
+  ↓
+Pi CODE_WORKER RPC
+  ↓
+source edit
+  ↓
+test / build / browser verification
+  ↓
+codegraph sync &lt;worktree&gt;
+  ↓
+independent Pi reviewers
+  ↓
+LangGraph approval interrupt
+  ↓
+Harness push / PR
+</code></pre>
+<p>Rule:</p>
+<pre><code class="language-text">BASE CHECKOUT INDEX
+≠
+WORKTREE INDEX
+</code></pre>
+<p>Every source-writing worktree needs independent CodeGraph lifecycle.</p>
+<hr>
+<h1 id="19-context-system">19. Context System</h1>
+<p>Context Ledger remains semantic authority.</p>
+<pre><code class="language-text">Event Stream
+   ↓
+Observer
+   ↓
+Context Ledger
+   ↓
+Reflector
+   ↓
+Dropper
+   ↓
+Deterministic Compiler
+   ↓
+Context Validator
+   ↓
+Context Package
+</code></pre>
+<p>Router context remains light.</p>
+<p>Pi context remains local to Pi session.</p>
+<p>LangGraph state remains reference-sized.</p>
+<pre><code class="language-text">Router context
+≠
+Pi session context
+≠
+LangGraph checkpoint
+≠
+Context Ledger package
+</code></pre>
+<hr>
+<h1 id="20-tool-architecture">20. Tool Architecture</h1>
+<h2 id="router">Router<a class="anchor" href="#router" aria-label="Link to this section">#</a></h2>
+<pre><code class="language-text">no tools
+no MCP
+no browser
+no search
+</code></pre>
+<h2 id="chat">CHAT<a class="anchor" href="#chat" aria-label="Link to this section">#</a></h2>
+<pre><code class="language-text">memory when relevant
+optional safe direct tools
+</code></pre>
+<h2 id="research">RESEARCH<a class="anchor" href="#research" aria-label="Link to this section">#</a></h2>
+<pre><code class="language-text">search_web
+fetch_url
+knowledge
+video search
+image search
+</code></pre>
+<h2 id="coworker-master">COWORKER Master<a class="anchor" href="#coworker-master" aria-label="Link to this section">#</a></h2>
+<pre><code class="language-text">task APIs
+artifact APIs
+context APIs
+spawn subtask
+get subtask result
+</code></pre>
+<h2 id="pi-worker">Pi Worker<a class="anchor" href="#pi-worker" aria-label="Link to this section">#</a></h2>
+<pre><code class="language-text">read
+bash
+edit
+write
+scoped MCP
+workspace allowlist
+</code></pre>
+<h2 id="pi-reviewer">Pi Reviewer<a class="anchor" href="#pi-reviewer" aria-label="Link to this section">#</a></h2>
+<pre><code class="language-text">read
+find
+ls
+codegraph read query
+
+max_tool_calls = 8
+</code></pre>
+<hr>
+<h1 id="21-component-upgrade-triggers">21. Component Upgrade Triggers</h1>
+<p>This section is an explicit future decision record.</p>
+<h2 id="router">Router<a class="anchor" href="#router" aria-label="Link to this section">#</a></h2>
+<pre><code class="language-text">Current:
+Deterministic TypeScript + AI SDK + Zod
+</code></pre>
+<p>Evaluate BAML when:</p>
+<pre><code class="language-text">router prompts become a large versioned prompt library
+many route schemas need independent prompt tests
+declarative provider fallback becomes essential
+</code></pre>
+<p>Evaluate trained classifier / embeddings when:</p>
+<pre><code class="language-text">≥ 10,000 reviewed route labels
+router latency/cost dominates at scale
+mode taxonomy is stable
+offline precision/recall exceeds LLM router baseline
+</code></pre>
+<h2 id="checkpointer">Checkpointer<a class="anchor" href="#checkpointer" aria-label="Link to this section">#</a></h2>
+<pre><code class="language-text">Current:
+PostgresSaver
+</code></pre>
+<p>Evaluate alternate checkpointer when:</p>
+<pre><code class="language-text">PostgreSQL checkpoint writes become bottleneck
+retention purge cannot meet operations target
+cross-region low-latency execution is required
+</code></pre>
+<p>Do NOT replace PostgresSaver merely because Redis exists.</p>
+<h2 id="pi">Pi<a class="anchor" href="#pi" aria-label="Link to this section">#</a></h2>
+<pre><code class="language-text">Current:
+Pi RPC executor
+</code></pre>
+<p>Evaluate Pi Durable when:</p>
+<pre><code class="language-text">Pi RPC process model cannot meet multi-tenant durability requirement
+agent execution needs a shared durable runtime beyond LangGraph adapter
+ownership boundary can remain unambiguous
+</code></pre>
+<p>Do NOT introduce Pi Durable while LangGraph and Pi Durable would both own task workflow state.</p>
+<h2 id="mobile-operator-surface">Mobile Operator Surface<a class="anchor" href="#mobile-operator-surface" aria-label="Link to this section">#</a></h2>
+<pre><code class="language-text">Current:
+Open WebUI PWA for user
+Pi Mobile / Tau for operator
+</code></pre>
+<p>Evaluate native custom mobile app when:</p>
+<pre><code class="language-text">operator workflow needs offline queue
+push approval SLA cannot be met with PWA
+device-native credential storage is required
+</code></pre>
+<hr>
+<h1 id="22-observability">22. Observability</h1>
+<p>Router Inspector:</p>
+<pre><code class="language-text">Mode: LÀM VIỆC
+Execution: COWORKER
+Source: DETERMINISTIC_RULE
+Confidence: HIGH
+
+Why:
+✓ implementation requested
+✓ persistent task state required
+✓ review required
+
+Classifier:
+not called
+</code></pre>
+<p>When AI SDK is used:</p>
+<pre><code class="language-text">Classifier:
+FAST_ROUTER_MODEL
+Schema: ROUTE-SCHEMA-v1
+Latency: 412ms
+Usage: ...
+Validation: PASS
+</code></pre>
+<p>Coworker Inspector tabs:</p>
+<pre><code class="language-text">[Route]
+[Requirements]
+[Output]
+[Context]
+[Tasks]
+[Pi Runs]
+[Tools]
+[Checkpoints]
+[Evidence]
+[Quality]
+[Cost]
+[Lineage]
+[Learned Strategy]
+</code></pre>
+<hr>
+<h1 id="23-router-metrics">23. Router Metrics</h1>
+<p>Track:</p>
+<pre><code class="language-text">route_total
+route_by_source
+deterministic_route_rate
+ai_classifier_route_rate
+safe_fallback_rate
+router_timeout_rate
+schema_validation_failure_rate
+transition_validation_rejection_rate
+mode_precision
+mode_recall
+coworker_false_positive_rate
+coworker_false_negative_rate
+continuation_accuracy
+side_query_isolation_accuracy
+router_latency_p50
+router_latency_p95
+router_token_cost
+</code></pre>
+<p>Calibration dataset:</p>
+<pre><code class="language-text">ROUTE-001 → HỎI
+ROUTE-010 → TÌM HIỂU
+ROUTE-020 → LÀM VIỆC
+ROUTE-030 → active task continuation
+ROUTE-040 → side query
+ROUTE-050 → explicit override
+ROUTE-060 → classifier timeout fallback
+ROUTE-070 → high-risk override
+</code></pre>
+<hr>
+<h1 id="24-test-matrix-v3-9">24. Test Matrix v3.9</h1>
+<h2 id="router">Router<a class="anchor" href="#router" aria-label="Link to this section">#</a></h2>
+<pre><code class="language-text">- explicit mode wins
+- active task continuation wins
+- side query does not mutate parent ledger
+- deterministic implementation rule routes Coworker
+- deterministic freshness rule routes Research
+- ambiguous input invokes AI SDK exactly once
+- Zod-invalid output uses safe fallback
+- classifier timeout uses safe fallback
+- high-risk rule survives classifier failure
+- complexity hint cannot become authoritative complexity
+- RouteRecord has redacted light input only
+</code></pre>
+<h2 id="ai-sdk-zod">AI SDK / Zod<a class="anchor" href="#ai-sdk-zod" aria-label="Link to this section">#</a></h2>
+<pre><code class="language-text">- accepted enum mapping
+- invalid display/execution pair rejected
+- reasons list bounded
+- no free-form tool/permission field accepted
+- timeout = 5 seconds
+- retry ≤ 1
+- temperature = 0
+</code></pre>
+<h2 id="langgraph-postgressaver">LangGraph / PostgresSaver<a class="anchor" href="#langgraph-postgressaver" aria-label="Link to this section">#</a></h2>
+<pre><code class="language-text">- HỎI and TÌM HIỂU do not create checkpoint by default
+- LÀM VIỆC creates execution thread
+- interrupt checkpoint survives harness restart
+- same thread_id resumes exactly once
+- retention skips active run
+- state stores IDs not raw Pi transcript
+</code></pre>
+<h2 id="pi-worktree-quality">Pi / Worktree / Quality<a class="anchor" href="#pi-worktree-quality" aria-label="Link to this section">#</a></h2>
+<pre><code class="language-text">- worker cannot push/merge/create worktree
+- source edit requires worktree-local CodeGraph init/sync
+- reviewer is separate read-only run
+- reviewer call budget enforced
+- stale evidence/gates rejected
+- UI edit requires browser verification evidence
+</code></pre>
+<hr>
+<h1 id="25-deployment-roadmap-v3-9">25. Deployment Roadmap v3.9</h1>
+<h2 id="m0-router-foundation">M0 — Router Foundation<a class="anchor" href="#m0-router-foundation" aria-label="Link to this section">#</a></h2>
+<pre><code class="language-text">deterministic rules
+AI SDK + Zod classifier
+Transition Validator
+RouteRecord
+offline route dataset
+</code></pre>
+<h2 id="m1-pi-workspace-kit">M1 — Pi Workspace Kit<a class="anchor" href="#m1-pi-workspace-kit" aria-label="Link to this section">#</a></h2>
+<pre><code class="language-text">permission policy
+workspace guard
+memory compatibility
+Google → SearXNG fallback
+Figma token refresh
+</code></pre>
+<h2 id="m2-coworker-harness-h1">M2 — Coworker Harness H1<a class="anchor" href="#m2-coworker-harness-h1" aria-label="Link to this section">#</a></h2>
+<pre><code class="language-text">Pi RPC Adapter
+Worktree Manager
+CodeGraph lifecycle
+deterministic checks
+independent reviewers
+Evidence Ledger
+</code></pre>
+<h2 id="m3-postgressaver-production">M3 — PostgresSaver Production<a class="anchor" href="#m3-postgressaver-production" aria-label="Link to this section">#</a></h2>
+<pre><code class="language-text">separate schema
+controlled setup migration
+interrupt restart test
+retention job
+checkpoint inspector
+</code></pre>
+<h2 id="m4-requirement-output-context">M4 — Requirement / Output / Context<a class="anchor" href="#m4-requirement-output-context" aria-label="Link to this section">#</a></h2>
+<pre><code class="language-text">Requirement Contract
+Output Contract
+Context Ledger
+Context Validator
+Recall
+</code></pre>
+<h2 id="m5-complexity-dag-multi-agent">M5 — Complexity / DAG / Multi-Agent<a class="anchor" href="#m5-complexity-dag-multi-agent" aria-label="Link to this section">#</a></h2>
+<pre><code class="language-text">Complexity Controller
+Task Decomposer
+Decomposition Reviewer
+Pi subtask envelopes
+artifact-mediated communication
+</code></pre>
+<h2 id="m6-cross-device">M6 — Cross-device<a class="anchor" href="#m6-cross-device" aria-label="Link to this section">#</a></h2>
+<pre><code class="language-text">Open WebUI PWA
+Pi Mobile bridge fork
+Tau operator surface
+tailnet-only access
+</code></pre>
+<h2 id="m7-execution-learning">M7 — Execution Learning<a class="anchor" href="#m7-execution-learning" aria-label="Link to this section">#</a></h2>
+<pre><code class="language-text">effectiveness metrics
+strategy candidate
+offline evaluation
+promotion gate
+</code></pre>
+<hr>
+<h1 id="26-v3-9-final-execution-chain">26. v3.9 Final Execution Chain</h1>
+<pre><code class="language-text">USER
+ ↓
+OPEN WEBUI
+ ↓
+EXECUTION CLASSIFICATION PLANE
+ ├── USER_EXPLICIT
+ ├── ACTIVE_TASK_CONTINUATION
+ ├── SIDE_QUERY_ISOLATION
+ ├── DETERMINISTIC_RULE
+ └── AI SDK + ZOD IF AMBIGUOUS
+ ↓
+TRANSITION VALIDATOR
+ ├── HỎI
+ │     ↓
+ │   CHAT
+ │
+ ├── TÌM HIỂU
+ │     ↓
+ │   RESEARCH
+ │
+ └── LÀM VIỆC
+       ↓
+   COWORKER HARNESS
+       ↓
+   LANGGRAPH + POSTGRESSAVER
+       ↓
+   REQUIREMENT CONTRACT
+       ↓
+   OUTPUT CONTRACT
+       ↓
+   COMPLEXITY CONTROLLER
+       ↓
+   TASK DAG
+       ↓
+   WORKTREE MANAGER
+       ↓
+   PI EXECUTION PROFILES
+       ↓
+   CHECK / REVIEW / EVIDENCE GATES
+       ↓
+   INTERRUPT APPROVAL WHEN REQUIRED
+       ↓
+   FINAL
+       ↓
+   OPEN WEBUI
+       ↓
+   USER
+</code></pre>
+<hr>
+<h1 id="27-v3-9-final-rules">27. v3.9 Final Rules</h1>
+<pre><code class="language-text">ROUTE BY CODE FIRST.
+
+CALL A MODEL ONLY FOR AMBIGUITY.
+
+VALIDATE ALL MODEL ROUTES.
+
+ROUTER DOES NOT OWN REQUIREMENTS.
+
+ROUTER DOES NOT OWN COMPLEXITY.
+
+LANGGRAPH DOES NOT RUN FOR EVERY MESSAGE.
+
+PI EXECUTES.
+
+LANGGRAPH TRANSITIONS.
+
+POSTGRESSAVER CHECKPOINTS.
+
+CONTEXT LEDGER TRUSTS.
+
+EVIDENCE LEDGER VERIFIES.
+
+WORKTREE MANAGER ISOLATES.
+</code></pre>
+<hr>
+<h1 id="version-3-9-four-level-review">Version 3.9 — Four-Level Review</h1>
+<h2 id="low-9-5-10">LOW — 9.5/10<a class="anchor" href="#low-9-5-10" aria-label="Link to this section">#</a></h2>
+<p>PASS.</p>
+<p>Strengths:</p>
+<pre><code class="language-text">- avoids expensive orchestration for simple questions;
+- makes routing observable and testable;
+- uses existing CLIProxy-compatible TypeScript stack;
+- keeps LangGraph in its correct workflow role;
+- preserves v3.8 authority boundaries.
+</code></pre>
+<h2 id="normal-9-2-10">NORMAL — 9.2/10<a class="anchor" href="#normal-9-2-10" aria-label="Link to this section">#</a></h2>
+<p>Required implementation rules:</p>
+<pre><code class="language-text">1. Explicit selection and active-task continuation bypass AI classifier.
+
+2. Classifier receives only light router context.
+
+3. Zod output is validated again by transition code.
+
+4. Fallback never silently starts expensive Coworker work.
+
+5. Router output remains traceable by version and source.
+</code></pre>
+<p>Status:</p>
+<pre><code class="language-text">PASS WITH IMPLEMENTATION RULES
+</code></pre>
+<h2 id="high-8-9-10">HIGH — 8.9/10<a class="anchor" href="#high-8-9-10" aria-label="Link to this section">#</a></h2>
+<p>Required improvements:</p>
+<h3 id="h1-router-evaluation">H1 Router Evaluation<a class="anchor" href="#h1-router-evaluation" aria-label="Link to this section">#</a></h3>
+<pre><code class="language-text">offline labeled dataset
+mode precision / recall
+false positive / negative analysis
+continuation and side-query accuracy
+</code></pre>
+<h3 id="h2-prompt-schema-versioning">H2 Prompt / Schema Versioning<a class="anchor" href="#h2-prompt-schema-versioning" aria-label="Link to this section">#</a></h3>
+<pre><code class="language-text">router version
+schema version
+model profile version
+deterministic rule version
+</code></pre>
+<h3 id="h3-provider-failure-policy">H3 Provider Failure Policy<a class="anchor" href="#h3-provider-failure-policy" aria-label="Link to this section">#</a></h3>
+<pre><code class="language-text">timeout 5s
+retry once
+safe fallback
+no infinite retry
+</code></pre>
+<h3 id="h4-upgrade-discipline">H4 Upgrade Discipline<a class="anchor" href="#h4-upgrade-discipline" aria-label="Link to this section">#</a></h3>
+<pre><code class="language-text">AI SDK / Zod update
+→ rerun route dataset
+
+model profile change
+→ rerun route dataset
+
+rule change
+→ rerun route dataset
+</code></pre>
+<p>Status:</p>
+<pre><code class="language-text">PASS AFTER H1-H4
+</code></pre>
+<h2 id="xhigh-8-6-10-before-production-calibration-9-5-10-after-corrections">XHIGH — 8.6/10 before production calibration; ~9.5/10 after corrections<a class="anchor" href="#xhigh-8-6-10-before-production-calibration-9-5-10-after-corrections" aria-label="Link to this section">#</a></h2>
+<h3 id="x1-deterministic-authority">X1 Deterministic Authority<a class="anchor" href="#x1-deterministic-authority" aria-label="Link to this section">#</a></h3>
+<pre><code class="language-text">LLM may classify ambiguity.
+
+Code owns precedence.
+Code owns mapping validation.
+Code owns fallback.
+Code owns state transition.
+</code></pre>
+<h3 id="x2-cost-containment">X2 Cost Containment<a class="anchor" href="#x2-cost-containment" aria-label="Link to this section">#</a></h3>
+<pre><code class="language-text">No model call for obvious route.
+No LangGraph for HỎI.
+No PostgresSaver checkpoint for ordinary HỎI / TÌM HIỂU.
+No tool exposure for router.
+</code></pre>
+<h3 id="x3-unsafe-escalation-prevention">X3 Unsafe Escalation Prevention<a class="anchor" href="#x3-unsafe-escalation-prevention" aria-label="Link to this section">#</a></h3>
+<pre><code class="language-text">Classifier failure
+≠
+permission to start COWORKER.
+
+Only explicit selection,
+active continuation,
+or deterministic high-risk rule
+may force COWORKER under classifier failure.
+</code></pre>
+<h3 id="x4-long-term-decision-record">X4 Long-Term Decision Record<a class="anchor" href="#x4-long-term-decision-record" aria-label="Link to this section">#</a></h3>
+<pre><code class="language-text">component comparison
+upgrade trigger
+current choice
+reason
+measurement needed to revisit
+</code></pre>
+<p>must stay with architecture document.</p>
+<h2 id="xhigh-final-assessment">XHIGH Final Assessment<a class="anchor" href="#xhigh-final-assessment" aria-label="Link to this section">#</a></h2>
+<p>After X1-X4 and offline route calibration:</p>
+<pre><code class="language-text">Architecture readiness ≈ 9.5 / 10
+</code></pre>
+<p>Remaining risks:</p>
+<pre><code class="language-text">1. Router labeled dataset may not represent future user language.
+2. FAST_ROUTER_MODEL quality may drift after CLIProxy model change.
+3. Ambiguous boundary between Research and Work needs continuous calibration.
+4. User-facing override UX must remain clear.
+5. AI SDK structured-output behavior must be retested on provider upgrades.
+</code></pre>
+<hr>
+<h1 id="v3-9-core-rule">v3.9 Core Rule</h1>
+<pre><code class="language-text">THE SYSTEM DOES NOT ASK A LARGE MODEL
+TO DECIDE WHAT CODE ALREADY KNOWS.
+
+THE SYSTEM USES A SMALL STRUCTURED MODEL CALL
+ONLY WHEN THE MESSAGE IS GENUINELY AMBIGUOUS.
+
+THE SYSTEM NEVER TRUSTS THE CLASSIFIER
+MORE THAN EXPLICIT USER INTENT,
+ACTIVE TASK CONTINUITY,
+OR DETERMINISTIC SAFETY POLICY.
+</code></pre>
+</main></div></body></html>
