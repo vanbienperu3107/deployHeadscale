@@ -1,0 +1,1528 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI Coworker Architecture & Deployment Plan v3.8</title><link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'/%3E">
+<style>
+:root{--bg:#f4f1ea;--paper:#fffdf8;--ink:#1b2320;--mute:#5d665f;--line:#ddd3c2;--accent:#155e4b;--code:#f0e8da}@media(prefers-color-scheme:dark){:root{--bg:#141816;--paper:#1b201d;--ink:#e7ece8;--mute:#9aa59e;--line:#2f3833;--accent:#6fcfae;--code:#232b27}}*{box-sizing:border-box}html{scroll-behavior:smooth;-webkit-text-size-adjust:100%}body{margin:0;background:var(--bg);color:var(--ink);font:17px/1.65 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans",sans-serif}.layout{display:grid;grid-template-columns:280px minmax(0,1fr);gap:40px;max-width:1280px;margin:0 auto;padding:32px 24px 96px}nav.toc{position:sticky;top:20px;align-self:start;max-height:calc(100vh - 40px);overflow:auto;font-size:14px;line-height:1.45;padding-right:8px}nav.toc .title{font-weight:800;letter-spacing:.06em;text-transform:uppercase;font-size:12px;color:var(--mute);margin:0 0 10px}nav.toc a{display:block;color:var(--ink);text-decoration:none;padding:5px 8px;border-radius:8px}nav.toc a:hover{background:var(--code)}nav.toc a.d3{padding-left:22px;color:var(--mute)}.toc-mobile{display:none}main{background:var(--paper);border:1px solid var(--line);border-radius:22px;padding:clamp(20px,4vw,56px);min-width:0}.dl{display:flex;flex-wrap:wrap;gap:10px;margin:0 0 28px}.dl a{display:inline-flex;align-items:center;min-height:44px;padding:10px 16px;border-radius:12px;background:var(--accent);color:#fff;text-decoration:none;font-weight:700}.dl a.alt{background:transparent;color:var(--accent);border:1px solid var(--accent)}h1{font-size:clamp(30px,5vw,46px);line-height:1.08;letter-spacing:-.03em;margin:0 0 18px}h2{font-size:27px;margin:56px 0 14px;padding-top:18px;border-top:1px solid var(--line)}h3{font-size:21px;margin:40px 0 10px}h2,h3{position:relative}h2 .anchor,h3 .anchor{margin-left:.35em;opacity:0;color:var(--mute);text-decoration:none}h2:hover .anchor,h3:hover .anchor{opacity:1}p,li{max-width:78ch}a{color:var(--accent)}blockquote{margin:16px 0;padding:12px 18px;border-left:4px solid var(--accent);background:var(--code);border-radius:0 12px 12px 0}code{font:15px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:var(--code);padding:2px 6px;border-radius:6px;overflow-wrap:anywhere}pre{background:var(--code);padding:16px 18px;border-radius:14px;overflow-x:auto;border:1px solid var(--line)}pre code{padding:0;background:none;font-size:14.5px;overflow-wrap:normal;white-space:pre}ul,ol{padding-left:24px}li{margin:6px 0}li.task{list-style:none;position:relative;margin-left:-4px;padding-left:30px}li.task .box{position:absolute;left:0;top:5px;width:18px;height:18px;border:2px solid var(--accent);border-radius:5px}.table-wrap{overflow-x:auto;margin:18px 0;border:1px solid var(--line);border-radius:14px}table{border-collapse:collapse;width:100%;font-size:15px}th,td{text-align:left;vertical-align:top;padding:10px 12px;border-bottom:1px solid var(--line)}th{background:var(--code);white-space:nowrap}tr:last-child td{border-bottom:0}strong{font-weight:750}hr{border:0;border-top:1px solid var(--line);margin:40px 0}.meta{color:var(--mute);font-size:14px;margin:-6px 0 22px}@media(max-width:960px){.layout{grid-template-columns:1fr;padding:12px 10px 64px;gap:12px}.toc-desktop{display:none}.toc-mobile{display:block;position:static;max-height:none;background:var(--paper);border:1px solid var(--line);border-radius:16px;padding:14px}.toc-mobile summary{cursor:pointer;font-weight:750;min-height:40px;display:flex;align-items:center}.toc-mobile .title{margin:0}main{border-radius:16px;padding:18px 14px}body{font-size:16px}pre code{font-size:13.5px}th,td{padding:8px 9px;font-size:14px}}
+</style></head><body><div class="layout"><nav class="toc toc-desktop" aria-label="Table of contents"><p class="title">Contents</p><a class="d2" href="#1-architectural-decision">1. Architectural Decision</a>
+<a class="d2" href="#current-findings">Current Findings</a>
+<a class="d2" href="#profiles">Profiles</a>
+<a class="d2" href="#tool-exposure">Tool Exposure</a>
+<a class="d2" href="#7-1-permission-policy">7.1 Permission Policy</a>
+<a class="d2" href="#7-2-workspace-guard">7.2 Workspace Guard</a>
+<a class="d2" href="#7-3-memory-blocks">7.3 Memory Blocks</a>
+<a class="d2" href="#7-4-google-search-fallback">7.4 Google Search Fallback</a>
+<a class="d2" href="#h1-code-workflow">H1 Code Workflow</a>
+<a class="d2" href="#9-1-responsibility">9.1 Responsibility</a>
+<a class="d2" href="#9-2-setup">9.2 Setup</a>
+<a class="d2" href="#9-3-thread-identity">9.3 Thread Identity</a>
+<a class="d2" href="#9-4-graph-state-rule">9.4 Graph State Rule</a>
+<a class="d2" href="#9-5-interrupt-durability">9.5 Interrupt Durability</a>
+<a class="d2" href="#9-6-postgressaver-tables">9.6 PostgresSaver Tables</a>
+<a class="d2" href="#9-7-retention">9.7 Retention</a>
+<a class="d2" href="#codegraph-rule">CodeGraph Rule</a>
+<a class="d2" href="#context-layers">Context Layers</a>
+<a class="d2" href="#pi-ui-approval">Pi UI Approval</a>
+<a class="d2" href="#source-change-gate">Source Change Gate</a>
+<a class="d2" href="#review-gate">Review Gate</a>
+<a class="d2" href="#pi-process-failure">Pi Process Failure</a>
+<a class="d2" href="#harness-process-failure">Harness Process Failure</a>
+<a class="d2" href="#requirement-change">Requirement Change</a>
+<a class="d2" href="#default-user-workspace">Default User Workspace</a>
+<a class="d2" href="#pi-operator-developer-surface">Pi Operator / Developer Surface</a>
+<a class="d2" href="#open-webui-owned">Open WebUI-Owned</a>
+<a class="d2" href="#postgressaver-owned">PostgresSaver-Owned</a>
+<a class="d2" href="#coworker-owned">Coworker-Owned</a>
+<a class="d2" href="#pi-harness">Pi Harness</a>
+<a class="d2" href="#worktree-codegraph">Worktree / CodeGraph</a>
+<a class="d2" href="#postgressaver">PostgresSaver</a>
+<a class="d2" href="#gates">Gates</a>
+<a class="d2" href="#pi-mobile-bridge">Pi Mobile Bridge</a>
+<a class="d2" href="#m0-pi-cliproxy-certification">M0 — Pi + CLIProxy Certification</a>
+<a class="d2" href="#m1-pi-workspace-kit">M1 — Pi Workspace Kit</a>
+<a class="d2" href="#m2-coworker-harness-h1">M2 — Coworker Harness H1</a>
+<a class="d2" href="#m3-postgressaver-production-persistence">M3 — PostgresSaver Production Persistence</a>
+<a class="d2" href="#m4-requirement-output-contracts">M4 — Requirement + Output Contracts</a>
+<a class="d2" href="#m5-context-infrastructure">M5 — Context Infrastructure</a>
+<a class="d2" href="#m6-complexity-dag">M6 — Complexity + DAG</a>
+<a class="d2" href="#m7-multi-agent-pi-execution">M7 — Multi-Agent Pi Execution</a>
+<a class="d2" href="#m8-cross-device">M8 — Cross-device</a>
+<a class="d2" href="#m9-effectiveness-strategy-memory">M9 — Effectiveness + Strategy Memory</a>
+<a class="d2" href="#low-9-4-10">LOW — 9.4/10</a>
+<a class="d2" href="#normal-9-1-10">NORMAL — 9.1/10</a>
+<a class="d2" href="#high-8-8-10">HIGH — 8.8/10</a>
+<a class="d3" href="#h1-postgressaver-retention">H1 PostgresSaver Retention</a>
+<a class="d3" href="#h2-idempotent-side-effects">H2 Idempotent Side Effects</a>
+<a class="d3" href="#h3-runtime-capacity">H3 Runtime Capacity</a>
+<a class="d3" href="#h4-reviewer-budget">H4 Reviewer Budget</a>
+<a class="d2" href="#xhigh-8-5-10-before-runtime-certification-9-5-10-after-corrections">XHIGH — 8.5/10 before runtime certification; ~9.5/10 after corrections</a>
+<a class="d3" href="#x1-control-authority">X1 Control Authority</a>
+<a class="d3" href="#x2-triple-persistence-boundary">X2 Triple Persistence Boundary</a>
+<a class="d3" href="#x3-crash-resume-certification">X3 Crash / Resume Certification</a>
+<a class="d3" href="#x4-security-boundary">X4 Security Boundary</a>
+<a class="d3" href="#x5-evidence-integrity">X5 Evidence Integrity</a>
+<a class="d2" href="#xhigh-final-assessment">XHIGH Final Assessment</a></nav><nav class="toc toc-mobile" aria-label="Table of contents"><details><summary class="title">Contents</summary><a class="d2" href="#1-architectural-decision">1. Architectural Decision</a>
+<a class="d2" href="#current-findings">Current Findings</a>
+<a class="d2" href="#profiles">Profiles</a>
+<a class="d2" href="#tool-exposure">Tool Exposure</a>
+<a class="d2" href="#7-1-permission-policy">7.1 Permission Policy</a>
+<a class="d2" href="#7-2-workspace-guard">7.2 Workspace Guard</a>
+<a class="d2" href="#7-3-memory-blocks">7.3 Memory Blocks</a>
+<a class="d2" href="#7-4-google-search-fallback">7.4 Google Search Fallback</a>
+<a class="d2" href="#h1-code-workflow">H1 Code Workflow</a>
+<a class="d2" href="#9-1-responsibility">9.1 Responsibility</a>
+<a class="d2" href="#9-2-setup">9.2 Setup</a>
+<a class="d2" href="#9-3-thread-identity">9.3 Thread Identity</a>
+<a class="d2" href="#9-4-graph-state-rule">9.4 Graph State Rule</a>
+<a class="d2" href="#9-5-interrupt-durability">9.5 Interrupt Durability</a>
+<a class="d2" href="#9-6-postgressaver-tables">9.6 PostgresSaver Tables</a>
+<a class="d2" href="#9-7-retention">9.7 Retention</a>
+<a class="d2" href="#codegraph-rule">CodeGraph Rule</a>
+<a class="d2" href="#context-layers">Context Layers</a>
+<a class="d2" href="#pi-ui-approval">Pi UI Approval</a>
+<a class="d2" href="#source-change-gate">Source Change Gate</a>
+<a class="d2" href="#review-gate">Review Gate</a>
+<a class="d2" href="#pi-process-failure">Pi Process Failure</a>
+<a class="d2" href="#harness-process-failure">Harness Process Failure</a>
+<a class="d2" href="#requirement-change">Requirement Change</a>
+<a class="d2" href="#default-user-workspace">Default User Workspace</a>
+<a class="d2" href="#pi-operator-developer-surface">Pi Operator / Developer Surface</a>
+<a class="d2" href="#open-webui-owned">Open WebUI-Owned</a>
+<a class="d2" href="#postgressaver-owned">PostgresSaver-Owned</a>
+<a class="d2" href="#coworker-owned">Coworker-Owned</a>
+<a class="d2" href="#pi-harness">Pi Harness</a>
+<a class="d2" href="#worktree-codegraph">Worktree / CodeGraph</a>
+<a class="d2" href="#postgressaver">PostgresSaver</a>
+<a class="d2" href="#gates">Gates</a>
+<a class="d2" href="#pi-mobile-bridge">Pi Mobile Bridge</a>
+<a class="d2" href="#m0-pi-cliproxy-certification">M0 — Pi + CLIProxy Certification</a>
+<a class="d2" href="#m1-pi-workspace-kit">M1 — Pi Workspace Kit</a>
+<a class="d2" href="#m2-coworker-harness-h1">M2 — Coworker Harness H1</a>
+<a class="d2" href="#m3-postgressaver-production-persistence">M3 — PostgresSaver Production Persistence</a>
+<a class="d2" href="#m4-requirement-output-contracts">M4 — Requirement + Output Contracts</a>
+<a class="d2" href="#m5-context-infrastructure">M5 — Context Infrastructure</a>
+<a class="d2" href="#m6-complexity-dag">M6 — Complexity + DAG</a>
+<a class="d2" href="#m7-multi-agent-pi-execution">M7 — Multi-Agent Pi Execution</a>
+<a class="d2" href="#m8-cross-device">M8 — Cross-device</a>
+<a class="d2" href="#m9-effectiveness-strategy-memory">M9 — Effectiveness + Strategy Memory</a>
+<a class="d2" href="#low-9-4-10">LOW — 9.4/10</a>
+<a class="d2" href="#normal-9-1-10">NORMAL — 9.1/10</a>
+<a class="d2" href="#high-8-8-10">HIGH — 8.8/10</a>
+<a class="d3" href="#h1-postgressaver-retention">H1 PostgresSaver Retention</a>
+<a class="d3" href="#h2-idempotent-side-effects">H2 Idempotent Side Effects</a>
+<a class="d3" href="#h3-runtime-capacity">H3 Runtime Capacity</a>
+<a class="d3" href="#h4-reviewer-budget">H4 Reviewer Budget</a>
+<a class="d2" href="#xhigh-8-5-10-before-runtime-certification-9-5-10-after-corrections">XHIGH — 8.5/10 before runtime certification; ~9.5/10 after corrections</a>
+<a class="d3" href="#x1-control-authority">X1 Control Authority</a>
+<a class="d3" href="#x2-triple-persistence-boundary">X2 Triple Persistence Boundary</a>
+<a class="d3" href="#x3-crash-resume-certification">X3 Crash / Resume Certification</a>
+<a class="d3" href="#x4-security-boundary">X4 Security Boundary</a>
+<a class="d3" href="#x5-evidence-integrity">X5 Evidence Integrity</a>
+<a class="d2" href="#xhigh-final-assessment">XHIGH Final Assessment</a></details></nav><main><div class="dl"><a href="./AI_Coworker_Architecture_Plan_v3.8.md" download>Download Markdown</a><a class="alt" href="./AI_Coworker_Architecture_Plan_v3.8.md">Open Markdown</a><a class="alt" href="../">All previews</a></div><p class="meta">Version 3.8 · Pi-native execution · LangGraph control plane · PostgresSaver checkpoints</p><h1 id="ai-coworker-architecture-amp-deployment-plan-v3-8">AI Coworker Architecture &amp; Deployment Plan v3.8</h1>
+<h1 id="version-3-8-pi-native-execution-harness-postgressaver-durable-control-plane">Version 3.8 — Pi-Native Execution Harness + PostgresSaver Durable Control Plane</h1>
+<h2 id="1-architectural-decision">1. Architectural Decision<a class="anchor" href="#1-architectural-decision" aria-label="Liên kết tới mục này">#</a></h2>
+<p>OpenCode is removed from the target architecture.</p>
+<p>Pi becomes the only coding/agent execution harness.</p>
+<pre><code class="language-text">OpenCode
+→ REMOVED FROM TARGET RUNTIME
+
+Pi Coding Agent
+→ execution harness
+
+LangGraph
+→ deterministic Coworker workflow control plane
+
+PostgresSaver
+→ durable LangGraph checkpoint persistence
+</code></pre>
+<p>Open WebUI remains the primary user-facing workspace.</p>
+<pre><code class="language-text">OPEN WEBUI-FIRST
+PI-NATIVE EXECUTION
+LANGGRAPH-CONTROLLED WORK
+</code></pre>
+<p>The system does NOT replace Open WebUI with Pi UI.</p>
+<pre><code class="language-text">Open WebUI owns user experience.
+Pi executes agent work.
+LangGraph owns workflow state.
+PostgreSQL persists durable control state.
+</code></pre>
+<hr>
+<h1 id="2-why-pi-replaces-opencode">2. Why Pi Replaces OpenCode</h1>
+<h2 id="current-findings">Current Findings<a class="anchor" href="#current-findings" aria-label="Liên kết tới mục này">#</a></h2>
+<p>Measured on the same CLIProxy model and a small code-fix task:</p>
+<pre><code class="language-text">Pi
+→ 19–31s
+→ ~16K–43K tokens
+→ 116–460 MB peak RAM
+
+OpenCode
+→ 130s
+→ ~927K tokens
+→ ~1 GB peak RAM
+</code></pre>
+<p>The raw token totals are not direct cost totals because cache reads cost less than fresh input.</p>
+<p>However:</p>
+<pre><code class="language-text">Pi is materially lighter and faster.
+</code></pre>
+<p>Pi also exposes:</p>
+<pre><code class="language-text">RPC JSONL
+extension hooks
+tool_call blocking
+user_bash interception
+MCP native support
+session JSONL persistence
+compaction
+interrupt-capable UI bridge
+</code></pre>
+<p>These capabilities make Pi suitable as a controlled executor under LangGraph.</p>
+<hr>
+<h1 id="3-v3-8-core-principle">3. v3.8 Core Principle</h1>
+<pre><code class="language-text">PI DOES NOT OWN THE TASK LIFECYCLE.
+
+LANGGRAPH DOES NOT OWN AGENT TRANSCRIPT MEMORY.
+
+POSTGRESSAVER DOES NOT OWN SEMANTIC KNOWLEDGE.
+
+EVIDENCE LEDGER DOES NOT REPLACE CHECKPOINTS.
+</code></pre>
+<p>Responsibility boundary:</p>
+<pre><code class="language-text">Pi
+= What one agent sees and does in one execution session
+
+LangGraph
+= Where the Coworker workflow currently is
+
+PostgresSaver
+= Durable snapshots of LangGraph workflow state
+
+Context Ledger
+= What the system currently knows and trusts
+
+Evidence Ledger
+= What was actually verified for a requirement and revision
+
+Open WebUI
+= What the user sees and controls
+</code></pre>
+<hr>
+<h1 id="4-v3-8-final-architecture">4. v3.8 Final Architecture</h1>
+<pre><code class="language-text">                         WINDOWS / MOBILE
+                               │
+                               ▼
+                           OPEN WEBUI
+                               │
+      Native Chat / History / Notes / Memory / Knowledge / Files
+                               │
+                               ▼
+                      Work Type Router
+                 ┌─────────────┼─────────────┐
+                 ▼             ▼             ▼
+               HỎI         TÌM HIỂU       LÀM VIỆC
+                 │             │             │
+                 ▼             ▼             ▼
+          Native Chat     Native Research    │
+                                               ▼
+                                  COWORKER HARNESS API
+                                               │
+                                               ▼
+                                   LANGGRAPH CONTROL PLANE
+                                               │
+      ┌────────────────────────────────────────┼────────────────────────────────────────┐
+      ▼                                        ▼                                        ▼
+ Requirement Controller                    Context Layer                          Task/DAG Layer
+      │                                        │                                        │
+ Requirement Contract                  Context Ledger                       Complexity Controller
+ Output Contract                       Context Compiler                     Decomposer / Reviewer
+      │                                        │                                        │
+      └────────────────────────────────────────┴─────────────────────┬──────────────────┘
+                                                                      ▼
+                                                               POSTGRESSAVER
+                                                          workflow checkpoints
+                                                                      │
+                                                                      ▼
+                                                              DAG SCHEDULER
+                                                                      │
+                                                       ┌──────────────┼──────────────┐
+                                                       ▼              ▼              ▼
+                                                  Pi Worker A    Pi Worker B    Pi Reviewer
+                                                       │              │              │
+                                              isolated worktree  research env    read-only env
+                                                       │              │              │
+                                              Pi session JSONL   Pi session JSONL  Pi session JSONL
+                                                       └──────────────┼──────────────┘
+                                                                      ▼
+                                                        RESULT ACCEPTANCE GATE
+                                                                      │
+                                                                      ▼
+                                                                 SYNTHESIS
+                                                                      │
+                                                              QUALITY GATE
+                                                                      │
+                                                                    FINAL
+                                                                      │
+                                                                  OPEN WEBUI
+
+SERVER INTERNAL
+├── PostgreSQL
+│   ├── PostgresSaver checkpoints
+│   ├── Coworker Evidence Ledger
+│   ├── Requirement / Task / Context metadata
+│   └── Strategy Memory
+├── Pi Worker Runtime
+├── Pi Extension Package
+├── Pi Mobile Bridge / Tau (tailnet only)
+├── CLIProxy
+├── MCP / Research Tools
+├── File / Object Storage
+└── Workspace Manager / Git Worktrees
+</code></pre>
+<hr>
+<h1 id="5-work-type-router">5. Work Type Router</h1>
+<p>User-facing work types remain:</p>
+<pre><code class="language-text">HỎI
+TÌM HIỂU
+LÀM VIỆC
+</code></pre>
+<p>Backend mapping:</p>
+<pre><code class="language-text">HỎI       → CHAT
+TÌM HIỂU  → RESEARCH
+LÀM VIỆC  → COWORKER
+</code></pre>
+<p>Priority:</p>
+<pre><code class="language-text">USER_EXPLICIT
+&gt;
+ACTIVE_TASK_CONTINUATION
+&gt;
+AUTO_ROUTER
+&gt;
+SYSTEM_DEFAULT
+</code></pre>
+<p>Routing uses only light control context:</p>
+<pre><code class="language-text">current_user_message
+explicit_mode
+active_task_metadata
+conversation_mode_state
+current_project
+recent_message_summary
+</code></pre>
+<p>Do NOT retrieve:</p>
+<pre><code class="language-text">full Pi transcript
+raw MCP outputs
+all project notes
+all research artifacts
+all Context Ledger records
+</code></pre>
+<p>before routing.</p>
+<hr>
+<h1 id="6-pi-execution-profiles">6. Pi Execution Profiles</h1>
+<p>Pi is started through RPC only for Coworker work.</p>
+<pre><code class="language-text">pi --mode rpc
+</code></pre>
+<p>Every Pi run receives:</p>
+<pre><code class="language-yaml">pi_run:
+  run_id: RUN-901
+  task_id: TASK-100
+  subtask_id: ST-104
+  execution_profile: SECURITY_REVIEWER
+  worktree_id: WT-104
+  requirement_version: REQ-v7
+  output_contract_version: OUT-ST104-v3
+  context_version: CTX-ST104-v8
+  pi_session_id: PI-SESSION-42
+</code></pre>
+<h2 id="profiles">Profiles<a class="anchor" href="#profiles" aria-label="Liên kết tới mục này">#</a></h2>
+<pre><code class="language-text">FAST_ROUTER
+REQUIREMENT_ANALYST
+RESEARCHER
+CODE_WORKER
+STANDARD_REVIEWER
+INDEPENDENT_REVIEWER
+ADVERSARIAL_REVIEWER
+SYNTHESIS_AGENT
+</code></pre>
+<h2 id="tool-exposure">Tool Exposure<a class="anchor" href="#tool-exposure" aria-label="Liên kết tới mục này">#</a></h2>
+<pre><code class="language-text">CODE_WORKER
+→ read / bash / edit / write
+→ scoped MCP tools
+→ workspace allowlist
+
+RESEARCHER
+→ research MCP tools
+→ request_context / get_artifact
+→ no write/edit
+
+REVIEWER
+→ read / grep / find / ls
+→ codegraph read access
+→ no bash / edit / write / push
+
+SYNTHESIS_AGENT
+→ approved artifacts
+→ Evidence Ledger query
+→ no raw child transcript by default
+</code></pre>
+<p>No profile receives every tool.</p>
+<hr>
+<h1 id="7-pi-extension-package">7. Pi Extension Package</h1>
+<p>The Pi extension package is called:</p>
+<pre><code class="language-text">pi-workspace-kit
+</code></pre>
+<p>It ports required workspace behavior into Pi.</p>
+<pre><code class="language-text">Permission Policy
+Memory Blocks
+Google AI Search
+Figma Token Refresh
+Workspace Guard
+Workflow Status
+Evidence Reporter
+</code></pre>
+<h2 id="7-1-permission-policy">7.1 Permission Policy<a class="anchor" href="#7-1-permission-policy" aria-label="Liên kết tới mục này">#</a></h2>
+<p>Pi default behavior is not sufficient.</p>
+<p>Pi does NOT ask before every tool call by default.</p>
+<p>Required rules:</p>
+<pre><code class="language-text">bash:
+*                     → allow
+rm *                  → deny
+sudo *                → deny
+systemctl *           → deny
+docker *              → deny
+kubectl *             → deny
+git reset --hard*     → deny
+git push*             → deny
+gh pr merge*          → deny
+git worktree add*     → deny
+git checkout main     → deny
+git checkout master   → deny
+
+MCP:
+mcp__github__*        → ask
+</code></pre>
+<p>Rule:</p>
+<pre><code class="language-text">HARNESS OWNS WORKTREE CREATION.
+HARNESS OWNS PUSH / PR / MERGE.
+PI NEVER OWNS THESE OPERATIONS.
+</code></pre>
+<p>For chained shell commands:</p>
+<pre><code class="language-text">echo ok &amp;&amp; rm -rf x
+
+→ DENY
+</code></pre>
+<p>Each command segment is evaluated.</p>
+<pre><code class="language-text">strictest_action_wins
+</code></pre>
+<p>If a tool requires approval and no interactive UI exists:</p>
+<pre><code class="language-text">ASK → BLOCK
+</code></pre>
+<h2 id="7-2-workspace-guard">7.2 Workspace Guard<a class="anchor" href="#7-2-workspace-guard" aria-label="Liên kết tới mục này">#</a></h2>
+<p>Pi write/edit is allowed only inside an approved worktree.</p>
+<pre><code class="language-text">allowed_root
+→ /worktrees/TASK-100/ST-104
+</code></pre>
+<p>All paths are normalized with:</p>
+<pre><code class="language-text">realpath()
+</code></pre>
+<p>Symlink escape example:</p>
+<pre><code class="language-text">/worktrees/TASK-100/ST-104/link
+→ /home/node/.ssh
+
+Result:
+DENY
+</code></pre>
+<h2 id="7-3-memory-blocks">7.3 Memory Blocks<a class="anchor" href="#7-3-memory-blocks" aria-label="Liên kết tới mục này">#</a></h2>
+<p>Existing memory block model remains:</p>
+<pre><code class="language-text">global/persona
+global/human
+project/project
+</code></pre>
+<p>Pi extension tools:</p>
+<pre><code class="language-text">memory_list
+memory_set
+memory_replace
+</code></pre>
+<p>Memory file frontmatter stays compatible:</p>
+<pre><code class="language-yaml">description: ...
+label: human
+limit: 5000
+read_only: false
+</code></pre>
+<p>Current explicit user instruction remains higher priority than memory.</p>
+<h2 id="7-4-google-search-fallback">7.4 Google Search Fallback<a class="anchor" href="#7-4-google-search-fallback" aria-label="Liên kết tới mục này">#</a></h2>
+<p>Policy remains:</p>
+<pre><code class="language-text">google_ai_search_plus
+↓ automated access blocked
+↓
+SearXNG immediately
+</code></pre>
+<p>No repeated Google retry.</p>
+<hr>
+<h1 id="8-langgraph-control-plane">8. LangGraph Control Plane</h1>
+<p>LangGraph owns:</p>
+<pre><code class="language-text">current node
+completed nodes
+pending branches
+interrupt state
+retry state
+subgraph state
+fan-out / fan-in
+resume position
+workflow transition legality
+</code></pre>
+<p>LangGraph does NOT own:</p>
+<pre><code class="language-text">Pi transcript
+raw semantic context
+raw tool output
+Open WebUI chat history
+memory blocks
+approved evidence content
+</code></pre>
+<h2 id="h1-code-workflow">H1 Code Workflow<a class="anchor" href="#h1-code-workflow" aria-label="Liên kết tới mục này">#</a></h2>
+<pre><code class="language-text">START
+  ↓
+create_worktree
+  ↓
+codegraph_init_and_explore
+  ↓
+Pi CODE_WORKER
+  ↓
+deterministic_checks
+  ├── test
+  ├── lint/build when applicable
+  ├── codegraph_sync
+  └── browser verification when UI changed
+  ↓
+Pi NORMAL_REVIEWER
+  ↓
+Pi HIGH_REVIEWER
+  ↓
+Pi XHIGH_REVIEWER
+  ↓
+pre_push_guard
+  ↓
+interrupt(PUSH_APPROVAL)
+  ↓
+push_branch
+  ↓
+watch_ci
+  ↓
+FINAL
+</code></pre>
+<p>No Pi worker can skip directly from:</p>
+<pre><code class="language-text">EXECUTING
+→ PUSH
+</code></pre>
+<p>Illegal.</p>
+<hr>
+<h1 id="9-postgressaver-durable-checkpoint-plane">9. PostgresSaver Durable Checkpoint Plane</h1>
+<h2 id="9-1-responsibility">9.1 Responsibility<a class="anchor" href="#9-1-responsibility" aria-label="Liên kết tới mục này">#</a></h2>
+<p>PostgresSaver persists LangGraph checkpoint state.</p>
+<pre><code class="language-text">PostgresSaver
+= Where the workflow currently is
+</code></pre>
+<p>It is NOT:</p>
+<pre><code class="language-text">Context Ledger
+Evidence Ledger
+Open WebUI history store
+Pi session transcript store
+Knowledge/RAG store
+</code></pre>
+<h2 id="9-2-setup">9.2 Setup<a class="anchor" href="#9-2-setup" aria-label="Liên kết tới mục này">#</a></h2>
+<pre><code class="language-typescript">import { PostgresSaver } from &quot;@langchain/langgraph-checkpoint-postgres&quot;;
+
+const checkpointer = PostgresSaver.fromConnString(
+  process.env.LANGGRAPH_DATABASE_URL,
+  { schema: &quot;coworker&quot; }
+);
+
+await checkpointer.setup();
+</code></pre>
+<p><code>setup()</code> runs only through controlled migration/deploy process.</p>
+<p>Never run schema setup from arbitrary Pi worker session.</p>
+<h2 id="9-3-thread-identity">9.3 Thread Identity<a class="anchor" href="#9-3-thread-identity" aria-label="Liên kết tới mục này">#</a></h2>
+<pre><code class="language-text">thread_id = execution_run_id
+</code></pre>
+<p>Example:</p>
+<pre><code class="language-text">RUN-8b2f4d4b-73e4-4f7a-a20a-7ad8fb5c9d31
+</code></pre>
+<p>Rules:</p>
+<pre><code class="language-text">thread_id &lt; 255 chars
+immutable
+not user-provided text
+not a filesystem path
+not an API key
+</code></pre>
+<h2 id="9-4-graph-state-rule">9.4 Graph State Rule<a class="anchor" href="#9-4-graph-state-rule" aria-label="Liên kết tới mục này">#</a></h2>
+<p>PostgresSaver state contains references, not raw work context.</p>
+<pre><code class="language-typescript">CoworkerState = {
+  execution_run_id,
+  task_id,
+  requirement_version,
+  output_contract_version,
+  complexity_level,
+  task_dag_version,
+  worktree_ids,
+  pi_run_ids,
+  context_snapshot_ids,
+  dependency_result_versions,
+  evidence_map_version,
+  pending_interrupt,
+  status
+}
+</code></pre>
+<p>Never store:</p>
+<pre><code class="language-text">full prompt
+full Pi messages
+raw image bytes
+full research page content
+credential material
+</code></pre>
+<h2 id="9-5-interrupt-durability">9.5 Interrupt Durability<a class="anchor" href="#9-5-interrupt-durability" aria-label="Liên kết tới mục này">#</a></h2>
+<pre><code class="language-text">LangGraph node
+  ↓
+interrupt(PUSH_APPROVAL)
+  ↓
+PostgresSaver checkpoint
+  ↓
+Open WebUI / Mobile approval UI
+  ↓
+Command({ resume: value })
+  ↓
+same thread_id
+  ↓
+resume
+</code></pre>
+<p>If process dies while waiting:</p>
+<pre><code class="language-text">restart harness
+↓
+load thread_id
+↓
+inspect pending interrupt
+↓
+resume
+</code></pre>
+<h2 id="9-6-postgressaver-tables">9.6 PostgresSaver Tables<a class="anchor" href="#9-6-postgressaver-tables" aria-label="Liên kết tới mục này">#</a></h2>
+<p>Expected package-owned tables:</p>
+<pre><code class="language-text">checkpoint_migrations
+checkpoints
+checkpoint_blobs
+checkpoint_writes
+</code></pre>
+<p>Conceptual role:</p>
+<pre><code class="language-text">checkpoint_migrations
+→ package schema version
+
+checkpoints
+→ graph state snapshots / parent lineage
+
+checkpoint_blobs
+→ complex versioned channel values
+
+checkpoint_writes
+→ completed node writes available for fault recovery
+</code></pre>
+<p>Do NOT manually update these tables.</p>
+<h2 id="9-7-retention">9.7 Retention<a class="anchor" href="#9-7-retention" aria-label="Liên kết tới mục này">#</a></h2>
+<p>PostgresSaver does not replace retention policy.</p>
+<pre><code class="language-text">RUNNING / WAITING_APPROVAL / BLOCKED
+→ retain
+
+PASSED / DELIVERED
+→ hot checkpoint 30 days
+
+FAILED / CANCELLED / SUPERSEDED
+→ hot checkpoint 14 days
+
+development / test run
+→ 24 hours
+</code></pre>
+<p>Retention job must:</p>
+<pre><code class="language-text">skip active thread
+archive required audit artifact
+delete complete thread through saver API
+record deletion audit event
+</code></pre>
+<p>Never delete only <code>checkpoints</code> rows while leaving blobs/writes orphaned.</p>
+<hr>
+<h1 id="10-evidence-ledger">10. Evidence Ledger</h1>
+<p>PostgresSaver checkpoint tells workflow position.</p>
+<p>Evidence Ledger tells verified truth.</p>
+<pre><code class="language-text">Evidence Ledger
+├── execution_run
+├── task_event
+├── check_run
+├── gate_verdict
+├── artifact
+├── tool_outcome
+├── reviewer_run
+└── final_result
+</code></pre>
+<p>Example:</p>
+<pre><code class="language-yaml">gate_verdict:
+  id: GATE-31
+  execution_run_id: RUN-901
+  task_id: TASK-100
+  level: HIGH
+  verdict: PASS
+  revision: e763ceb...
+  reviewer_run_id: RUN-REVIEW-H-12
+  evidence_ids:
+    - CHECK-18
+    - CG-22
+  created_at: ...
+</code></pre>
+<p>Push eligibility:</p>
+<pre><code class="language-text">same revision
++
+NORMAL PASS
++
+HIGH PASS
++
+XHIGH PASS
++
+explicit user approval
+=
+PUSH ALLOWED
+</code></pre>
+<p>Any revision change:</p>
+<pre><code class="language-text">old gate verdicts
+→ STALE
+</code></pre>
+<hr>
+<h1 id="11-workspace-manager-pi-native">11. Workspace Manager — Pi-Native</h1>
+<p>Workspace policy:</p>
+<pre><code class="language-text">Pure Chat / Research
+→ logical workspace
+
+Independent artifact output
+→ logical workspace or optional worktree
+
+Any source write
+→ mandatory Git worktree
+
+Concurrent source writes
+→ one worktree per subtask
+</code></pre>
+<p>Only Coworker Harness can create worktrees.</p>
+<pre><code class="language-text">WorktreeManager.create()
+</code></pre>
+<p>Example:</p>
+<pre><code class="language-text">task/100-integration
+task/100/code
+task/100/security
+task/100/tests
+
+/worktrees/task-100/code
+/worktrees/task-100/security
+/worktrees/task-100/tests
+</code></pre>
+<p>Every worktree records:</p>
+<pre><code class="language-text">workspace_id
+task_id
+subtask_id
+repository
+base_commit
+branch
+worktree_path
+codegraph_index_status
+status
+</code></pre>
+<h2 id="codegraph-rule">CodeGraph Rule<a class="anchor" href="#codegraph-rule" aria-label="Liên kết tới mục này">#</a></h2>
+<p>CodeGraph index is worktree-scoped.</p>
+<pre><code class="language-text">base checkout index
+≠
+worktree index
+</code></pre>
+<p>Before source discovery in a worktree:</p>
+<pre><code class="language-text">codegraph init &lt;worktree&gt; --yes
+codegraph explore &lt;query&gt;
+</code></pre>
+<p>After any source change:</p>
+<pre><code class="language-text">codegraph sync &lt;worktree&gt;
+</code></pre>
+<p>Pi source edit cannot settle as PASS without current CodeGraph evidence.</p>
+<hr>
+<h1 id="12-context-system-v3-8">12. Context System v3.8</h1>
+<p>Context Ledger remains semantic authority.</p>
+<pre><code class="language-text">Event Stream
+   ↓
+Observer
+   ↓
+Context Ledger
+   ↓
+Reflector
+   ↓
+Dropper
+   ↓
+Deterministic Compiler
+   ↓
+Context Validator
+   ↓
+Context Package
+</code></pre>
+<p>Pi session compaction is local execution compaction.</p>
+<pre><code class="language-text">Pi compaction
+≠
+Context Ledger compaction
+</code></pre>
+<p>Pi compaction preserves an agent session.</p>
+<p>Context Ledger compaction preserves task semantic state.</p>
+<p>Both must be observable.</p>
+<h2 id="context-layers">Context Layers<a class="anchor" href="#context-layers" aria-label="Liên kết tới mục này">#</a></h2>
+<pre><code class="language-text">CORE
+├── Requirement Contract
+├── critical constraints
+└── active Output Contract
+
+DURABLE
+├── approved decisions
+├── stable reflections
+└── project principles
+
+WORKING
+├── current research
+├── dependency results
+├── approved evidence
+└── current artifact refs
+
+EPHEMERAL
+├── Pi tool output
+├── recent worker thought/result
+└── temporary intermediate notes
+</code></pre>
+<p>Never automatically drop:</p>
+<pre><code class="language-text">current user request
+Requirement Contract
+Output Contract
+critical constraints
+approved decisions
+current task goal
+</code></pre>
+<hr>
+<h1 id="13-pi-subtask-envelope">13. Pi Subtask Envelope</h1>
+<p>Master does NOT send whole parent context.</p>
+<pre><code class="language-yaml">subtask_envelope:
+  subtask_id: ST-104
+  parent_task_id: TASK-100
+  execution_run_id: RUN-901
+
+  requirement_version: REQ-v7
+  output_contract_version: OUT-ST104-v3
+  context_version: CTX-ST104-v8
+
+  objective: Design public Internet security model
+
+  assigned_requirements:
+    - R5
+    - R6
+    - R9
+
+  critical_constraints:
+    - CLIProxy private
+    - PostgreSQL private
+    - no direct push or merge
+
+  approved_decisions:
+    - D4
+
+  dependency_results:
+    - ST101_RESULT-v2
+
+  artifacts:
+    - architecture-v5.md
+
+  tool_profile: SECURITY_REVIEWER
+
+  worktree:
+    id: WT-104
+    path: /worktrees/task-100/security
+    base_commit: abc123
+
+  context_policy:
+    max_tokens: 32000
+    recall_allowed: true
+    parent_context_access: ON_DEMAND
+</code></pre>
+<p>Pi does NOT receive:</p>
+<pre><code class="language-text">all parent history
+full sibling transcript
+raw unrelated tool output
+unapproved draft decisions
+credential data
+</code></pre>
+<hr>
+<h1 id="14-pi-task-reporting-protocol">14. Pi Task Reporting Protocol</h1>
+<p>Pi RPC events are normalized by Pi Executor Adapter.</p>
+<pre><code class="language-text">Pi RPC event
+   ↓
+Pi Executor Adapter
+   ↓
+Tool Outcome / Task Event
+   ↓
+Evidence Ledger
+   ↓
+LangGraph State Update
+</code></pre>
+<p>Mandatory normalized events:</p>
+<pre><code class="language-text">TASK_PROGRESS
+TASK_BLOCKER
+TASK_RESULT
+</code></pre>
+<p>Optional:</p>
+<pre><code class="language-text">TASK_WARNING
+TASK_CHECKPOINT
+TOOL_OUTCOME
+PI_COMPACTION
+PI_UI_APPROVAL_REQUESTED
+</code></pre>
+<h2 id="pi-ui-approval">Pi UI Approval<a class="anchor" href="#pi-ui-approval" aria-label="Liên kết tới mục này">#</a></h2>
+<p>Pi extension can emit:</p>
+<pre><code class="language-text">extension_ui_request
+</code></pre>
+<p>Pi mobile bridge / Tau / Open WebUI adapter renders it.</p>
+<p>Response:</p>
+<pre><code class="language-text">extension_ui_response
+</code></pre>
+<p>This is local tool approval.</p>
+<p>High-impact workflow approval remains LangGraph interrupt:</p>
+<pre><code class="language-text">LangGraph interrupt(PUSH_APPROVAL)
+</code></pre>
+<p>These are different approval classes.</p>
+<pre><code class="language-text">Pi approval
+= may this tool call execute?
+
+LangGraph approval
+= may the workflow enter this irreversible state?
+</code></pre>
+<hr>
+<h1 id="15-complexity-engine-v3-8">15. Complexity Engine v3.8</h1>
+<p>Complexity remains separate from work type.</p>
+<pre><code class="language-text">Work Type
+= HỎI / TÌM HIỂU / LÀM VIỆC
+
+Processing Level
+= NHẸ / VỪA / NẶNG / RẤT NẶNG
+</code></pre>
+<p>Mapping:</p>
+<pre><code class="language-text">LÀM VIỆC + NHẸ
+→ one Pi run + deterministic checks when needed
+
+LÀM VIỆC + VỪA
+→ small LangGraph workflow + 2–3 Pi runs
+
+LÀM VIỆC + NẶNG
+→ Task DAG + Pi subgraphs + integration review
+
+LÀM VIỆC + RẤT NẶNG
+→ full DAG
+→ independent reviewer profiles
+→ PostgresSaver resume
+→ mandatory human approval for defined transitions
+→ adversarial review when risk requires
+</code></pre>
+<p>Hard overrides:</p>
+<pre><code class="language-text">data loss risk
+security-critical decision
+production deployment
+large migration
+direct public Internet exposure
+independent review policy
+</code></pre>
+<p>Force:</p>
+<pre><code class="language-text">XHIGH
+</code></pre>
+<hr>
+<h1 id="16-quality-gate-v3-8">16. Quality Gate v3.8</h1>
+<h2 id="source-change-gate">Source Change Gate<a class="anchor" href="#source-change-gate" aria-label="Liên kết tới mục này">#</a></h2>
+<pre><code class="language-text">Pi worker result
+  ↓
+CodeGraph evidence current for worktree?
+  ↓
+tests after last source edit?
+  ↓
+UI verification after last UI edit when applicable?
+  ↓
+git diff scoped to worktree?
+  ↓
+accept worker result
+</code></pre>
+<h2 id="review-gate">Review Gate<a class="anchor" href="#review-gate" aria-label="Liên kết tới mục này">#</a></h2>
+<pre><code class="language-text">Worker Result
+  ↓
+NORMAL Reviewer
+  ↓ PASS
+HIGH Reviewer
+  ↓ PASS
+XHIGH Reviewer
+  ↓ PASS
+LangGraph Push Approval Interrupt
+  ↓ APPROVED
+Harness Push / PR
+</code></pre>
+<p>Reviewers are independent Pi runs.</p>
+<pre><code class="language-text">reviewer_run_id
+must differ from worker_run_id
+</code></pre>
+<p>Reviewer profile:</p>
+<pre><code class="language-text">read
+grep
+find
+ls
+codegraph read query
+
+max_tool_calls = 8
+</code></pre>
+<p>Reviewer output:</p>
+<pre><code class="language-json">{
+  &quot;level&quot;: &quot;HIGH&quot;,
+  &quot;verdict&quot;: &quot;PASS&quot;,
+  &quot;revision&quot;: &quot;e763ceb...&quot;,
+  &quot;findings&quot;: [],
+  &quot;evidence_ids&quot;: [&quot;CHECK-18&quot;, &quot;CG-22&quot;]
+}
+</code></pre>
+<p>Any mandatory failure:</p>
+<pre><code class="language-text">REVISE
+</code></pre>
+<p>Any revision change:</p>
+<pre><code class="language-text">all old gates → STALE
+</code></pre>
+<hr>
+<h1 id="17-failure-resume-policy">17. Failure / Resume Policy</h1>
+<h2 id="pi-process-failure">Pi Process Failure<a class="anchor" href="#pi-process-failure" aria-label="Liên kết tới mục này">#</a></h2>
+<pre><code class="language-text">Pi process dies
+  ↓
+Pi session JSONL remains
+  ↓
+LangGraph checkpoint remains in PostgresSaver
+  ↓
+Pi Executor Adapter classifies failure
+  ↓
+retryable?
+  ├── YES → start replacement Pi run + switch/resume session
+  └── NO  → TASK_BLOCKER / NEEDS_USER_DECISION
+</code></pre>
+<h2 id="harness-process-failure">Harness Process Failure<a class="anchor" href="#harness-process-failure" aria-label="Liên kết tới mục này">#</a></h2>
+<pre><code class="language-text">Harness dies
+  ↓
+PostgresSaver checkpoint remains
+  ↓
+Harness restart
+  ↓
+load thread_id
+  ↓
+validate requirement / dependency / evidence versions
+  ↓
+resume or rebuild context
+</code></pre>
+<h2 id="requirement-change">Requirement Change<a class="anchor" href="#requirement-change" aria-label="Liên kết tới mục này">#</a></h2>
+<pre><code class="language-text">REQ-vN
+  ↓ user changes scope
+REQ-vN+1
+  ↓
+Impact Analyzer
+  ├── unaffected → continue
+  ├── affected → pause + rebuild envelope
+  └── obsolete → supersede/cancel
+</code></pre>
+<p>No blind replay of old Pi transcript.</p>
+<hr>
+<h1 id="18-mobile-remote-access">18. Mobile / Remote Access</h1>
+<h2 id="default-user-workspace">Default User Workspace<a class="anchor" href="#default-user-workspace" aria-label="Liên kết tới mục này">#</a></h2>
+<pre><code class="language-text">Windows / Mobile
+→ Open WebUI PWA
+</code></pre>
+<h2 id="pi-operator-developer-surface">Pi Operator / Developer Surface<a class="anchor" href="#pi-operator-developer-surface" aria-label="Liên kết tới mục này">#</a></h2>
+<pre><code class="language-text">Pi Mobile Android
+→ pi-mobile bridge
+→ Pi RPC
+
+Tau PWA
+→ Pi RPC
+</code></pre>
+<p>Both are:</p>
+<pre><code class="language-text">tailnet only
+Bearer token required
+no public Internet exposure
+cwd allowlist required
+</code></pre>
+<p>Bridge security:</p>
+<pre><code class="language-text">BRIDGE_HOST = tailnet or loopback
+BRIDGE_ALLOWED_CWDS = approved roots
+BRIDGE_AUTH_TOKEN = secret
+BRIDGE_ENABLE_HEALTH_ENDPOINT = explicit
+</code></pre>
+<p>The bridge must reject:</p>
+<pre><code class="language-text">outside allowed cwd
+symlink escape
+token in query string
+malformed envelope
+concurrent control lock conflict
+</code></pre>
+<hr>
+<h1 id="19-data-model-v3-8">19. Data Model v3.8</h1>
+<h2 id="open-webui-owned">Open WebUI-Owned<a class="anchor" href="#open-webui-owned" aria-label="Liên kết tới mục này">#</a></h2>
+<pre><code class="language-text">users
+chats
+messages
+notes
+memory
+files
+knowledge
+native tasks
+</code></pre>
+<h2 id="postgressaver-owned">PostgresSaver-Owned<a class="anchor" href="#postgressaver-owned" aria-label="Liên kết tới mục này">#</a></h2>
+<pre><code class="language-text">checkpoint_migrations
+checkpoints
+checkpoint_blobs
+checkpoint_writes
+</code></pre>
+<h2 id="coworker-owned">Coworker-Owned<a class="anchor" href="#coworker-owned" aria-label="Liên kết tới mục này">#</a></h2>
+<pre><code class="language-text">execution_run
+coworker_task
+task_dependency
+task_requirement_map
+task_workspace
+task_artifact
+task_run
+task_event
+
+requirement_contract
+requirement_item
+output_contract
+deliverable_item
+
+context_observation
+context_reflection
+context_snapshot
+
+research_run
+research_source
+research_claim
+claim_evidence
+
+check_run
+gate_verdict
+reviewer_run
+
+pi_run
+pi_session_ref
+pi_compaction_event
+pi_ui_approval
+
+draft
+final_result
+</code></pre>
+<p>Every relevant Coworker object references:</p>
+<pre><code class="language-text">task_id
+execution_run_id
+requirement_version
+output_contract_version
+version
+status
+created_at
+created_by
+superseded_by
+</code></pre>
+<hr>
+<h1 id="20-postgres-schema-boundary">20. Postgres Schema Boundary</h1>
+<p>Recommended schemas:</p>
+<pre><code class="language-text">openwebui
+→ Open WebUI owned data
+
+coworker
+→ PostgresSaver + Coworker control/evidence data
+</code></pre>
+<p>Do NOT use:</p>
+<pre><code class="language-text">public
+</code></pre>
+<p>for new Coworker tables.</p>
+<p>Postgres role separation:</p>
+<pre><code class="language-text">coworker_runtime
+→ read/write coworker schema only
+
+coworker_migrator
+→ schema migration only
+
+readonly_inspector
+→ inspector queries only
+</code></pre>
+<p>Pi worker does NOT receive direct PostgreSQL credentials.</p>
+<pre><code class="language-text">Pi Worker
+→ Harness API
+→ Evidence Ledger / PostgresSaver
+</code></pre>
+<p>not:</p>
+<pre><code class="language-text">Pi Worker
+→ PostgreSQL direct
+</code></pre>
+<hr>
+<h1 id="21-execution-learning-v3-8">21. Execution Learning v3.8</h1>
+<p>v3.7 learning rules remain.</p>
+<p>Additional Pi/Harness metrics:</p>
+<pre><code class="language-text">pi_run_success_rate
+pi_rpc_restart_rate
+pi_session_resume_success_rate
+pi_tool_policy_block_rate
+reviewer_tool_call_count
+reviewer_token_budget_exceeded_rate
+worktree_creation_failure_rate
+codegraph_worktree_init_rate
+stale_gate_rejection_rate
+push_before_approval_block_rate
+checkpoint_resume_success_rate
+checkpoint_storage_bytes_per_run
+checkpoint_retention_delete_success_rate
+</code></pre>
+<p>Execution path signature adds:</p>
+<pre><code class="language-text">pi_version
+pi_extension_version
+pi_profile
+pi_session_id
+worktree_base_commit
+postgressaver_schema_version
+checkpoint_count
+interrupt_count
+</code></pre>
+<p>Strategy promotion remains forbidden from changing:</p>
+<pre><code class="language-text">production graph topology
+system prompt
+tool permission policy
+security policy
+retention policy
+</code></pre>
+<p>without versioned change and rollback.</p>
+<hr>
+<h1 id="22-test-matrix-v3-8">22. Test Matrix v3.8</h1>
+<h2 id="pi-harness">Pi Harness<a class="anchor" href="#pi-harness" aria-label="Liên kết tới mục này">#</a></h2>
+<pre><code class="language-text">- Pi RPC prompt / abort / steer / follow-up
+- Pi UI approval round-trip
+- Pi process crash and session resume
+- malformed RPC record rejected
+- stdout drained continuously
+- stderr never parsed as protocol
+</code></pre>
+<h2 id="worktree-codegraph">Worktree / CodeGraph<a class="anchor" href="#worktree-codegraph" aria-label="Liên kết tới mục này">#</a></h2>
+<pre><code class="language-text">- base checkout unchanged
+- one source-writing subtask = one worktree
+- base_commit recorded
+- CodeGraph init inside each worktree
+- CodeGraph sync after every source edit
+- stale CodeGraph evidence rejected
+- no direct merge to main
+</code></pre>
+<h2 id="postgressaver">PostgresSaver<a class="anchor" href="#postgressaver" aria-label="Liên kết tới mục này">#</a></h2>
+<pre><code class="language-text">- setup migration idempotent
+- thread_id length &lt; 255
+- checkpoint written on interrupt
+- process restart resumes same pending interrupt
+- parallel branch partial completion persists
+- retention skips active thread
+- retention deletes complete thread safely
+- package version upgrade tested against snapshot DB
+</code></pre>
+<h2 id="gates">Gates<a class="anchor" href="#gates" aria-label="Liên kết tới mục này">#</a></h2>
+<pre><code class="language-text">- worker cannot push
+- worker cannot create worktree
+- reviewer cannot write/edit/bash
+- all three reviewer run IDs differ
+- stale revision gate rejected
+- push blocked before user approval
+- push allowed only after exact approval + exact SHA gates
+</code></pre>
+<h2 id="pi-mobile-bridge">Pi Mobile Bridge<a class="anchor" href="#pi-mobile-bridge" aria-label="Liên kết tới mục này">#</a></h2>
+<pre><code class="language-text">- Bearer token required
+- query-string token rejected
+- cwd outside allowlist rejected
+- symlink escape rejected
+- reconnect preserves control only within grace
+- second client denied while lock valid
+- second client succeeds after grace
+</code></pre>
+<hr>
+<h1 id="23-deployment-roadmap-v3-8">23. Deployment Roadmap v3.8</h1>
+<h2 id="m0-pi-cliproxy-certification">M0 — Pi + CLIProxy Certification<a class="anchor" href="#m0-pi-cliproxy-certification" aria-label="Liên kết tới mục này">#</a></h2>
+<pre><code class="language-text">chat
+streaming
+tool calls
+multi-round tools
+MCP conversion
+Pi RPC
+permission extension
+</code></pre>
+<h2 id="m1-pi-workspace-kit">M1 — Pi Workspace Kit<a class="anchor" href="#m1-pi-workspace-kit" aria-label="Liên kết tới mục này">#</a></h2>
+<pre><code class="language-text">permission policy
+workspace guard
+memory compatibility
+Google → SearXNG fallback
+Figma token refresh
+workflow status commands
+</code></pre>
+<h2 id="m2-coworker-harness-h1">M2 — Coworker Harness H1<a class="anchor" href="#m2-coworker-harness-h1" aria-label="Liên kết tới mục này">#</a></h2>
+<pre><code class="language-text">LangGraph graph
+Pi RPC Adapter
+Worktree Manager
+CodeGraph evidence
+deterministic checks
+Normal / High / XHigh reviewers
+LangGraph push approval interrupt
+Evidence Ledger
+</code></pre>
+<h2 id="m3-postgressaver-production-persistence">M3 — PostgresSaver Production Persistence<a class="anchor" href="#m3-postgressaver-production-persistence" aria-label="Liên kết tới mục này">#</a></h2>
+<pre><code class="language-text">separate coworker schema
+controlled setup migration
+process restart resume
+retention job
+checkpoint observability
+</code></pre>
+<h2 id="m4-requirement-output-contracts">M4 — Requirement + Output Contracts<a class="anchor" href="#m4-requirement-output-contracts" aria-label="Liên kết tới mục này">#</a></h2>
+<pre><code class="language-text">requirement resolver
+requirement reviewer
+immutable REQ versions
+output contracts
+deliverable mapping
+</code></pre>
+<h2 id="m5-context-infrastructure">M5 — Context Infrastructure<a class="anchor" href="#m5-context-infrastructure" aria-label="Liên kết tới mục này">#</a></h2>
+<pre><code class="language-text">ledger
+observer
+reflector
+dropper
+compiler
+validator
+recall
+inspector
+</code></pre>
+<h2 id="m6-complexity-dag">M6 — Complexity + DAG<a class="anchor" href="#m6-complexity-dag" aria-label="Liên kết tới mục này">#</a></h2>
+<pre><code class="language-text">complexity engine
+decomposer
+decomposition reviewer
+Pi subtask envelopes
+artifact-mediated dependency flow
+</code></pre>
+<h2 id="m7-multi-agent-pi-execution">M7 — Multi-Agent Pi Execution<a class="anchor" href="#m7-multi-agent-pi-execution" aria-label="Liên kết tới mục này">#</a></h2>
+<pre><code class="language-text">parallel Pi workers
+max parallelism
+dependency-aware resume
+conflict resolution
+synthesis
+integration review
+</code></pre>
+<h2 id="m8-cross-device">M8 — Cross-device<a class="anchor" href="#m8-cross-device" aria-label="Liên kết tới mục này">#</a></h2>
+<pre><code class="language-text">Open WebUI PWA
+Pi Mobile bridge fork
+Tau operator surface
+tailnet-only remote access
+</code></pre>
+<h2 id="m9-effectiveness-strategy-memory">M9 — Effectiveness + Strategy Memory<a class="anchor" href="#m9-effectiveness-strategy-memory" aria-label="Liên kết tới mục này">#</a></h2>
+<pre><code class="language-text">run evaluator
+baseline comparison
+strategy candidate
+offline evaluation
+promotion gate
+</code></pre>
+<hr>
+<h1 id="24-v3-8-final-execution-chain">24. v3.8 Final Execution Chain</h1>
+<pre><code class="language-text">USER
+ ↓
+OPEN WEBUI
+ ↓
+WORK TYPE ROUTER
+ ├── HỎI
+ │     ↓
+ │   NATIVE CHAT / PI DIRECT
+ │
+ ├── TÌM HIỂU
+ │     ↓
+ │   NATIVE RESEARCH / PI RESEARCH PROFILE
+ │
+ └── LÀM VIỆC
+       ↓
+   COWORKER HARNESS
+       ↓
+   LANGGRAPH + POSTGRESSAVER
+       ↓
+   REQUIREMENT CONTRACT
+       ↓
+   OUTPUT CONTRACT
+       ↓
+   COMPLEXITY ENGINE
+       ↓
+   TASK DAG
+       ↓
+   WORKTREE MANAGER
+       ↓
+   PI SUBTASK ENVELOPES
+       ↓
+   PI WORKERS / PI REVIEWERS
+       ↓
+   TASK RESULT ACCEPTANCE
+       ↓
+   EVIDENCE LEDGER
+       ↓
+   SYNTHESIS
+       ↓
+   INTEGRATION QUALITY GATE
+       ↓
+   LANGGRAPH APPROVAL INTERRUPT
+       ↓
+   FINAL
+       ↓
+   OPEN WEBUI
+       ↓
+   USER
+</code></pre>
+<hr>
+<h1 id="25-v3-8-final-rules">25. v3.8 Final Rules</h1>
+<pre><code class="language-text">OPEN WEBUI OWNS THE USER EXPERIENCE.
+
+PI OWNS INDIVIDUAL AGENT EXECUTION.
+
+LANGGRAPH OWNS WORKFLOW STATE TRANSITIONS.
+
+POSTGRESSAVER OWNS DURABLE WORKFLOW CHECKPOINTS.
+
+CONTEXT LEDGER OWNS SEMANTIC CONTEXT.
+
+EVIDENCE LEDGER OWNS VERIFIED EXECUTION FACTS.
+
+WORKTREE MANAGER OWNS SOURCE-WRITE ISOLATION.
+
+PI NEVER PUSHES.
+
+PI NEVER MERGES.
+
+PI NEVER CREATES A WORKTREE.
+
+CHECKPOINT IS NOT CONTEXT.
+
+CHECKPOINT IS NOT EVIDENCE.
+
+RAW AGENT HISTORY REMAINS RECALLABLE.
+</code></pre>
+<hr>
+<h1 id="version-3-8-four-level-review">Version 3.8 — Four-Level Review</h1>
+<h2 id="low-9-4-10">LOW — 9.4/10<a class="anchor" href="#low-9-4-10" aria-label="Liên kết tới mục này">#</a></h2>
+<p>PASS.</p>
+<p>Strengths:</p>
+<pre><code class="language-text">- removes dual harness ambiguity;
+- keeps Open WebUI-first product strategy;
+- makes Pi a lightweight replaceable executor;
+- makes workflow state durable through PostgresSaver;
+- separates checkpoint, semantic context and verified evidence;
+- prevents Pi worker from direct push/merge/worktree authority.
+</code></pre>
+<h2 id="normal-9-1-10">NORMAL — 9.1/10<a class="anchor" href="#normal-9-1-10" aria-label="Liên kết tới mục này">#</a></h2>
+<p>Required implementation rules:</p>
+<pre><code class="language-text">1. PostgresSaver state contains IDs/references, not raw agent context.
+
+2. Every source-writing Pi run starts inside a Harness-created worktree.
+
+3. Every worktree has its own CodeGraph init/sync lifecycle.
+
+4. Reviewers are separate read-only Pi runs.
+
+5. LangGraph interrupt owns high-impact approval; Pi UI owns local tool approval.
+
+6. HỎI/TÌM HIỂU do not enter expensive Coworker graph by default.
+</code></pre>
+<p>Status:</p>
+<pre><code class="language-text">PASS WITH IMPLEMENTATION RULES
+</code></pre>
+<h2 id="high-8-8-10">HIGH — 8.8/10<a class="anchor" href="#high-8-8-10" aria-label="Liên kết tới mục này">#</a></h2>
+<p>Required improvements:</p>
+<h3 id="h1-postgressaver-retention">H1 PostgresSaver Retention<a class="anchor" href="#h1-postgressaver-retention" aria-label="Liên kết tới mục này">#</a></h3>
+<pre><code class="language-text">checkpoint growth must be bounded;
+active thread must never be pruned;
+deletion must use supported saver/thread lifecycle;
+retention audit is mandatory.
+</code></pre>
+<h3 id="h2-idempotent-side-effects">H2 Idempotent Side Effects<a class="anchor" href="#h2-idempotent-side-effects" aria-label="Liên kết tới mục này">#</a></h3>
+<pre><code class="language-text">no push / external mutation before interrupt approval;
+worktree creation keyed by task/subtask id;
+retry must not duplicate artifact or external action.
+</code></pre>
+<h3 id="h3-runtime-capacity">H3 Runtime Capacity<a class="anchor" href="#h3-runtime-capacity" aria-label="Liên kết tới mục này">#</a></h3>
+<pre><code class="language-text">Pi worker and OpenCode cannot be assumed safe on same constrained vpn4 host.
+Worker capacity preflight is mandatory.
+</code></pre>
+<h3 id="h4-reviewer-budget">H4 Reviewer Budget<a class="anchor" href="#h4-reviewer-budget" aria-label="Liên kết tới mục này">#</a></h3>
+<pre><code class="language-text">max_tool_calls = 8
+strict JSON verdict
+independent reviewer run ids
+</code></pre>
+<p>Status:</p>
+<pre><code class="language-text">PASS AFTER H1-H4
+</code></pre>
+<h2 id="xhigh-8-5-10-before-runtime-certification-9-5-10-after-corrections">XHIGH — 8.5/10 before runtime certification; ~9.5/10 after corrections<a class="anchor" href="#xhigh-8-5-10-before-runtime-certification-9-5-10-after-corrections" aria-label="Liên kết tới mục này">#</a></h2>
+<h3 id="x1-control-authority">X1 Control Authority<a class="anchor" href="#x1-control-authority" aria-label="Liên kết tới mục này">#</a></h3>
+<pre><code class="language-text">Pi may execute.
+Pi may report.
+Pi may request approval.
+
+Pi may not transition authoritative task state.
+Pi may not push.
+Pi may not merge.
+Pi may not create worktrees.
+</code></pre>
+<h3 id="x2-triple-persistence-boundary">X2 Triple Persistence Boundary<a class="anchor" href="#x2-triple-persistence-boundary" aria-label="Liên kết tới mục này">#</a></h3>
+<pre><code class="language-text">PostgresSaver
+→ workflow position
+
+Context Ledger
+→ semantic trust
+
+Evidence Ledger
+→ verified facts
+</code></pre>
+<p>No layer replaces another.</p>
+<h3 id="x3-crash-resume-certification">X3 Crash / Resume Certification<a class="anchor" href="#x3-crash-resume-certification" aria-label="Liên kết tới mục này">#</a></h3>
+<p>Must prove:</p>
+<pre><code class="language-text">pending LangGraph interrupt
+↓ harness killed
+↓ harness restarted
+↓ same thread_id loaded
+↓ resume accepted
+↓ no duplicate push / worktree / tool side effect
+</code></pre>
+<h3 id="x4-security-boundary">X4 Security Boundary<a class="anchor" href="#x4-security-boundary" aria-label="Liên kết tới mục này">#</a></h3>
+<pre><code class="language-text">Pi extension policy
+is NOT the security boundary.
+
+Container / OS / network isolation
+is the security boundary.
+</code></pre>
+<h3 id="x5-evidence-integrity">X5 Evidence Integrity<a class="anchor" href="#x5-evidence-integrity" aria-label="Liên kết tới mục này">#</a></h3>
+<pre><code class="language-text">gate verdict valid only for exact revision;
+reviewer identity must differ from worker;
+check evidence must be later than last source edit;
+approval must be lineage-linked to exact run and revision.
+</code></pre>
+<h2 id="xhigh-final-assessment">XHIGH Final Assessment<a class="anchor" href="#xhigh-final-assessment" aria-label="Liên kết tới mục này">#</a></h2>
+<p>After X1-X5 and production PostgresSaver restart/retention certification:</p>
+<pre><code class="language-text">Architecture readiness ≈ 9.5 / 10
+</code></pre>
+<p>Remaining engineering risks:</p>
+<pre><code class="language-text">1. CLIProxy native tool-call and streaming compatibility across all Pi profiles.
+2. Pi extension package supply-chain and upgrade discipline.
+3. PostgresSaver checkpoint storage growth and migration compatibility.
+4. Semantic Context Ledger selection quality.
+5. Evidence reviewer false-negative rate.
+6. Capacity sizing for Pi workers with full MCP/browser workloads.
+7. Open WebUI integration UX complexity.
+</code></pre>
+<hr>
+<h1 id="v3-8-core-rule">v3.8 Core Rule</h1>
+<pre><code class="language-text">THE SYSTEM DOES NOT TRUST:
+&quot;THE AGENT SAID IT IS DONE.&quot;
+
+THE SYSTEM TRUSTS:
+WORKTREE ISOLATION
++
+CURRENT CODEGRAPH EVIDENCE
++
+POST-EDIT CHECKS
++
+INDEPENDENT REVIEW GATES
++
+LINEAGE-LINKED HUMAN APPROVAL
++
+DURABLE CHECKPOINT / RESUME
+</code></pre>
+</main></div></body></html>
