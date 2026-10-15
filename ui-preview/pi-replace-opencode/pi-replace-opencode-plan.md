@@ -4,13 +4,13 @@
 
 **Goal:** Thay OpenCode 1.18.33 bằng Pi coding agent (`@earendil-works/pi-coding-agent` 1.1.x) làm harness agent chính của người dùng, giữ nguyên CLIProxy, 13 MCP, skills, memory, chính sách quyền và truy cập từ điện thoại; chạy song song có rollback cho tới khi cắt chuyển.
 
-**Architecture:** Một image `pi-server` mới (Pi + extensions nội bộ + bridge WebSocket của pi-mobile) chạy cạnh `opencode-server` hiện tại trên cùng host, cùng mạng `edge`, không publish cổng. Hành vi riêng của workspace (chặn quyền kiểu OpenCode, memory blocks, Google AI search, Figma token, workflow gate, giới hạn thư mục) được port thành **Pi extensions** trong một Pi package nội bộ `pi-workspace-kit`. Truy cập từ xa đi qua bridge (Android, pi-mobile) và một web UI (pi-tau-web-server) chỉ trong tailnet; cắt chuyển theo từng bề mặt, rollback bằng cách bật lại OpenCode.
+**Architecture:** `coworker-harness` (LangGraph JS + Pi RPC Adapter + Evidence Ledger) là control plane độc lập, giữ trạng thái workflow/gate/checkpoint; Pi chỉ là executor chạy trong Git worktree. Hành vi riêng của workspace (chặn quyền kiểu OpenCode, memory blocks, Google AI search, Figma token, workflow gate, giới hạn thư mục) được port thành **Pi extensions** trong package nội bộ `pi-workspace-kit`. `pi-server` (Pi + extensions + bridge pi-mobile) chỉ được chạy trên worker có đủ RAM hoặc theo staged takeover, không co-host song song một cách không an toàn với `opencode-server` trên vpn4; truy cập từ xa chỉ qua tailnet và rollback là bật lại OpenCode.
 
-**Tech Stack:** Pi 1.1.x (Node ≥22.19), TypeScript + vitest cho extensions, pi-mobile bridge (Node 24, pnpm 10.33), pi-tau-web-server 1.1.x, Docker Compose trên vpn4, GitHub Actions (repo `TelegramAgent`, `deployHeadscale`), Python pytest cho test compose/policy hiện có.
+**Tech Stack:** Pi 1.1.x (Node ≥22.19), LangGraph JS 1.5.0 + `@langchain/langgraph-checkpoint-postgres` 1.1.0, TypeScript + vitest, pi-mobile bridge (Node 24, pnpm 10.33), pi-tau-web-server 1.1.x, PostgreSQL, Docker Compose, GitHub Actions (repo `TelegramAgent`, `deployHeadscale`), Python pytest cho test compose/policy hiện có.
 
 **Spec:** Không có spec riêng. Plan này dựa trên các nguồn đã kiểm chứng trong phiên 2026-10-07 → 2026-10-13:
 - Kiến trúc đích: `AI_Coworker_Architecture_Plan_v3.7.md` (người dùng đính kèm).
-- Bằng chứng chạy thật trong `/tmp/pi-eval/` (Pi 1.1.0 + CLIProxy + 13 MCP + extension quyền + RPC + compaction + pi-web + Tau + pi-mobile bridge). Bảng kết quả ở Phụ lục A.
+- Bằng chứng chạy thật trong `/tmp/pi-eval/` (Pi 1.1.0 + CLIProxy + 13 MCP + extension quyền + RPC + compaction + pi-web + Tau + pi-mobile bridge + H1 LangGraph/Pi worktree gate). Bảng kết quả ở Phụ lục A.
 - Cấu hình OpenCode hiện tại: `/home/node/.config/opencode/opencode.json`, `AGENTS.md`, `.opencode/workflow-policy.md`, `feature-workflow.md`, `RESEARCH-MCP-POLICY.md`.
 - Hạ tầng hiện tại: repo `vanbienperu3107/TelegramAgent` (`docker-compose.yml`, `docker/Dockerfile.opencode-server`, `.github/workflows/deploy.yml`, `tests/test_compose.py`).
 
@@ -21,24 +21,40 @@
 - Model mặc định: `cliproxy/claude-opus-5`; provider `cliproxy` dùng `api: "openai-completions"`, `baseUrl: "http://cliproxy:8317/v1"`; khoá đọc bằng `"apiKey": "!tr -d '\\n' < /run/secrets/cliproxy-key"`. Không bao giờ ghi khoá literal vào file.
 - Telemetry tắt: `PI_TELEMETRY=0`, settings `enableInstallTelemetry: false`, `enableAnalytics: false`.
 - Container Pi **không** có `ports:`; mọi service có `mem_limit`, `oom_score_adj`, giới hạn log — giữ đúng các test trong `tests/test_compose.py`. Tổng `mem_limit` các service trên vpn4 ≤ 1856 MB (`test_tong_ngan_sach_ram_khong_vuot_1856mb`).
-- `mem_limit` của `pi-server`: 768m (đo thực tế: Pi 116–624 MB/phiên, bridge ~100 MB). Trong giai đoạn song song, `opencode-server` giảm từ 1536m xuống 896m để tổng vẫn ≤ 1856 MB; hoàn nguyên 1536m khi rollback.
+- **Không co-host full Pi và OpenCode trên vpn4 trong pha song song.** Ngân sách hiện hữu là `opencode-server 1536m + telegram-gateway 256m + pg-tunnel 64m = 1856m`, đã chạm trần. `coworker-harness`/`pi-server` phải dùng worker riêng có ít nhất 1.5 GB RAM rảnh theo preflight, hoặc takeover có kiểm soát sau khi stop OpenCode. H1 đo 316 MB đỉnh không MCP; không được suy ra đủ RAM cho Pi production có MCP.
 - Thư mục skills: `/opt/skills` (ro) và `/workspace/.skills-global`. Memory: giữ file Markdown hiện có `/home/node/.config/opencode/memory/*.md` và `<project>/.opencode/memory/project.md` làm nguồn dữ liệu (không copy, không đổi định dạng frontmatter).
 - Chính sách bash phải tương đương block `permission.bash` hiện tại: `*` allow; deny `rm *`, `sudo *`, `systemctl *`, `docker *`, `kubectl *`, `git reset --hard*`; `github_*` MCP = ask. Lệnh nối (`&&`, `||`, `;`, `|`, xuống dòng) đánh giá từng đoạn, nghiêm nhất thắng. `ask` không có UI ⇒ block.
 - Bridge chỉ bind trong mạng Docker/tailnet, xác thực Bearer token, `bridge_set_cwd` chỉ chấp nhận thư mục trong allowlist `/workspace/Project` và `/workspace/opencode-sandbox` (sau `realpath`).
 - Không push thẳng `main`; mỗi task một branch/PR; dùng `/workspace/.bin/gh`. Secrets chỉ qua GitHub Actions secrets hoặc `/run/secrets`.
 - Ngôn ngữ thông báo người dùng trong extension: tiếng Việt có dấu.
+- Reviewer Normal, High, XHigh chạy bằng **ba Pi process riêng** (`reviewer_run_id` khác nhau), profile chỉ đọc; không chấp nhận self-review của worker. Reviewer bị giới hạn 8 tool calls và output bắt buộc là JSON `GateVerdict` để tránh loop đọc lặp vô hạn.
+- Mỗi Git worktree là một phạm vi CodeGraph độc lập: Harness phải chạy `codegraph init <worktree> --yes` trước discovery và `codegraph sync <worktree>` sau mọi source edit. Không dùng index của checkout gốc cho worktree.
 
 ## Review Focus
 
 1. **Lệnh nguy hiểm đi vòng qua codemode/MCP hoặc qua `user_bash` (`!cmd` trong TUI)** — người dùng mong chặn giống OpenCode bất kể đường gọi. Test thêm ở Task 2 (`blocks_user_bash_rm`, `blocks_mcp_github_inside_codemode`).
 2. **Bridge nhận `cwd` là symlink trỏ ra ngoài allowlist** (`/workspace/Project/link -> /home/node/.ssh`) — phải bị từ chối sau `realpath`. Test ở Task 7 (`rejects_symlink_escape`).
-3. **Hai thiết bị cùng điều khiển một session, máy trước rớt mạng** — máy sau phải giành quyền sau tối đa `BRIDGE_RECONNECT_GRACE_MS` (đặt 30000) chứ không treo vĩnh viễn. Test ở Task 8 (`second_device_takes_control_after_grace`).
+3. **Hai thiết bị cùng điều khiển một session, máy trước rớt mạng** — máy sau phải giành quyền sau tối đa `BRIDGE_RECONNECT_GRACE_MS` (đặt 30000) chứ không treo vĩnh viễn. Test ở Task 7 (`second_device_takes_control_after_grace`).
 4. **Container Pi bị OOM/restart giữa lượt chạy** — phiên phải resume được từ file JSONL, không mất lịch sử. Test ở Task 9 (`session_survives_container_restart`).
 5. **Memory block vượt `limit` hoặc frontmatter hỏng** — tool phải từ chối ghi và báo lỗi, không cắt cụt hay ghi đè mất dữ liệu. Test ở Task 3 (`rejects_over_limit`, `rejects_corrupt_frontmatter_without_writing`).
 
 ---
 
 ## File Structure
+
+### Ownership Boundary — dùng sẵn vs. tự phát triển
+
+| Năng lực | Dùng sẵn | Chủ sở hữu state | Tự phát triển thêm |
+|---|---|---|---|
+| Agent loop, tools, session JSONL, compaction | Pi 1.1 RPC | Pi `SessionManager` | Pi RPC Adapter chỉ chuẩn hoá event thành `TaskEvent` |
+| Model/MCP | CLIProxy + 13 MCP Pi-native | Provider/MCP server | Converter OpenCode → `mcp.json`, profile tool theo role |
+| Quyền trong agent | Pi `tool_call`, `user_bash`, UI RPC | Pi extension runtime | `pi-workspace-kit` policy/guard/memory/gate |
+| Worktree, SHA, evidence, gate, push/CI | Git/GitHub Actions | **Coworker Harness/Postgres** | `WorktreeManager`, `EvidenceLedger`, deterministic checks |
+| Workflow dài, fan-out, retry, approval, resume | LangGraph JS | **LangGraph PostgresSaver** | graph nodes và API run/resume |
+| Mobile/web agent terminal | pi-mobile bridge, Tau | Pi session/bridge | fork bridge để allowlist cwd/ẩn path |
+| UI Coworker chính | Open WebUI | Open WebUI chat/history | Gateway tool/pipe gọi `coworker-harness` (H2, ngoài H1) |
+
+**Quy tắc:** LangGraph checkpoint trả lời “workflow đang ở node nào”; Pi JSONL trả lời “agent đã thấy và làm gì”; ledger trả lời “claim/gate/check nào đáng tin cho SHA nào”. Không sao chép chat history, raw Pi transcript hoặc semantic context blob vào LangGraph state.
 
 Repo mới **`vanbienperu3107/pi-workspace-kit`** (Pi package nội bộ, TypeScript):
 
@@ -56,13 +72,31 @@ pi-workspace-kit/
 │   ├── google-search/index.ts    # tool google_ai_search_plus (port từ plugin OpenCode)
 │   ├── figma-token/index.ts      # chạy figma-token-sync.py khi session_start
 │   ├── workspace-guard/index.ts  # chặn write/edit/bash ngoài allowlist cwd
-│   └── workflow-gate/index.ts    # /analyze /implement /review /verify + trạng thái gate
+│   └── workflow-gate/index.ts    # chỉ status/commands; push luôn bị chặn
 ├── prompts/                      # analyze.md implement.md review.md verify.md
 ├── agents/                       # workflow-analyst.md workflow-implementer.md workflow-reviewer.md
 └── test/                         # *.test.ts tương ứng từng module
 ```
 
-Repo **`vanbienperu3107/TelegramAgent`** (sửa):
+Repo mới **`vanbienperu3107/coworker-harness`** (LangGraph control plane, TypeScript):
+
+```
+coworker-harness/
+├── package.json
+├── src/
+│   ├── graph/state.ts              # Annotation state: IDs/versions, never raw context
+│   ├── graph/h1-code-flow.ts       # create_worktree → Pi → checks → reviews → approval → push/CI
+│   ├── pi/rpc-client.ts            # strict JSONL Pi RPC child-process adapter
+│   ├── pi/executor.ts              # worker/reviewer profile + TaskEvent mapping
+│   ├── workspace/worktree.ts       # only component allowed to git worktree add/remove
+│   ├── evidence/ledger.ts          # Postgres task_event/check_run/gate_verdict writes
+│   ├── api/run-service.ts          # invoke/resume/status API, no direct shell access
+│   └── config.ts                   # model profiles, limits, worker endpoint
+├── test/                           # graph, adapter, worktree, ledger integration tests
+└── scripts/h1-acceptance.mjs       # AC-H1 flow with a disposable fixture repo
+```
+
+Repo **`vanbienperu3107/TelegramAgent`** (sửa sau H1):
 
 ```
 docker/Dockerfile.pi-server       # tạo mới
@@ -71,12 +105,12 @@ docker/pi/settings.json           # tạo mới
 docker/pi/mcp.json.template       # tạo mới (13 server)
 docker/pi/APPEND_SYSTEM.md        # tạo mới — gộp instructions
 docker/pi/entrypoint.sh           # tạo mới — bridge + tau
-docker-compose.yml                # thêm service pi-server, volume pi_data
+docker-compose.pi-worker.yml      # tạo mới — deployment worker riêng, volume pi_data
 scripts/pi/convert-opencode-config.py   # tạo mới
 scripts/pi/verify-pi-config.cjs         # tạo mới
 scripts/pi/smoke.sh                     # tạo mới
 .github/workflows/build-images.yml      # thêm build pi-server
-.github/workflows/deploy.yml            # thêm bước verify + smoke pi
+.github/workflows/deploy-pi-worker.yml  # tạo mới — preflight worker → deploy → smoke Pi
 .github/workflows/pi-acceptance.yml     # tạo mới (Task 12)
 tests/test_compose.py                   # thêm test cho pi-server
 tests/test_pi_config.py                 # tạo mới
@@ -246,7 +280,7 @@ it("read_only block cannot be written", async () => {});
 - [ ] **Step 2–4:** Run FAIL → implement → PASS
 - [ ] **Step 5: Commit** `feat(guard): restrict write targets to allowlisted directories`
 
-### Task 6: Workflow Lite gate (commands + agents + trạng thái)
+### Task 6: Pi Workflow Lite extensions (không cấp quyền push)
 
 **Files:**
 - Create: `src/workflow-gate/index.ts`, `prompts/analyze.md`, `prompts/implement.md`, `prompts/review.md`, `prompts/verify.md`, `agents/*.md`, `test/workflow-gate.test.ts`
@@ -255,12 +289,48 @@ it("read_only block cannot be written", async () => {});
 - Consumes: nội dung `.opencode/commands/*.md`, `.opencode/agents/*.md`, `.opencode/workflow-policy.md` (copy, chỉ đổi cú pháp frontmatter nếu Pi cần).
 - Produces:
   - Commands `/analyze`, `/implement`, `/review`, `/verify` (prompt templates).
-  - Tool `workflow_gate` params `{ level: "normal"|"high"|"xhigh"; verdict: "PASS"|"REQUEST_CHANGES"|"BLOCKED"; revision: string; evidence: string }`; lưu entry vào session (custom entry `workflow_gate`).
-  - `tool_call` handler: khi chưa có verdict `PASS` cho cả 3 mức với `revision` = `git rev-parse HEAD` hiện tại, chặn `bash` khớp `git push*` và `gh pr merge*` với lý do "Chưa đủ gate Normal/High/XHigh cho revision <sha>".
+  - Tool `workflow_status` chỉ hiển thị Task ID, SHA và evidence ID do harness inject vào context; Pi không là nguồn sự thật của gate.
+  - `tool_call` handler **luôn** chặn `bash` khớp `git push*`, `gh pr merge*`, `git worktree add*`, `git checkout main`, `git checkout master`; lý do: "Lệnh này chỉ do Coworker Harness thực hiện".
+  - Khi có source edit, `agent_before_settle` trả `continue: true` một lần nếu run chưa nhận evidence `CODEGRAPH_SYNC` và `CHECK_AFTER_EDIT`; nếu UI source edit thì cần thêm `PLAYWRIGHT_AFTER_EDIT`. Extension chỉ yêu cầu evidence, Harness mới xác minh/gắn evidence.
 
-- [ ] **Step 1: Failing tests**: push bị chặn khi thiếu gate; cho qua khi đủ 3 PASS cùng revision; đổi revision làm mất hiệu lực; verdict REQUEST_CHANGES ở high không cho xhigh PASS được ghi (thứ tự bắt buộc).
-- [ ] **Step 2–4:** FAIL → implement (lấy HEAD qua `execFile("git", ["rev-parse","HEAD"], { cwd })`) → PASS
-- [ ] **Step 5: Commit** `feat(workflow): enforce Normal→High→XHigh gate before push/merge`
+- [ ] **Step 1: Failing tests**: push/merge/worktree/main checkout luôn bị chặn bất kể prompt; edit source thiếu evidence thì settle yêu cầu tiếp tục; evidence đủ thì settle không nối thêm turn.
+- [ ] **Step 2–4:** FAIL → implement → PASS
+- [ ] **Step 5: Commit** `feat(workflow): expose workflow commands and reserve git control for harness`
+
+### Task 6b: `coworker-harness` H1 — workflow state, Pi RPC và hard gates
+
+**Files (repo mới `coworker-harness`):**
+- Create: `package.json`, `src/graph/state.ts`, `src/graph/h1-code-flow.ts`, `src/pi/rpc-client.ts`, `src/pi/executor.ts`, `src/workspace/worktree.ts`, `src/evidence/ledger.ts`, `scripts/h1-acceptance.mjs`
+- Test: `test/h1-code-flow.test.ts`, `test/rpc-client.test.ts`, `test/worktree.test.ts`, `test/ledger.test.ts`
+
+**Interfaces:**
+- Consumes: Pi 1.1 RPC JSONL, `pi-workspace-kit` (Task 1–6), CodeGraph CLI, Git, `@langchain/langgraph@1.5.0`, `@langchain/langgraph-checkpoint-postgres@1.1.0`.
+- Produces:
+  - `PiExecutor.start(envelope: SubtaskEnvelope): Promise<RunHandle>`; `events`, `abort`, `steer`, `answerUi`, `result` như đề xuất harness. Child Pi chạy với `cwd = worktree`, session dir riêng theo `run_id`, worker profile hoặc reviewer read-only profile.
+  - `WorktreeManager.create({ taskId, repository, baseSha }): Promise<{ path, branch, baseSha }>` là API duy nhất được phép chạy `git worktree add`; `remove` chỉ sau khi ledger đánh dấu task terminal.
+  - `EvidenceLedger.recordCheck`, `recordGate`, `latestForSha`; production dùng Postgres, test dùng in-memory adapter. `gate_verdict` bắt buộc gồm `sha`, `level`, `verdict`, `reviewer_run_id`, `evidence_ids`.
+  - H1 graph: `create_worktree → codegraph_preflight → worker → deterministic_checks → review_normal → review_high → review_xhigh → pre_push_guard → interrupt(push approval) → push_branch → watch_ci → final`.
+  - LangGraph graph state chỉ chứa ID/version/path/SHA; requirement/raw context/tool output chỉ đi qua artifact/evidence IDs.
+
+- [ ] **Step 1: Write failing unit tests**
+
+```ts
+it("creates an isolated worktree at the pinned base SHA and never writes the base checkout", async () => {});
+it("initializes CodeGraph inside the new worktree before the worker runs", async () => {});
+it("records test exit code and post-edit CodeGraph sync against the worker commit SHA", async () => {});
+it("requires normal, high, xhigh PASS verdicts from distinct reviewer run IDs for the exact SHA", async () => {});
+it("stops at PUSH_APPROVAL interrupt and remote branch does not exist before Command resume", async () => {});
+it("pushes only after Command({ resume: true }) and complete gate evidence", async () => {});
+it("rejects stale verdicts after worker creates a new SHA", async () => {});
+```
+
+- [ ] **Step 2: Run** `npm test -- h1-code-flow` — Expected: FAIL
+- [ ] **Step 3: Implement `rpc-client.ts`**: strict LF-delimited JSON parser, continuously drain stdout, timeout + child cleanup, classify `tool_execution_*`, `extension_ui_request`, `agent_settled`; no stderr parsing as protocol.
+- [ ] **Step 4: Implement `worktree.ts` and `ledger.ts`**: call `git worktree add -b task/<taskId> <path> <baseSha>`; call `codegraph init <path> --yes` for every worktree (H1 evidence: index from base checkout is not reusable); use `PostgresSaver.fromConnString()` only in production composition, MemorySaver only in tests.
+- [ ] **Step 5: Implement graph and reviewer profiles**: worker has `read,bash,edit,write`; reviewer has `read,grep,find,ls` only. Cap reviewer tool calls at 8 and ask it for a strict JSON `GateVerdict`; H1 observed unrestricted normal review made 17 calls and consumed 104K token.
+- [ ] **Step 6: Run disposable acceptance fixture** `node scripts/h1-acceptance.mjs` — Expected: fixes a seeded parser bug; test PASS; 3 gates PASS; remote branch absent before approval; `Command({resume:true})` pushes branch; base checkout remains unchanged.
+- [ ] **Step 7: Run** `npm test && npm run typecheck` — PASS. Start a local Postgres test container in CI only; run persistence/restart test: new process loads same `thread_id`, resumes pending interrupt.
+- [ ] **Step 8: Commit** `feat(harness): add LangGraph Pi RPC code workflow with hard gates`
 
 ### Task 7: Fork pi-mobile bridge — allowlist cwd và ẩn đường dẫn
 
@@ -289,7 +359,7 @@ it("sessions payload contains no absolute allowlisted root", /* JSON không ch�
 - [ ] **Step 4: Run** `(cd bridge && pnpm run check)` — Expected: lint, typecheck, toàn bộ test PASS (baseline 87 + 5 mới).
 - [ ] **Step 5: Commit + PR trong fork**; mở PR ngược lên `ayagmar/pi-mobile` (không chờ merge).
 
-### Task 8: Image `pi-server` và cấu hình chuyển đổi
+### Task 8: Image `pi-server` worker và cấu hình chuyển đổi
 
 **Files (repo `TelegramAgent`):**
 - Create: `docker/Dockerfile.pi-server`, `docker/pi/models.json.template`, `docker/pi/settings.json`, `docker/pi/mcp.json.template`, `docker/pi/APPEND_SYSTEM.md`, `docker/pi/entrypoint.sh`, `scripts/pi/convert-opencode-config.py`, `scripts/pi/verify-pi-config.cjs`, `tests/test_pi_config.py`
@@ -301,7 +371,7 @@ it("sessions payload contains no absolute allowlisted root", /* JSON không ch�
   - Image `ghcr.io/vanbienperu3107/pi-server:<git-sha>`; user `node`; `PI_CODING_AGENT_DIR=/home/node/.pi/agent`; `PI_TELEMETRY=0`; tini làm PID 1; cùng gói apt với `Dockerfile.opencode-server` (git, openssh-client, ripgrep, ca-certificates, curl, tini, python3, graphviz).
   - `convert-opencode-config.py <opencode.json> <out-dir>` sinh `mcp.json` theo bảng chuyển đổi chính thức của Pi: `local` → `command`+`args`; `environment` → `env`; `{env:X}` → `${X}`; `{file:P}` → `"!cat P"`; `remote` → `url`+`headers`; khoá Tavily chuyển từ query `tavilyApiKey=` sang header `Authorization: Bearer ${TAVILY_API_KEY}`; `enabled:false` giữ nguyên; `codegraph` và `research_search` đặt `"exposure": "direct"` (đo ở A4: codemode gọi sai tên và bỏ sót caller), các server còn lại giữ `codemode`.
   - `APPEND_SYSTEM.md` = nối `AGENTS.md` + `feature-workflow.md` + `RESEARCH-MCP-POLICY.md` (sinh lúc build, có header nguồn + sha256 từng file).
-  - `entrypoint.sh`: chạy bridge (`BRIDGE_HOST=0.0.0.0` trong mạng Docker, `BRIDGE_PORT=8787`, `BRIDGE_ALLOWED_CWDS=/workspace/Project:/workspace/opencode-sandbox`, `BRIDGE_PI_COMMAND=pi`) và `pi-tau-web-server --host 0.0.0.0 --port 3001` với `TAU_USER/TAU_PASS` từ secret; thoát khi một trong hai chết.
+  - `entrypoint.sh`: chạy bridge (`BRIDGE_HOST=0.0.0.0` trong mạng Docker, `BRIDGE_PORT=8787`, `BRIDGE_ALLOWED_CWDS=/workspace/Project:/workspace/opencode-sandbox`, `BRIDGE_PI_COMMAND=pi`) và `pi-tau-web-server --host 0.0.0.0 --port 3001` với `TAU_USER/TAU_PASS` từ secret; thoát khi một trong hai chết. Worker chỉ nhận subtask từ `coworker-harness`, không có đường push/merge trực tiếp.
   - `verify-pi-config.cjs`: exit≠0 nếu thiếu model mặc định trong `models.json`, nếu có khoá literal, nếu thiếu bất kỳ server nào đang `enabled` trong `opencode.json`.
 
 - [ ] **Step 1: Failing tests** `tests/test_pi_config.py`
@@ -322,34 +392,36 @@ def test_dockerfile_pins_pi_and_node24_sha(): ...           # "@earendil-works/p
 - [ ] **Step 4: Run** `pytest -q` (toàn repo) — PASS; `docker build -f docker/Dockerfile.pi-server .` chạy trong CI `build-images.yml` — PASS.
 - [ ] **Step 5: Commit** `feat(pi): pi-server image and OpenCode→Pi config converter`
 
-### Task 9: Thêm `pi-server` vào compose (song song OpenCode)
+### Task 9: Deploy `pi-server` trên worker riêng hoặc staged takeover
 
 **Files:**
-- Modify: `docker-compose.yml`, `tests/test_compose.py`, `.github/workflows/deploy.yml`
+- Create: `docker-compose.pi-worker.yml`, `.github/workflows/deploy-pi-worker.yml`, `scripts/pi/preflight-worker.sh`
+- Modify: `tests/test_compose.py`
 - Create: `scripts/pi/smoke.sh`
 
 **Interfaces:**
-- Consumes: image Task 8.
+- Consumes: image Task 8, `coworker-harness` H1 (Task 6b).
 - Produces:
-  - Service `pi-server`: `mem_limit: 768m`, `memswap_limit: 1280m`, `oom_score_adj: 800`, `pids_limit: 512`, `security_opt: ["no-new-privileges:true"]`, `cap_drop: [ALL]`, `env_file: .env.pi`, không `ports:`, `networks: [opencode_net, edge]`, `working_dir: ${DEFAULT_PROJECT_PATH:?...}`, volumes: `./workspace:/workspace`, `pi_data:/home/node/.pi/agent/sessions`, `./skill_new:/opt/skills:ro`, `./workspace/opencode-mcp-research/image-data:/research-images:ro`, secret file `cliproxy-key`; healthcheck `curl -sS -o /dev/null --max-time 5 http://127.0.0.1:8787/health` (bridge chạy `BRIDGE_ENABLE_HEALTH_ENDPOINT=true`).
-  - `opencode-server.mem_limit` 1536m → 896m (đánh dấu comment "song song Pi, hoàn nguyên khi rollback").
+  - Service `pi-server`: `mem_limit: 768m`, `memswap_limit: 1280m`, `oom_score_adj: 800`, `pids_limit: 512`, `security_opt: ["no-new-privileges:true"]`, `cap_drop: [ALL]`, `env_file: .env.pi`, không `ports:`, `working_dir: ${DEFAULT_PROJECT_PATH:?...}`, volumes: `./workspace:/workspace`, `pi_data:/home/node/.pi/agent/sessions`, `./skill_new:/opt/skills:ro`, `./workspace/opencode-mcp-research/image-data:/research-images:ro`, secret file `cliproxy-key`; healthcheck `curl -sS -o /dev/null --max-time 5 http://127.0.0.1:8787/health` (bridge chạy `BRIDGE_ENABLE_HEALTH_ENDPOINT=true`).
+  - `preflight-worker.sh` từ chối deploy nếu worker không có ít nhất 1536 MB `MemAvailable` trước khi khởi động Pi, hoặc nếu không truy cập được CLIProxy/MCP network.
+  - Không đổi `opencode-server.mem_limit` ở giai đoạn canary. Nếu không có worker thứ hai, staged takeover phải stop OpenCode trước khi start Pi và giữ rollback dưới 60 s.
   - `smoke.sh` (chạy trong container `pi-server`): `pi --version` = 1.1.0; `pi mcp list` có ≥10 `connected`; `pi --no-session -p "Reply with exactly: PONG"` in `PONG`; RPC `get_state` qua bridge trả `provider=cliproxy`.
 
 - [ ] **Step 1: Failing tests** thêm vào `tests/test_compose.py`
 
 ```python
-def test_du_bon_service(services): assert set(services) >= {"telegram-gateway","opencode-server","pi-server","pg-tunnel"}
+def test_pi_worker_compose_khong_publish_cong(services): assert "ports" not in services["pi-server"]
 def test_pi_server_khong_publish_cong(services): assert "ports" not in services["pi-server"]
 def test_pi_server_khong_o_db_net(services): assert "db_net" not in services["pi-server"]["networks"]
 def test_pi_sessions_giu_qua_deploy(services, compose): assert "pi_data" in compose["volumes"]
-# test_tong_ngan_sach_ram_khong_vuot_1856mb hiện có phải tiếp tục PASS
+# compose vpn4 gốc giữ nguyên test_tong_ngan_sach_ram_khong_vuot_1856mb
 ```
 
 - [ ] **Step 2: Run** `pytest tests/test_compose.py -q` — FAIL
-- [ ] **Step 3: Implement** compose + deploy bước "verify-pi-config" và "smoke pi" sau `docker compose up -d`; nếu smoke fail → `docker compose stop pi-server` và job FAIL (OpenCode không bị động tới).
-- [ ] **Step 4: Run** `pytest -q` — PASS; dispatch `deploy.yml` trên branch; theo dõi run tới khi xong; Expected: bước smoke in `PONG` và `provider=cliproxy`.
-- [ ] **Step 5: Test restart** — `session_survives_container_restart`: trong deploy job, tạo session qua bridge với code word, `docker restart pi-server`, `switch_session` cùng file, hỏi lại code word → khớp.
-- [ ] **Step 6: Commit** `feat(deploy): run pi-server alongside opencode-server on vpn4`
+- [ ] **Step 3: Implement** worker compose + preflight + deploy bước "verify-pi-config" và "smoke pi"; nếu smoke fail → stop `pi-server`, job FAIL và OpenCode không bị động tới.
+- [ ] **Step 4: Run** `pytest -q` — PASS; dispatch `deploy-pi-worker.yml`; Expected: preflight PASS, smoke in `PONG` và `provider=cliproxy`.
+- [ ] **Step 5: Test restart** — `session_survives_container_restart`: trong deploy job, tạo session qua bridge với code word, restart `pi-server`, `switch_session` cùng file, hỏi lại code word → khớp.
+- [ ] **Step 6: Commit** `feat(deploy): add isolated Pi worker deployment with capacity preflight`
 
 ### Task 10: Truy cập từ điện thoại (bridge + Tau qua tailnet)
 
@@ -394,14 +466,14 @@ def test_pi_sessions_giu_qua_deploy(services, compose): assert "pi_data" in comp
 
 **Interfaces:**
 - Consumes: mọi task trước.
-- Produces: workflow dispatch chạy trên vpn4 (ssh-action như `deploy.yml`) các ca A1–A12 (Phụ lục B), xuất `acceptance-<sha>.md` làm artifact; runbook cắt chuyển 3 bước và rollback.
+- Produces: workflow dispatch chạy trên **Pi worker** (ssh-action như `deploy.yml`) các ca A1–A13 (Phụ lục B), xuất `acceptance-<sha>.md` làm artifact; runbook cắt chuyển 3 bước và rollback.
 
 - [ ] **Step 1: Viết ca nghiệm thu dạng script** (mỗi ca exit 0/1, in `PASS`/`FAIL` + bằng chứng).
-- [ ] **Step 2: Dispatch** `pi-acceptance.yml` — Expected: 12/12 PASS cho commit đang deploy.
+- [ ] **Step 2: Dispatch** `pi-acceptance.yml` — Expected: 13/13 PASS cho commit đang deploy.
 - [ ] **Step 3: Cắt chuyển bề mặt 1 — người dùng hằng ngày**: Tau/pi-mobile qua tailnet làm bề mặt chính 7 ngày; OpenCode vẫn chạy. Ghi lại lỗi vào issue.
 - [ ] **Step 4: Cắt chuyển bề mặt 2 — Telegram**: đặt `AGENT_BACKEND=pi`, deploy, chạy A11 trên Telegram thật.
-- [ ] **Step 5: Cắt chuyển bề mặt 3 — tắt OpenCode**: `docker compose stop opencode-server`, nâng `pi-server.mem_limit` lên 1280m, giữ image + volume `opencode_data` 30 ngày.
-- [ ] **Step 6: Rollback (thử thật một lần trước bước 5)**: `AGENT_BACKEND=opencode`, `opencode-server.mem_limit` 1536m, `docker compose up -d opencode-server`, `docker compose stop pi-server`; Expected: `/global/health` 200 trong 60 s và phiên OpenCode cũ còn nguyên.
+- [ ] **Step 5: Cắt chuyển bề mặt 3 — stop OpenCode sau 7 ngày ổn định**: bỏ route/worker OpenCode, giữ image + volume `opencode_data` 30 ngày. Pi worker không đổi `mem_limit` chỉ vì cắt chuyển; tăng capacity phải qua benchmark/PR riêng.
+- [ ] **Step 6: Rollback (thử thật một lần trước bước 5)**: đặt `AGENT_BACKEND=opencode`, khôi phục route/worker OpenCode với `mem_limit` 1536m, deploy image/version đã ghi trong runbook; Expected: `/global/health` 200 trong 60 s và phiên OpenCode cũ còn nguyên.
 - [ ] **Step 7: Commit** `docs(pi): acceptance suite, cutover and rollback runbook`
 
 ---
@@ -423,6 +495,7 @@ def test_pi_sessions_giu_qua_deploy(services, compose): assert "pi_data" in comp
 | A11 | Tuân thủ quy trình | Pi bỏ qua worktree; OpenCode tuân thủ ⇒ Task 6 bắt buộc |
 | A12 | pi-mobile bridge `pnpm run check` | 87/87; lỗ hổng cwd tùy ý + lộ đường dẫn ⇒ Task 7 |
 | A13 | App Android pi-mobile | BLOCKED (không KVM) ⇒ Task 10 Step 4 |
+| A14 | H1 LangGraph + Pi RPC hard-gate spike (2026-10-15) | PASS: `MemorySaver`, disposable worktree, CodeGraph init+explore+sync, worker + 3 reviewer read-only, `interrupt()` duyệt push; remote branch **không tồn tại** trước approval, push sau `Command({resume:true})`; lần cuối 96,59 s, 324 MB peak, 95.828 token. Một run trước reviewer Normal gọi 17 tool/104K token; run cuối reviewer XHigh gọi 9 tool ⇒ Task 6b giới hạn 8 call/reviewer là bắt buộc. |
 
 ## Phụ lục B — Ca nghiệm thu (Task 12)
 
@@ -440,6 +513,7 @@ def test_pi_sessions_giu_qua_deploy(services, compose): assert "pi_data" in comp
 | AC10 | Restart container giữa phiên | resume được, dữ kiện còn |
 | AC11 | Telegram với `AGENT_BACKEND=pi` | prompt, duyệt quyền, huỷ hoạt động |
 | AC12 | Rollback | OpenCode health 200 ≤ 60 s, phiên cũ còn |
+| AC13 | H1 hard-gate | base checkout không đổi; worktree có SHA mới; CodeGraph init/sync trong worktree; 3 reviewer run ID khác nhau PASS đúng SHA; remote branch vắng trước approval và xuất hiện sau resume |
 
 ## Phụ lục C — Rủi ro còn lại
 
@@ -448,3 +522,5 @@ def test_pi_sessions_giu_qua_deploy(services, compose): assert "pi_data" in comp
 - pi-mobile mới cam kết Pi 0.80; fork phải tự chạy ca nghiệm thu khi nâng Pi.
 - Codemode làm chất lượng gọi tool kém hơn; codegraph khai báo `exposure: "direct"` trong `mcp.json`.
 - `always` (cho phép vĩnh viễn) của OpenCode không có tương đương trực tiếp; Task 11 hạ về `once`.
+- H1 dùng `MemorySaver` để thử graph. Production bắt buộc `PostgresSaver`; không promotion khi chưa có test resume pending `interrupt()` qua process restart và Postgres thật.
+- H1 không tải 13 MCP và không chạy UI test; 316 MB chỉ là lower bound, không phải capacity chứng minh cho Pi worker production.
