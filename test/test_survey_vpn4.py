@@ -254,14 +254,20 @@ def test_allowlist_chan_duoc_lenh_ghi_that(lenh_doc):
 # hinh nao (bind mount doi ma khong recreate thi file tren dia khac voi cau hinh
 # dang chay — su co that 2026-08-27).
 #
-# `timeout N` dung TRUOC `docker` (do la cach bash chay: timeout boc ca lenh).
+# Tran thoi gian dung TRUOC `docker` (cach bash chay: timeout boc ca lenh).
 # Ban truoc viet `docker exec (?:timeout \d+ )?...` — dat nhom sau `exec` — nen
 # no la code chet: xoa `timeout 15` khoi script van xanh het.
+#
+# Script dung bien `$Q` / `$Q30` (= "$SUDO timeout N") cho moi lenh truy van;
+# chap nhan ca dang viet thang `timeout N`.
+# `\$Q30?` SAI: no doi phai co chu so 3, nen `$Q` khong khop. Phai la `\$Q(?:30)?`.
+TRAN_TG = r"(?:\$Q(?:30)?|timeout \d+)"
+
 # Giu dung hai lenh script that su dung. Cho phep `ls|head|tail|caddy version`
 # "cho du" la tu mau thuan voi chinh ly do vua go logs/events/top/port khoi
 # DONG_TU_CHO_PHEP: dong tu khong dung toi = mot cua de san cho nguoi sau.
 EXEC_AN_TOAN = re.compile(
-    r"timeout \d+ docker exec [A-Za-z0-9_.-]+ (?:cat|nginx -T)\b"
+    TRAN_TG + r" docker exec [A-Za-z0-9_.-]+ (?:cat|nginx -T)\b"
 )
 
 
@@ -281,35 +287,62 @@ def test_moi_docker_exec_deu_la_lenh_doc_va_co_timeout():
     an_toan = len(EXEC_AN_TOAN.findall(script))
     assert tong == an_toan, (
         f"Co {tong} lan `docker exec` nhung chi {an_toan} lan khop pattern an "
-        "toan. Moi lan exec phai la: timeout N docker exec <ten> "
-        "<cat|ls|head|tail|nginx -T|caddy version>"
+        "toan. Moi lan exec phai la: timeout N docker exec <ten> <cat|nginx -T>"
     )
 
 
-def test_docker_inspect_phai_co_format_va_khong_doc_config():
+# Duong dan Go-template duoc phep trong --format cua `docker inspect`.
+# ALLOWLIST, khong phai denylist: doi hoi "co --format" roi cam chuoi `.Config`
+# la KHONG DU — `--format '{{json .}}'` co --format, khong he chua chu
+# `.Config`, va in ra TOAN BO JSON gom ca Config.Env. Do la cach viet tu nhien
+# ("toi muon JSON day du"), khong phai nguy trang.
+FORMAT_CHO_PHEP = {
+    ".State.Status",
+    ".State.StartedAt",
+    ".HostConfig.Memory",
+    ".Name",
+    ".IPv4Address",
+    ".IPAM.Config",
+    ".Subnet",
+    ".Containers",
+    ".Config.Image",
+}
+
+
+def test_docker_inspect_chi_doc_truong_trong_allowlist():
     """`docker inspect <ten>` TRAN in toan bo JSON, GOM CA Config.Env.
 
     Do la noi chua CLIPROXY_API_KEY va OPENCODE_SERVER_PASSWORD. GitHub KHONG
-    mask duoc gia tri no khong biet truoc -> secret di thang vao log CI cong
-    khai. Chan bang chuoi `.Config.Env` la khong du: lenh tran khong he chua
-    chuoi do. Phai bat buoc co --format va soi noi dung format.
+    mask duoc gia tri no khong biet truoc -> secret di thang vao log CI.
+
+    Soi NOI DUNG format chu khong chi su co mat cua no: `{{json .}}` va `{{.}}`
+    deu la "co --format" nhung dump sach moi thu.
     """
     script = ssh_script()
     for dong in script.splitlines():
-        if "docker inspect" not in dong and "inspect " not in dong:
-            continue
         if not re.search(r"\binspect\b", dong):
             continue
-        # `docker network/volume inspect` cung phai co format.
         assert re.search(r"inspect\b[^|\n]*(?:-f|--format)\b", dong), (
             f"`inspect` khong co --format se in CA Config.Env (API key):\n  {dong.strip()}"
         )
-        # `.Config` cua CONTAINER chua Env (API key). `.IPAM.Config` cua MANG
-        # chi la subnet/gateway — khac hoan toan, khong duoc chan nham.
-        assert not re.search(r"(?<!\.IPAM)\.Config\b(?!\.Image\b)", dong), (
-            f"format doc .Config cua container — vung chua bien moi truong:\n"
-            f"  {dong.strip()}"
+        # Lay noi dung template giua cap nhay.
+        tpl = re.findall(r"(?:-f|--format)\s+'([^']*)'", dong)
+        tpl += re.findall(r'(?:-f|--format)\s+"([^"]*)"', dong)
+        assert tpl, (
+            f"Khong doc duoc noi dung --format (phai dat trong nhay):\n  {dong.strip()}"
         )
+        for t in tpl:
+            # `{{.}}` hoac `{{json .}}` = dump toan bo object.
+            assert not re.search(r"\{\{\s*(?:json\s+)?\.\s*\}\}", t), (
+                f"format dump TOAN BO object (gom Config.Env):\n  {dong.strip()}"
+            )
+            truong = re.findall(r"\.[A-Za-z][\w.]*", t)
+            la = [x for x in truong if x not in FORMAT_CHO_PHEP]
+            assert not la, (
+                f"format doc truong ngoai allowlist {la}:\n  {dong.strip()}\n"
+                f"Them vao FORMAT_CHO_PHEP neu that su can, va kiem tra truong "
+                "do khong chua bien moi truong."
+            )
 
 
 def test_docker_exec_khong_duoc_mo_shell():
@@ -390,7 +423,14 @@ def test_khong_eval_va_khong_gan_lenh_vao_bien():
         "`eval` cho phep dung chuoi ghep de chay lenh ma allowlist khong nhin thay"
     )
     assert not re.search(r"\balias\b", script), "alias co the doi ten mot lenh ghi"
-    gan = re.findall(r"\b\w+=[\"']?docker\b", script)
+    # Phai bat ca dang DUONG DAN: `D=/usr/bin/docker; $D restart derper`.
+    # Dang nay lot qua parser vi `/usr/bin/docker` theo sau boi `;` -> phan doi
+    # so rong -> coi nhu `docker` tran vo hai; con `$D restart` khong he co chu
+    # 'docker' de allowlist nhin thay.
+    # `(?!/)` o cuoi: `VOL_ROOT="/var/lib/docker/volumes"` la DUONG DAN toi thu
+    # muc du lieu, khong phai gan binary. Con `D=/usr/bin/docker` (het chuoi
+    # hoac theo sau boi `;`/space) thi dung la gan binary -> phai chan.
+    gan = re.findall(r"\b\w+=\s*[\"']?[\w/.${}-]*\bdocker\b(?![\w/.-])", script)
     assert not gan, (
         f"Gan lenh docker vao bien ({gan}): lenh thuc su se chay qua bien va "
         "khong con chu 'docker' de allowlist bat"
@@ -512,11 +552,44 @@ def test_chi_dung_action_trong_allowlist():
         ten = uses.split("@", 1)[0].lower()
         if ten not in USES_CHO_PHEP:
             la.append(f"{ten_job}.{step.get('name')}: {uses}")
+
+    # Job-level `uses:` (reusable workflow) KHONG co `steps` nen moi_step()
+    # khong nhin thay. `jobs.x.uses: ./.github/workflows/y.yml` +
+    # `secrets: inherit` la mot duong chay lenh hoan chinh, vo hinh voi tat ca.
+    for ten_job, job in load()["jobs"].items():
+        if job.get("uses"):
+            la.append(f"{ten_job}: job-level uses {job['uses']}")
+
     assert not la, (
         f"Action ngoai allowlist: {la}. Moi rao chan read-only chi ap len step "
         f"co uses chua 'ssh-action'; dung action khac (vd appleboy/scp-action — "
-        "GHI FILE len host) la di vong qua tat ca. Them vao USES_CHO_PHEP va "
-        "mo rong rao chan truoc khi dung."
+        "GHI FILE len host) hoac reusable workflow la di vong qua tat ca. Them "
+        "vao USES_CHO_PHEP va mo rong rao chan truoc khi dung."
+    )
+
+
+def test_step_run_khong_duoc_chay_lenh_tu_xa():
+    """Rao chan read-only CHI phu script cua ssh-action.
+
+    Mot step `run:` binh thuong cung chay duoc lenh tren vpn4:
+        env: KEY: ${{ secrets.SSH_KEY }}
+        run: ssh -i <(echo "$KEY") host 'docker restart derper'
+    Dang nay KHONG interpolate secret inline nen test secret khong bat, va
+    khong nam trong ssh-action nen khong test read-only nao nhin thay. Khao
+    sat khong can ssh/scp/rsync trong `run:` — step DNS chi goi python3.
+    """
+    la = []
+    for ten_job, step in moi_step():
+        lenh = step.get("run")
+        if not lenh:
+            continue
+        for tu in (r"\bssh\b", r"\bscp\b", r"\brsync\b", r"\bsshpass\b",
+                   r"\bcurl\b.*--upload-file", r"\bnc\b"):
+            if re.search(tu, lenh):
+                la.append(f"{ten_job}.{step.get('name')}: {tu}")
+    assert not la, (
+        f"Step `run:` chay lenh tu xa: {la}. Moi duong toi vpn4 phai di qua "
+        "step ssh-action de chiu rao chan read-only."
     )
 
 
@@ -582,9 +655,35 @@ def test_docker_stats_phai_co_no_stream():
         assert "--no-stream" in dong, (
             f"`docker stats` thieu --no-stream, se chay vo han:\n  {dong.strip()}"
         )
-        assert re.search(r"timeout \d+ docker (?:container )?stats\b", dong), (
-            f"`docker stats` nen boc `timeout N`:\n  {dong.strip()}"
+        assert re.search(TRAN_TG + r" docker (?:container )?stats\b", dong), (
+            f"`docker stats` nen boc tran thoi gian ($Q/$Q30):\n  {dong.strip()}"
         )
+
+
+def test_moi_lenh_truy_van_deu_co_tran_thoi_gian():
+    """dockerd co the TREO — khac voi chet (chet thi tra ngay, nhanh).
+
+    Mot lan treo la het command_timeout 3m: mat cac muc sau (gom [12]
+    DOCKER-USER, du lieu quyet dinh cho buoc 2) VA giu concurrency group
+    'deploy-vpn4-host' du 3 phut, chan rollback khan cap cua derper.
+
+    `du -sh` tren thu muc volume cung co the rat lau tren host 2GB.
+    """
+    thieu = []
+    for dong in ssh_script().splitlines():
+        for lenh in ("docker", "du", "iptables", "ss", "systemctl", "ufw"):
+            # Chi soi lenh duoc GOI THAT: dung ngay sau `$SUDO`/`$Q`/`$(`.
+            # Khong soi chuoi trong van ban (vd "(ufw khong dung)").
+            goi = re.findall(r"\$(?:SUDO|Q30|Q)\s+" + lenh + r"\b", dong)
+            if not goi:
+                continue
+            if re.search(TRAN_TG + r"\s+" + lenh + r"\b", dong):
+                continue
+            thieu.append(f"{lenh}: {dong.strip()}")
+    assert not thieu, (
+        "Lenh truy van khong co tran thoi gian (dung $Q hoac $Q30):\n  "
+        + "\n  ".join(dict.fromkeys(thieu))
+    )
 
 
 def test_bao_truoc_khi_ket_luan_cong_trong():

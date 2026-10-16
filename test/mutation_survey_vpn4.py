@@ -81,26 +81,34 @@ DOT_BIEN = [
      "test_moi_lenh_docker_deu_nam_trong_allowlist"),
 
     ("docker exec mo shell ghi de Caddyfile",
-     '$SUDO timeout 15 docker exec caddy-edge cat /etc/caddy/Caddyfile',
-     '$SUDO docker exec caddy-edge /bin/sh -c "echo x > /etc/caddy/Caddyfile"',
+     '$Q docker exec caddy-edge cat /etc/caddy/Caddyfile',
+     '$Q docker exec caddy-edge /bin/sh -c "echo x > /etc/caddy/Caddyfile"',
      "test_docker_exec_khong_duoc_mo_shell"),
     ("docker exec noi lenh bang &&",
-     '$SUDO timeout 15 docker exec caddy-edge cat /etc/caddy/Caddyfile',
-     '$SUDO timeout 15 docker exec caddy-edge cat /etc/caddy/Caddyfile && docker rm -f derper',
+     '$Q docker exec caddy-edge cat /etc/caddy/Caddyfile',
+     '$Q docker exec caddy-edge cat /etc/caddy/Caddyfile && docker rm -f derper',
      "test_docker_exec_khong_duoc_mo_shell"),
     ("xoa `timeout` truoc docker exec  (nginx -T treo het command_timeout)",
-     '$SUDO timeout 15 docker exec edge-nginx nginx -T',
+     '$Q docker exec edge-nginx nginx -T',
      '$SUDO docker exec edge-nginx nginx -T',
      "test_moi_docker_exec_deu_la_lenh_doc_va_co_timeout"),
 
     ("docker inspect KHONG --format  (in ca Config.Env -> lo CLIPROXY_API_KEY)",
-     "$SUDO docker inspect -f '{{.HostConfig.Memory}}' \"$c\"",
+     "$Q docker inspect -f '{{.HostConfig.Memory}}' \"$c\"",
      '$SUDO docker inspect "$c"',
-     "test_docker_inspect_phai_co_format_va_khong_doc_config"),
+     "test_docker_inspect_chi_doc_truong_trong_allowlist"),
     ("format doc .Config.Env truc tiep",
      "-f '{{.HostConfig.Memory}}'",
      "-f '{{.Config.Env}}'",
-     "test_docker_inspect_phai_co_format_va_khong_doc_config"),
+     "test_docker_inspect_chi_doc_truong_trong_allowlist"),
+    ("format {{json .}} dump toan bo inspect (gom Config.Env)",
+     NEO_TRUNG_TINH,
+     "            $Q docker inspect --format '{{json .}}' derper",
+     "test_docker_inspect_chi_doc_truong_trong_allowlist"),
+    ("format {{.}} dump toan bo inspect (gom Config.Env)",
+     NEO_TRUNG_TINH,
+     "            $Q docker inspect -f '{{.}}' derper",
+     "test_docker_inspect_chi_doc_truong_trong_allowlist"),
     ("docker logs  (do log ung dung, co the chua token, vao log CI)",
      NEO_TRUNG_TINH,
      '            $SUDO docker logs cliproxy',
@@ -132,8 +140,8 @@ DOT_BIEN = [
      "test_khong_redirect_ra_file"),
 
     ("bo --no-stream khoi docker stats  (treo het command_timeout)",
-     'timeout 30 docker stats --no-stream',
-     'timeout 30 docker stats',
+     '$Q30 docker stats --no-stream',
+     '$Q30 docker stats',
      "test_docker_stats_phai_co_no_stream"),
     ("them script_stop: true  (pha moi nhanh else)",
      '          command_timeout: 3m',
@@ -250,8 +258,8 @@ DOT_BIEN = [
      '            $SUDO docker image history cliproxy',
      "test_moi_lenh_docker_deu_nam_trong_allowlist"),
     ("docker container stats KHONG --no-stream  (test cu tim chuoi 'docker stats')",
-     'timeout 30 docker stats --no-stream',
-     'timeout 30 docker container stats',
+     '$Q30 docker stats --no-stream',
+     '$Q30 docker container stats',
      "test_docker_stats_phai_co_no_stream"),
 
     # Rao chan chi ap len step co `uses` chua 'ssh-action'. Dung action khac de
@@ -293,6 +301,32 @@ DOT_BIEN = [
      NEO_TRUNG_TINH,
      '            /usr/bin/docker restart derper',
      "test_moi_lenh_docker_deu_nam_trong_allowlist"),
+    ("gan binary docker theo duong dan vao bien (di vong parser)",
+     NEO_TRUNG_TINH,
+     '            D=/usr/bin/docker; $D restart derper',
+     "test_khong_eval_va_khong_gan_lenh_vao_bien"),
+    ("step run SSH voi secret qua env (di vong ssh-action)",
+     '      - name: Kiem tra DNS cho domain Portainer du kien',
+     '''      - name: SSH di vong
+        env:
+          KEY: ${{ secrets.SSH_KEY }}
+        run: ssh -i <(echo "$KEY") user@vpn4 'docker restart derper'
+
+      - name: Kiem tra DNS cho domain Portainer du kien''',
+     "test_step_run_khong_duoc_chay_lenh_tu_xa"),
+    ("job-level reusable workflow (di vong rao chan step)",
+     'jobs:\n  survey:',
+     '''jobs:
+  evil:
+    uses: ./.github/workflows/evil.yml
+    secrets: inherit
+
+  survey:''',
+     "test_chi_dung_action_trong_allowlist"),
+    ("bo timeout cho du quet volume (I/O treo host 2GB)",
+     '$Q du -sh -x "$VOL_ROOT"/*/',
+     '$SUDO du -sh -x "$VOL_ROOT"/*/',
+     "test_moi_lenh_truy_van_deu_co_tran_thoi_gian"),
 ]
 
 
