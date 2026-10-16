@@ -47,7 +47,9 @@ def ssh_steps():
     ds = []
     for job in load()["jobs"].values():
         for step in job.get("steps", []):
-            if "ssh-action" in str(step.get("uses", "")):
+            # .lower(): GitHub phan giai `appleboy/SSH-Action` nhu nhau, con
+            # `in` cua Python thi phan biet hoa thuong -> viet hoa la lot.
+            if "ssh-action" in str(step.get("uses", "")).lower():
                 ds.append(step)
     assert ds, "Khong tim thay step ssh-action nao trong workflow khao sat"
     return ds
@@ -115,11 +117,20 @@ DONG_TU_CHO_PHEP = {
 }
 
 # Nhom lenh hai tang: `docker <nhom> <dong tu>`.
+#
+# ⚠️ PHAI DONG BO voi DONG_TU_CHO_PHEP o tren. `docker container logs` TUONG
+# DUONG HOAN TOAN `docker logs`: go `logs` khoi DONG_TU_CHO_PHEP ma de lai
+# trong nhom "container" la khong go gi ca — dung lo thung nay da ton tai mot
+# vong review. Tuong tu `docker container stats` khong bi test `--no-stream`
+# bat (no tim chuoi "docker stats") nen se chay vo han, an het command_timeout
+# va giu concurrency group cua host dang giu DERP relay.
+#
+# `image history` in `CREATED BY` cua tung layer — noi hay lo ARG/ENV luc build.
 NHOM_HAI_TANG = {
     "network": {"ls", "inspect"},
     "volume": {"ls", "inspect"},
-    "image": {"ls", "inspect", "history"},
-    "container": {"ls", "inspect", "stats", "top", "port", "logs"},
+    "image": {"ls", "inspect"},
+    "container": {"ls", "inspect"},
     "system": {"df", "info"},
     "compose": {"version", "ls", "ps"},
     "node": {"ls", "inspect"},
@@ -143,9 +154,13 @@ def _tach_lenh_docker(script):
     """
     ket_qua = []
     # `docker-compose` (v1, co gach noi) phai duoc tinh nhu `docker compose`.
-    # `(?![\w.-])` loai `docker.sock`, `docker.io`, `dockerd` — chung la duong
-    # dan/ten rieng, khong phai lenh.
-    for m in re.finditer(r"\bdocker(-compose)?(?![\w.-])([^\n|;&]*)", script):
+    #
+    # `(?![\w.\-/}])` loai cac chuoi KHONG phai lenh:
+    #   docker.sock, docker.io, dockerd      -> ten rieng
+    #   /var/lib/docker/volumes              -> duong dan (ky tu `/`)
+    #   ${DOCKER_ROOT:-/var/lib/docker}      -> ky tu `}`
+    # Khong loai chung thi test bao dong gia tren chinh duong dan du lieu Docker.
+    for m in re.finditer(r"\bdocker(-compose)?(?![\w.\-/}])([^\n|;&]*)", script):
         la_compose_v1 = m.group(1) is not None
         phan_con_lai = m.group(2)
         tokens = phan_con_lai.split()
@@ -242,9 +257,11 @@ def test_allowlist_chan_duoc_lenh_ghi_that(lenh_doc):
 # `timeout N` dung TRUOC `docker` (do la cach bash chay: timeout boc ca lenh).
 # Ban truoc viet `docker exec (?:timeout \d+ )?...` — dat nhom sau `exec` — nen
 # no la code chet: xoa `timeout 15` khoi script van xanh het.
+# Giu dung hai lenh script that su dung. Cho phep `ls|head|tail|caddy version`
+# "cho du" la tu mau thuan voi chinh ly do vua go logs/events/top/port khoi
+# DONG_TU_CHO_PHEP: dong tu khong dung toi = mot cua de san cho nguoi sau.
 EXEC_AN_TOAN = re.compile(
-    r"timeout \d+ docker exec [A-Za-z0-9_.-]+ "
-    r"(?:cat|ls|head|tail|nginx -T|caddy version)\b"
+    r"timeout \d+ docker exec [A-Za-z0-9_.-]+ (?:cat|nginx -T)\b"
 )
 
 
@@ -287,8 +304,11 @@ def test_docker_inspect_phai_co_format_va_khong_doc_config():
         assert re.search(r"inspect\b[^|\n]*(?:-f|--format)\b", dong), (
             f"`inspect` khong co --format se in CA Config.Env (API key):\n  {dong.strip()}"
         )
-        assert not re.search(r"\.Config\b(?!\.Image\b)", dong), (
-            f"format doc .Config — vung chua bien moi truong:\n  {dong.strip()}"
+        # `.Config` cua CONTAINER chua Env (API key). `.IPAM.Config` cua MANG
+        # chi la subnet/gateway — khac hoan toan, khong duoc chan nham.
+        assert not re.search(r"(?<!\.IPAM)\.Config\b(?!\.Image\b)", dong), (
+            f"format doc .Config cua container — vung chua bien moi truong:\n"
+            f"  {dong.strip()}"
         )
 
 
@@ -440,24 +460,63 @@ def test_ssh_dung_secret_cua_vpn4():
     )
 
 
+def moi_step():
+    """MOI step cua MOI job. Khong hard-code jobs['survey'].
+
+    Day chinh la loi ma docstring cua ssh_steps() da neu: hard-code mot ten job
+    thi job thu hai tro nen vo hinh. Sua o ssh_steps() ma de nguyen o day la
+    chua sua gi — mot job `verify:` moi voi `run: ssh ... ${{ secrets.SSH_KEY }}`
+    se khong co test nao nhin thay.
+    """
+    for ten_job, job in load()["jobs"].items():
+        for step in job.get("steps", []):
+            yield ten_job, step
+
+
 def test_secret_khong_interpolate_vao_run_hay_script():
     """Secret phai di qua `env:`/`with:`, khong thay the van ban thang vao shell.
 
     Vua la chong script-injection, vua dong bo voi deploy-edge-vpn4.yml.
     """
-    wf = load()
     vi_pham = []
-    for step in wf["jobs"]["survey"]["steps"]:
-        for khoa in ("run",):
-            noi_dung = step.get(khoa)
-            if noi_dung and "${{ secrets." in noi_dung:
-                vi_pham.append(f"{step.get('name')}.{khoa}")
+    for ten_job, step in moi_step():
+        nhan = f"{ten_job}.{step.get('name')}"
+        noi_dung = step.get("run")
+        if noi_dung and "${{ secrets." in noi_dung:
+            vi_pham.append(f"{nhan}.run")
         script = step.get("with", {}).get("script")
         if script and "${{ secrets." in script:
-            vi_pham.append(f"{step.get('name')}.with.script")
+            vi_pham.append(f"{nhan}.with.script")
     assert not vi_pham, (
         f"Secret interpolate thang vao shell tai: {vi_pham}. Dua qua `env:` roi "
         "dung bien shell, nhu deploy-edge-vpn4.yml."
+    )
+
+
+# Chi hai action duoc phep. Moi bat bien read-only o tren CHI ap len step co
+# `uses` chua 'ssh-action' — nen mot step chay lenh tu xa bang action KHAC se vo
+# hinh voi toan bo rao chan. Cac duong that:
+#   appleboy/scp-action            -> GHI FILE thang len vpn4
+#   garygrossgarten/github-action-ssh, cross-the-world/ssh-scp-ssh-pipelines
+#   appleboy/SSH-Action            -> GitHub phan giai repo khong phan biet hoa
+#                                     thuong, nhung `in` cua Python thi co
+USES_CHO_PHEP = {"actions/checkout", "appleboy/ssh-action"}
+
+
+def test_chi_dung_action_trong_allowlist():
+    la = []
+    for ten_job, step in moi_step():
+        uses = str(step.get("uses", ""))
+        if not uses:
+            continue
+        ten = uses.split("@", 1)[0].lower()
+        if ten not in USES_CHO_PHEP:
+            la.append(f"{ten_job}.{step.get('name')}: {uses}")
+    assert not la, (
+        f"Action ngoai allowlist: {la}. Moi rao chan read-only chi ap len step "
+        f"co uses chua 'ssh-action'; dung action khac (vd appleboy/scp-action — "
+        "GHI FILE len host) la di vong qua tat ca. Them vao USES_CHO_PHEP va "
+        "mo rong rao chan truoc khi dung."
     )
 
 
@@ -515,13 +574,17 @@ def test_docker_stats_phai_co_no_stream():
     """Thieu --no-stream thi docker stats chay vo han -> het command_timeout ->
     giu concurrency group 'deploy-vpn4-host' -> chan rollback khan cap."""
     for dong in ssh_script().splitlines():
-        if "docker stats" in dong:
-            assert "--no-stream" in dong, (
-                f"`docker stats` thieu --no-stream, se chay vo han:\n  {dong.strip()}"
-            )
-            assert re.search(r"timeout \d+ docker stats", dong), (
-                f"`docker stats` nen boc `timeout N`:\n  {dong.strip()}"
-            )
+        # Phai nhan CA `docker container stats` — dang day du cua cung mot lenh.
+        # Tim chuoi "docker stats" khong thoi thi dang `container` di vong qua
+        # va chay vo han ma khong test nao bat.
+        if not re.search(r"docker (?:container )?stats\b", dong):
+            continue
+        assert "--no-stream" in dong, (
+            f"`docker stats` thieu --no-stream, se chay vo han:\n  {dong.strip()}"
+        )
+        assert re.search(r"timeout \d+ docker (?:container )?stats\b", dong), (
+            f"`docker stats` nen boc `timeout N`:\n  {dong.strip()}"
+        )
 
 
 def test_bao_truoc_khi_ket_luan_cong_trong():

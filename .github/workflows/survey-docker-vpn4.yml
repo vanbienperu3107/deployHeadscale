@@ -196,11 +196,33 @@ jobs:
             $SUDO docker network ls 2>&1 || echo "KHONG XAC DINH"
             echo "--- Ai dang o trong mang 'edge'? ---"
             $SUDO docker network inspect edge --format '{{range .Containers}}{{.Name}} {{.IPv4Address}}{{"\n"}}{{end}}' 2>&1 || echo "(mang edge chua ton tai hoac khong doc duoc)"
+            # Subnet cua `edge` can cho buoc 2: Caddyfile tin PROXY protocol tu
+            # `allow 172.16.0.0/12`. Neu subnet that nam ngoai dai do thi route
+            # moi se mat IP client (hoac bi tu choi header).
+            echo "--- Subnet cua mang 'edge' ---"
+            $SUDO docker network inspect edge --format '{{range .IPAM.Config}}{{.Subnet}} {{end}}' 2>/dev/null || echo "KHONG XAC DINH"
 
             echo ""
             echo "########## [8] VOLUME ##########"
             MUC=$((MUC+1))
             $SUDO docker volume ls 2>&1 || echo "KHONG XAC DINH"
+            # Dung luong tung volume, phuc vu ke hoach backup o buoc 2:
+            # portainer_data chua toan bo user + dinh nghia stack, mat la mat het.
+            # `docker system df` chi cho tong, khong tach duoc tung volume.
+            echo "--- Dung luong tung volume (can cho ke hoach backup) ---"
+            if [ -n "$DOCKER_ROOT" ]; then
+              VOL_ROOT="$DOCKER_ROOT/volumes"
+            else
+              VOL_ROOT="/var/lib/docker/volumes"
+            fi
+            # Gan vao bien roi kiem rong: `du ... | head || echo` thi exit code
+            # la cua `head` (luon 0) nen `|| echo` khong bao gio chay.
+            VOL_SIZE=$($SUDO du -sh "$VOL_ROOT"/*/ 2>/dev/null || echo "")
+            if [ -z "$VOL_SIZE" ]; then
+              echo "KHONG XAC DINH (khong doc duoc thu muc volume)"
+            else
+              echo "$VOL_SIZE" | sort -rh | head -20
+            fi
 
             echo ""
             echo "########## [9] CAU HINH EDGE DANG NAP (khong phai file tren dia) ##########"

@@ -233,6 +233,66 @@ DOT_BIEN = [
      'for chain in DOCKER-USER FORWARD INPUT; do',
      'for chain in INPUT; do',
      "test_khao_sat_tra_loi_du_cau_hoi_thiet_ke"),
+
+    # --- Dot bien dong cac lo phat hien o review vong 3 ---
+    # `docker container X` la dang DAY DU cua `docker X`. Go mot dong tu khoi
+    # DONG_TU_CHO_PHEP ma de lai trong NHOM_HAI_TANG["container"] la khong go gi.
+    ("docker container logs  (dang day du cua `docker logs` — di vong allowlist)",
+     NEO_TRUNG_TINH,
+     '            $SUDO docker container logs cliproxy',
+     "test_moi_lenh_docker_deu_nam_trong_allowlist"),
+    ("docker container top  (cung duong vong)",
+     NEO_TRUNG_TINH,
+     '            $SUDO docker container top derper',
+     "test_moi_lenh_docker_deu_nam_trong_allowlist"),
+    ("docker image history  (in CREATED BY tung layer — lo ARG/ENV luc build)",
+     NEO_TRUNG_TINH,
+     '            $SUDO docker image history cliproxy',
+     "test_moi_lenh_docker_deu_nam_trong_allowlist"),
+    ("docker container stats KHONG --no-stream  (test cu tim chuoi 'docker stats')",
+     'timeout 30 docker stats --no-stream',
+     'timeout 30 docker container stats',
+     "test_docker_stats_phai_co_no_stream"),
+
+    # Rao chan chi ap len step co `uses` chua 'ssh-action'. Dung action khac de
+    # chay lenh tu xa la vo hinh voi toan bo test.
+    ("them step appleboy/scp-action  (GHI FILE thang len vpn4, khong qua rao chan)",
+     '      - name: Kiem tra DNS cho domain Portainer du kien',
+     '''      - name: Day file len
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SSH_HOST_VPN4 }}
+          source: x
+          target: /opt
+
+      - name: Kiem tra DNS cho domain Portainer du kien''',
+     "test_chi_dung_action_trong_allowlist"),
+    ("doi sang action SSH khac  (garygrossgarten/github-action-ssh)",
+     'uses: appleboy/ssh-action@v1.2.0',
+     'uses: garygrossgarten/github-action-ssh@v0.7.0',
+     "test_chi_dung_action_trong_allowlist"),
+
+    # test_secret_khong_interpolate... tung hard-code jobs["survey"] -> job thu
+    # hai vo hinh.
+    ("them JOB thu hai interpolate secret vao run:  (job khac 'survey')",
+     'jobs:\n  survey:',
+     '''jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Kiem tra
+        run: ssh -i ${{ secrets.SSH_KEY }} host
+
+  survey:''',
+     "test_secret_khong_interpolate_vao_run_hay_script"),
+
+    # Parser phai bo qua `docker` trong DUONG DAN (/var/lib/docker/volumes) de
+    # khong bao dong gia — nhung viec noi do KHONG duoc mo duong goi binary qua
+    # duong dan tuyet doi.
+    ("goi docker qua duong dan tuyet doi  (sau khi noi regex cho /var/lib/docker)",
+     NEO_TRUNG_TINH,
+     '            /usr/bin/docker restart derper',
+     "test_moi_lenh_docker_deu_nam_trong_allowlist"),
 ]
 
 
