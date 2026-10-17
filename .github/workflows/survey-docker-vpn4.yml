@@ -1,0 +1,335 @@
+name: Survey Docker vpn4 (read-only)
+
+# Khao sat trang thai Docker tren vpn4 TRUOC khi quyet dinh trien khai Portainer.
+#
+# READ-ONLY tuyet doi: khong `docker run`, khong `compose up`, khong tao mang,
+# khong ghi file. Moi lenh deu la truy van trang thai. Ly do: vpn4 dang chay
+# derper (DERP relay chinh cua ca tailnet) + CLIProxyAPI + nginx edge giu cong
+# 443 — mot lan recreate nham la ca tailnet mat relay va moi client OpenCode
+# dung hinh. Rao chan that nam o test/test_survey_vpn4.py (allowlist dong tu),
+# khong phai o comment nay.
+#
+# Cau hoi can tra loi de thiet ke stack Portainer:
+#   1. RAM/disk con bao nhieu? (vpn4 chi 2GB, cliproxy da an 1g mem_limit)
+#   2. Swarm hay standalone? Docker co rootless khong? (quyet dinh cach mount sock)
+#   3. Cong nao da bi chiem? (tranh dung do 9443/9000 va cac cong noi bo 844x)
+#   4. Mang `edge` co san khong? (de Caddy route toi Portainer)
+#   5. nginx/Caddy DANG NAP cau hinh nao? (them route moi khong dap cai cu)
+#
+# ⚠️ CO Y KHONG dung `script_stop: true` va KHONG dung `set -e`:
+#   - ssh-action voi script_stop chen kiem tra exit code sau MOI dong -> cam
+#     `else` va heredoc (xem test/test_edge_vpn4.py). Script nay dung `else` o
+#     nhieu cho de bao "khong xac dinh" thay vi im lang.
+#   - Khao sat phai chay het 12 muc KE CA khi mot muc loi; dung giua chung thi
+#     mat du lieu cua cac muc sau.
+# Hai dieu nay duoc khoa bang test — dung tu y them vao.
+on:
+  workflow_dispatch:
+
+concurrency:
+  # Cung host vpn4 voi deploy-derp-vpn4 / deploy-cliproxy / deploy-edge-vpn4.
+  # Dung chung group de khong khao sat giua luc mot deploy khac dang doi trang thai.
+  group: deploy-vpn4-host
+  cancel-in-progress: false
+
+jobs:
+  survey:
+    name: Khao sat vpn4 (khong thay doi gi)
+    runs-on: ubuntu-latest
+    steps:
+      - name: SSH vpn4 — thu thap trang thai
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SSH_HOST_VPN4 }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT || '22' }}
+          envs: DEPLOY_PATH
+          # Khao sat thuc te <90s. De ngan vi group nay dung chung voi cac deploy
+          # vpn4 — mot phien treo 10 phut se xep hang chan ca rollback khan cap
+          # cua derper.
+          command_timeout: 3m
+          script: |
+            echo "⚠️ LOG NAY LA BAN KIEM KE DICH VU CUA vpn4 (cong, tien trinh,"
+            echo "   firewall). KHONG dan nguyen van ra ngoai."
+            echo ""
+
+            # `sudo -n`: khong bao gio hoi mat khau. Phien SSH nay khong co TTY,
+            # sudo thieu NOPASSWD se that bai ngay thay vi treo.
+            if [ "$(id -u)" -ne 0 ]; then SUDO="sudo -n"; else SUDO=""; fi
+
+            # Q = truy van co TRAN THOI GIAN. Dung cho MOI lenh co the treo.
+            # dockerd co the TREO — khac voi chet (chet thi tra connection
+            # refused ngay, nhanh). Mot lan treo la het command_timeout 3m,
+            # mat cac muc sau (gom [12] DOCKER-USER, chinh du lieu quyet dinh
+            # cho buoc 2) VA giu concurrency group 'deploy-vpn4-host' du 3
+            # phut, chan rollback khan cap cua derper.
+            Q="$SUDO timeout 15"
+            # Q30 cho vai lenh von cham that (quet layer, doc cgroup moi container).
+            Q30="$SUDO timeout 30"
+            MUC=0
+
+            # Bien SUDO_OK quyet dinh cach doc KET QUA RONG o moi muc duoi: rong
+            # vi "khong co gi" hay rong vi "khong hoi duoc"? Khong phan biet duoc
+            # hai cai nay thi muc [6] se bao moi cong deu "trong" va ta se thiet
+            # ke stack dam vao mot cong dang dung.
+            if $SUDO true 2>/dev/null; then
+              SUDO_OK=1
+              echo "sudo: OK"
+            else
+              SUDO_OK=0
+              echo "::error::sudo KHONG dung duoc (thieu NOPASSWD?) — MOI so lieu duoi day KHONG TIN CAY"
+            fi
+
+            echo ""
+            echo "########## [1] HE DIEU HANH + KIEN TRUC ##########"
+            MUC=$((MUC+1))
+            if . /etc/os-release 2>/dev/null; then
+              echo "OS: $PRETTY_NAME"
+            else
+              echo "OS: KHONG XAC DINH"
+            fi
+            echo "Kernel: $(uname -r)  Arch: $(uname -m)"
+            echo "Uptime: $(uptime -p 2>/dev/null || echo 'KHONG XAC DINH')"
+
+            echo ""
+            echo "########## [2] RAM / SWAP / CPU / DISK ##########"
+            MUC=$((MUC+1))
+            free -h
+            echo "--- CPU ---"
+            nproc
+            echo "--- Disk (root) ---"
+            df -h / 2>&1 || true
+            echo "--- Disk (thu muc du lieu Docker that) ---"
+            DOCKER_ROOT=$($Q docker info --format '{{.DockerRootDir}}' 2>/dev/null || echo "")
+            if [ -n "$DOCKER_ROOT" ]; then
+              echo "DockerRootDir: $DOCKER_ROOT"
+              df -h "$DOCKER_ROOT" 2>&1 || true
+            else
+              echo "KHONG XAC DINH duoc DockerRootDir (data-root co the da doi)"
+            fi
+            echo "--- Docker chiem bao nhieu dia ---"
+            $Q30 docker system df 2>&1 || echo "KHONG XAC DINH"
+
+            echo ""
+            echo "########## [3] DOCKER: PHIEN BAN / SWARM / ROOTLESS / SOCKET ##########"
+            MUC=$((MUC+1))
+            $Q docker version --format 'Server: {{.Server.Version}}  API: {{.Server.APIVersion}}' 2>&1 || echo "KHONG XAC DINH"
+            echo "Compose: $($Q docker compose version --short 2>&1 || echo 'KHONG CO')"
+            SWARM=$($Q docker info --format '{{.Swarm.LocalNodeState}}' 2>/dev/null || echo "")
+            echo "Swarm LocalNodeState: ${SWARM:-KHONG XAC DINH}"
+            if [ "$SWARM" = "active" ]; then
+              echo "  -> Swarm DANG BAT. Node:"
+              $Q docker node ls 2>&1 || true
+              echo "  -> Services:"
+              $Q docker service ls 2>&1 || true
+            elif [ -n "$SWARM" ]; then
+              echo "  -> Swarm KHONG bat (standalone). Portainer se quan ly qua docker.sock."
+            fi
+            # Rootless doi hoan toan duong dan socket ($XDG_RUNTIME_DIR/docker.sock)
+            # -> doi ca thiet ke mount cua Portainer. Phai biet TRUOC khi viet stack.
+            echo "SecurityOptions: $($Q docker info --format '{{.SecurityOptions}}' 2>/dev/null || echo 'KHONG XAC DINH')"
+            echo "Storage driver: $($Q docker info --format '{{.Driver}}' 2>/dev/null || echo 'KHONG XAC DINH')"
+            echo "Logging driver: $($Q docker info --format '{{.LoggingDriver}}' 2>/dev/null || echo 'KHONG XAC DINH')"
+            echo "Live restore: $($Q docker info --format '{{.LiveRestoreEnabled}}' 2>/dev/null || echo 'KHONG XAC DINH')"
+            echo "--- Quyen cua docker.sock (Portainer phai mount cai nay) ---"
+            ls -l /var/run/docker.sock 2>&1 || echo "KHONG THAY /var/run/docker.sock (rootless?)"
+
+            echo ""
+            echo "########## [4] CONTAINER DANG CHAY (ten / image / trang thai / cong) ##########"
+            MUC=$((MUC+1))
+            $Q docker ps -a --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}' 2>&1 || echo "KHONG XAC DINH"
+            echo ""
+            echo "--- RAM thuc te tung container ---"
+            # --no-stream BAT BUOC: thieu no thi docker stats chay vo han, cham
+            # command_timeout va giu concurrency slot cua ca host vpn4.
+            $Q30 docker stats --no-stream --format 'table {{.Name}}\t{{.MemUsage}}\t{{.MemPerc}}\t{{.CPUPerc}}' 2>&1 || echo "KHONG XAC DINH"
+
+            echo ""
+            echo "########## [5] MEM_LIMIT DA DAT (tong cam ket RAM) ##########"
+            MUC=$((MUC+1))
+            TEN_CT=$($Q docker ps --format '{{.Names}}' 2>/dev/null || echo "")
+            if [ -z "$TEN_CT" ]; then
+              echo "KHONG XAC DINH (khong liet ke duoc container)"
+            else
+              for c in $TEN_CT; do
+                LIM=$($Q docker inspect -f '{{.HostConfig.Memory}}' "$c" 2>/dev/null || echo "")
+                # Phai kiem tra la SO truoc khi so sanh: container bien mat giua
+                # hai lenh se tra chuoi rong/loi, va `[ "" -gt 0 ]` roi vao else
+                # -> bao nham "khong gioi han" -> tuong con du RAM cam ket.
+                case "$LIM" in
+                  ''|*[!0-9]*) echo "$c: KHONG XAC DINH" ;;
+                  0)           echo "$c: khong gioi han" ;;
+                  *)           echo "$c: $((LIM/1024/1024)) MB" ;;
+                esac
+              done
+            fi
+
+            echo ""
+            echo "########## [6] CONG DANG LANG NGHE TREN HOST ##########"
+            MUC=$((MUC+1))
+            # Bo -p (khong in ten tien trinh): khao sat chi can biet cong trong hay
+            # khong. In ten tien trinh bien log thanh ban do tan cong.
+            TCP_LISTEN=$($Q ss -tln 2>/dev/null || echo "")
+            if [ -z "$TCP_LISTEN" ]; then
+              echo "::error::KHONG doc duoc bang cong TCP — khong duoc ket luan cong nao trong"
+            else
+              echo "$TCP_LISTEN"
+            fi
+            echo "--- UDP ---"
+            # KHONG viet `ss ... | head -40 || echo`: exit code cua pipeline la cua
+            # lenh CUOI (head), luon 0 -> `|| echo` khong bao gio chay -> ss that bai
+            # chi in ra khoang trang va ta doc nham thanh "khong co gi nghe UDP".
+            UDP_LISTEN=$($Q ss -uln 2>/dev/null || echo "")
+            if [ -z "$UDP_LISTEN" ]; then
+              echo "KHONG XAC DINH"
+            else
+              echo "$UDP_LISTEN" | head -40
+            fi
+            echo ""
+            echo "--- Cong Portainer du kien co trong khong? ---"
+            # 8000/9000/9443: mac dinh Portainer. 8446 da dung (chang 2 nginx),
+            # 8447+ la ung vien cho cong noi bo moi sau Caddy.
+            for p in 8000 9000 9443 8446 8447; do
+              if [ -z "$TCP_LISTEN" ]; then
+                echo "  $p: KHONG XAC DINH (khong doc duoc ss)"
+              elif echo "$TCP_LISTEN" | grep -qE ":$p\b"; then
+                echo "  $p: DA BI CHIEM"
+              else
+                echo "  $p: trong"
+              fi
+            done
+
+            echo ""
+            echo "########## [7] MANG DOCKER ##########"
+            MUC=$((MUC+1))
+            $Q docker network ls 2>&1 || echo "KHONG XAC DINH"
+            echo "--- Ai dang o trong mang 'edge'? ---"
+            $Q docker network inspect edge --format '{{range .Containers}}{{.Name}} {{.IPv4Address}}{{"\n"}}{{end}}' 2>&1 || echo "(mang edge chua ton tai hoac khong doc duoc)"
+            # Subnet cua `edge` can cho buoc 2: Caddyfile tin PROXY protocol tu
+            # `allow 172.16.0.0/12`. Neu subnet that nam ngoai dai do thi route
+            # moi se mat IP client (hoac bi tu choi header).
+            echo "--- Subnet cua mang 'edge' ---"
+            $Q docker network inspect edge --format '{{range .IPAM.Config}}{{.Subnet}} {{end}}' 2>/dev/null || echo "KHONG XAC DINH"
+
+            echo ""
+            echo "########## [8] VOLUME ##########"
+            MUC=$((MUC+1))
+            $Q docker volume ls 2>&1 || echo "KHONG XAC DINH"
+            # Dung luong tung volume, phuc vu ke hoach backup o buoc 2:
+            # portainer_data chua toan bo user + dinh nghia stack, mat la mat het.
+            # `docker system df` chi cho tong, khong tach duoc tung volume.
+            echo "--- Dung luong tung volume (can cho ke hoach backup) ---"
+            if [ -n "$DOCKER_ROOT" ]; then
+              VOL_ROOT="$DOCKER_ROOT/volumes"
+            else
+              VOL_ROOT="/var/lib/docker/volumes"
+            fi
+            # Gan vao bien roi kiem rong: `du ... | head || echo` thi exit code
+            # la cua `head` (luon 0) nen `|| echo` khong bao gio chay.
+            VOL_SIZE=$($Q du -sh -x "$VOL_ROOT"/*/ 2>/dev/null || echo "")
+            if [ -z "$VOL_SIZE" ]; then
+              echo "KHONG XAC DINH (khong doc duoc thu muc volume)"
+            else
+              echo "$VOL_SIZE" | sort -rh | head -20
+            fi
+
+            echo ""
+            echo "########## [9] CAU HINH EDGE DANG NAP (khong phai file tren dia) ##########"
+            MUC=$((MUC+1))
+            # Phan biet "file tren dia" voi "cau hinh tien trinh DANG NAP" la bat
+            # buoc: bind mount doi ma khong --force-recreate thi container chay
+            # cau hinh CU vo thoi han (su co that 2026-08-27, xem edge-vpn4/README).
+            echo "--- Trang thai 2 container edge ---"
+            # 2>/dev/null (khong phai 2>&1): voi 2>&1 thi khi loi, CA thong bao
+            # cua docker LAN chuoi fallback deu in ra, doc rat roi.
+            for c in edge-nginx caddy-edge; do
+              echo "$c: $($Q docker inspect -f '{{.State.Status}} tu {{.State.StartedAt}}' "$c" 2>/dev/null || echo 'KHONG TON TAI/KHONG DOC DUOC')"
+            done
+            echo ""
+            echo "--- nginx: cau hinh DANG NAP (nginx -T) ---"
+            $Q docker exec edge-nginx nginx -T 2>&1 || echo "(khong lay duoc — container khong chay?)"
+            echo ""
+            echo "--- Caddy: cac site dang phuc vu (doc file trong container) ---"
+            $Q docker exec caddy-edge cat /etc/caddy/Caddyfile 2>&1 || echo "(khong doc duoc tu container)"
+
+            echo ""
+            echo "########## [10] REPO DEPLOY TREN HOST ##########"
+            MUC=$((MUC+1))
+            # KHONG echo $DEPLOY_PATH: no la secret -> GitHub mask thanh *** lam
+            # muc nay vo nghia. Chi in TRANG THAI.
+            # `cd` that bai (quyen) ma van chay git -> git doc repo cua thu muc
+            # home va bao branch/commit cua REPO KHAC nhu the la cua DEPLOY_PATH.
+            if [ -d "$DEPLOY_PATH" ] && cd "$DEPLOY_PATH" 2>/dev/null; then
+              echo "DEPLOY_PATH: ton tai"
+              echo "Branch: $(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo 'KHONG XAC DINH')"
+              echo "Commit: $(git rev-parse --short HEAD 2>/dev/null || echo 'KHONG XAC DINH')"
+              echo "Thu muc stack co san:"
+              ls -1 2>/dev/null | head -30
+            elif [ -d "$DEPLOY_PATH" ]; then
+              echo "::warning::DEPLOY_PATH ton tai nhung KHONG vao duoc (quyen?)"
+            else
+              echo "::warning::DEPLOY_PATH khong ton tai tren vpn4 (kiem tra secret DEPLOY_PATH)"
+            fi
+
+            echo ""
+            echo "########## [11] SYSTEMD UNIT LIEN QUAN ##########"
+            MUC=$((MUC+1))
+            $Q systemctl is-active docker 2>&1 || true
+            $Q systemctl list-units --type=service --state=running --no-pager 2>/dev/null | grep -iE 'tailscale|docker|nginx|caddy' || echo "(khong khop hoac khong doc duoc)"
+
+            echo ""
+            echo "########## [12] FIREWALL ##########"
+            MUC=$((MUC+1))
+            $Q ufw status 2>/dev/null || echo "(ufw khong dung)"
+            # Phai soi CA BA chain, va DOCKER-USER moi la chain quyet dinh:
+            # traffic toi cong do Docker PUBLISH di qua FORWARD/DOCKER-USER chu
+            # KHONG qua INPUT (chinh vi the jail opencode-401 phai dat
+            # `chain = DOCKER-USER`, xem edge-vpn4/fail2ban/jail.d/). Portainer
+            # cung se la container publish cong -> chi doc INPUT la nhin nham cho
+            # va co the ket luan sai rang mot cong duoc/khong duoc bao ve.
+            # Dung `-S` (gon) thay `-L`: chain co the dai hang tram dong vi
+            # fail2ban ban IP vao day, `head` tren `-L` se cat mat policy mac dinh.
+            for chain in DOCKER-USER FORWARD INPUT; do
+              echo "--- iptables -S $chain ---"
+              RULES=$($Q iptables -w 5 -S "$chain" 2>/dev/null || echo "")
+              if [ -z "$RULES" ]; then
+                echo "KHONG XAC DINH (chain khong ton tai hoac khong doc duoc)"
+              else
+                echo "$RULES" | head -40
+              fi
+            done
+
+            echo ""
+            echo "########## SCRIPT CHAY DEN CUOI: $MUC/12 muc da bat dau ##########"
+            echo "(Con so nay chi noi script khong bi cat giua chung. Tung muc tu"
+            echo " bao 'KHONG XAC DINH' khi khong lay duoc du lieu.)"
+            if [ "$SUDO_OK" != "1" ]; then
+              echo "::error::sudo hong — MOI so lieu tren KHONG dung de thiet ke stack"
+              # exit 1 o DAY (sau khi da in het 12 muc) de job do han. `::error::`
+              # chi la annotation, khong lam check do — nguoi doc se thay dau xanh
+              # roi dung so lieu rac. Dat cuoi file nen khong mau thuan voi yeu
+              # cau "chay het 12 muc".
+              exit 1
+            fi
+        env:
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+
+      - name: Kiem tra DNS cho domain Portainer du kien
+        # Secret di qua `env:` chu KHONG interpolate thang vao `run:` — tranh
+        # script injection, va dong bo voi deploy-edge-vpn4.yml.
+        env:
+          HOST_EXPECT: ${{ secrets.SSH_HOST_VPN4 }}
+        run: |
+          # Chua bat buoc phai co ngay — buoc nay chi bao de biet con phai them
+          # ban ghi A hay khong truoc khi deploy that.
+          for d in portainer.hangocthanh.io.vn; do
+            R=$(python3 -c "import socket;print(socket.gethostbyname('$d'))" 2>/dev/null || echo "")
+            if [ -z "$R" ]; then
+              echo "  $d: CHUA phan giai — can them ban ghi A -> vpn4 truoc khi deploy"
+            elif [ "$R" = "$HOST_EXPECT" ]; then
+              echo "  $d: OK, da tro dung vpn4"
+            else
+              echo "  $d: tro SAI dich — sua ban ghi A truoc khi deploy"
+            fi
+          done

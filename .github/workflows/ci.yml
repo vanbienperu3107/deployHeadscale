@@ -105,6 +105,34 @@ jobs:
           /tmp/venv-reporter/bin/pip install --quiet pytest
           cd ping-reporter && /tmp/venv-reporter/bin/python -m pytest -q test_reporter.py
 
+  survey-vpn4:
+    name: survey-vpn4 — workflow khao sat phai READ-ONLY
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate survey-docker-vpn4.yml (YAML)
+        run: python3 -c "import yaml; yaml.safe_load(open('.github/workflows/survey-docker-vpn4.yml')); print('survey-docker-vpn4.yml OK')"
+
+      # Workflow nay SSH vao vpn4 that. vpn4 giu derper — relay DERP chinh cua ca
+      # tailnet. Mot lenh ghi lot vao day la moi peer mat relay. Rao chan phai la
+      # test chay tren moi push, khong phai loi hua trong comment.
+      - name: Test tinh read-only cua khao sat (pytest)
+        run: |
+          python3 -m venv /tmp/venv-survey
+          /tmp/venv-survey/bin/pip install --quiet pytest pyyaml
+          /tmp/venv-survey/bin/python -m pytest -q test/test_survey_vpn4.py
+
+      # Test xanh KHONG chung minh rao chan con song: ban denylist dau tien xanh
+      # 11/11 trong khi `docker compose -f x.yml up -d` lot qua sach. Buoc nay
+      # nhet moi lenh nguy hiem trong DOT_BIEN vao ban sao workflow va doi hoi
+      # pytest phai DO — do DUNG cai test duoc chi dinh, vi mot dot bien co the
+      # vo tinh lam do test khac va thoi phong do phu. Dot bien nao khong lam
+      # do dung test la mot lo thung da duoc chung minh.
+      - name: Mutation test — rao chan co that su chan duoc lenh ghi khong
+        run: /tmp/venv-survey/bin/python test/mutation_survey_vpn4.py
+
   edge-vpn4:
     name: edge-vpn4 — nginx SNI routing (derper + cliproxy chung cong 443)
     runs-on: ubuntu-latest
