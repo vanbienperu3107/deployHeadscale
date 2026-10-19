@@ -24,3 +24,6 @@ Thumbs.db
 # Python bytecode
 __pycache__/
 *.pyc
+
+# Local CodeGraph index (derived from source, never commit).
+.codegraph/
