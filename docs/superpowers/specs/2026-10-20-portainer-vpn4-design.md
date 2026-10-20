@@ -92,6 +92,7 @@ Create `portainer-vpn4/docker-compose.yml` with one service:
 - Container name: `portainer`.
 - Restart policy: `unless-stopped`.
 - Memory limit: `256m`.
+- Command: `--http-enabled`. Current Portainer CE LTS serves HTTPS internally on 9443 by default; this explicitly enables private HTTP on 9000 for the existing Caddy TLS terminator. It does not publish 9000 to the host.
 - No host port publication.
 - Networks: the external network named `edge`.
 - Volumes:
@@ -117,6 +118,7 @@ Modify `edge-vpn4/Caddyfile`:
 - Add an HTTPS site `https://portainer.hangocthanh.io.vn:8447`.
 - Configure the ACME issuer with `disable_http_challenge`, matching the existing 8444 and 8445 sites.
 - Reverse proxy to `portainer:9000`.
+- Pass `X-Forwarded-Proto: https` and the original `Host` header so Portainer generates URLs for the browser-facing HTTPS origin.
 - Keep Caddy admin disabled.
 - Do not add a port listener or Docker host publication for Caddy.
 - Add structured access logging to stdout only. Do not log authorization headers or Docker socket data.
