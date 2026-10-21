@@ -1,0 +1,168 @@
+name: Remove Portainer safely (vpn4)
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_ref:
+        description: Exact Git branch containing the deployed Portainer configuration to remove
+        required: true
+        type: string
+
+concurrency:
+  group: deploy-vpn4-host
+  cancel-in-progress: false
+
+jobs:
+  rollback:
+    name: Remove only Portainer while preserving vpn4 workloads and data
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate rollback secrets without displaying values
+        env:
+          SSH_HOST_VPN4: ${{ secrets.SSH_HOST_VPN4 }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_KEY: ${{ secrets.SSH_KEY }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+        run: |
+          if [ -z "$SSH_HOST_VPN4" ] || [ -z "$SSH_USER" ] || [ -z "$SSH_KEY" ] || [ -z "$DEPLOY_PATH" ]; then
+            echo "::error::A required rollback secret is missing"
+            exit 1
+          fi
+
+      - name: Validate Portainer DNS before connecting to vpn4
+        env:
+          SSH_HOST_VPN4: ${{ secrets.SSH_HOST_VPN4 }}
+        run: |
+          RESOLVED=$(python3 -c "import socket; print(socket.gethostbyname('portainer.hangocthanh.io.vn'))" 2>/dev/null || true)
+          EXPECTED=$(python3 -c "import socket; print(socket.gethostbyname('$SSH_HOST_VPN4'))" 2>/dev/null || true)
+          if [ -z "$RESOLVED" ] || [ -z "$EXPECTED" ] || [ "$RESOLVED" != "$EXPECTED" ]; then
+            echo "::error::Portainer DNS does not resolve to the configured deployment host"
+            exit 1
+          fi
+
+      - name: Remove only Portainer and its exact edge routes
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SSH_HOST_VPN4 }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT || '22' }}
+          envs: DEPLOY_PATH,DEPLOY_REF
+          script_stop: false
+          command_timeout: 20m
+          script: |
+            set -euo pipefail
+            SUDO="sudo -n"
+            cd "$DEPLOY_PATH"
+            git check-ref-format --branch "$DEPLOY_REF"
+            TRANSACTION_DIR="$DEPLOY_PATH/.portainer-rollback-transaction"
+            TRANSACTION_MARKER="$TRANSACTION_DIR/pending"
+            $SUDO rm -rf "$TRANSACTION_DIR"
+            $SUDO mkdir -p "$TRANSACTION_DIR"
+            PREVIOUS_NGINX="$TRANSACTION_DIR/nginx.conf.previous"
+            PREVIOUS_CADDY="$TRANSACTION_DIR/Caddyfile.previous"
+            $SUDO cp edge-vpn4/nginx.conf "$PREVIOUS_NGINX"
+            $SUDO cp edge-vpn4/Caddyfile "$PREVIOUS_CADDY"
+            OLD_SHA=$(git rev-parse HEAD)
+            printf '%s\n' "$OLD_SHA" | $SUDO tee "$TRANSACTION_DIR/old-sha" >/dev/null
+            $SUDO touch "$TRANSACTION_MARKER"
+            git fetch origin "$DEPLOY_REF:refs/remotes/origin/$DEPLOY_REF"
+            git reset --hard "origin/$DEPLOY_REF"
+            NEW_SHA=$(git rev-parse HEAD)
+            echo "Rollback source revision changed: $OLD_SHA -> $NEW_SHA"
+            test -f "$DEPLOY_PATH/portainer-vpn4/docker-compose.yml"
+            python3 -c 'from pathlib import Path; import sys; p=Path(sys.argv[1]); route="        portainer.hangocthanh.io.vn caddy-edge:8447;\n"; s=p.read_text(); assert s.count(route) == 1; p.write_text(s.replace(route, ""))' "$DEPLOY_PATH/edge-vpn4/nginx.conf"
+            python3 -c 'from pathlib import Path; import sys; p=Path(sys.argv[1]); site="# Portainer la trang quan tri Docker, chi truy cap qua TLS cua Caddy tren mang\n# edge. 8447 nhan TLS binh thuong tu nginx nhu 8444; chi 8445 cua OpenCode\n# nhan PROXY protocol de phuc vu fail2ban.\nhttps://portainer.hangocthanh.io.vn:8447 {\n\ttls {\n\t\tissuer acme {\n\t\t\tdisable_http_challenge\n\t\t}\n\t}\n\n\treverse_proxy portainer:9000 {\n\t\theader_up X-Forwarded-Proto https\n\t\theader_up Host {http.request.host}\n\t}\n\n\tlog {\n\t\toutput stdout\n\t\tformat json\n\t}\n}\n\n"; s=p.read_text(); assert s.count(site) == 1; p.write_text(s.replace(site, ""))' "$DEPLOY_PATH/edge-vpn4/Caddyfile"
+            $SUDO docker run --rm -v "$DEPLOY_PATH/edge-vpn4/nginx.conf:/etc/nginx/nginx.conf:ro" nginx:1.27-alpine nginx -t
+            $SUDO docker run --rm --add-host cliproxy:127.0.0.1 --add-host opencode-server:127.0.0.1 -v "$DEPLOY_PATH/edge-vpn4/Caddyfile:/etc/caddy/Caddyfile:ro" caddy:2.8-alpine caddy validate --adapter caddyfile --config /etc/caddy/Caddyfile
+            $SUDO touch "$TRANSACTION_DIR/caddy-change-attempted"
+            $SUDO docker compose -f "$DEPLOY_PATH/edge-vpn4/docker-compose.yml" up -d --force-recreate --no-deps caddy-edge
+            $SUDO touch "$TRANSACTION_DIR/nginx-change-attempted"
+            $SUDO docker compose -f "$DEPLOY_PATH/edge-vpn4/docker-compose.yml" up -d --force-recreate --no-deps nginx
+            DERP_CODE=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 https://vpn4.hangocthanh.io.vn/derp/probe || true)
+            test "$DERP_CODE" = "200"
+            $SUDO touch "$TRANSACTION_DIR/portainer-down-attempted"
+            $SUDO docker compose --project-name portainer-vpn4 -f "$DEPLOY_PATH/portainer-vpn4/docker-compose.yml" down
+            PORTAINER_RUNNING=$($SUDO docker ps --filter "name=^/portainer$" --format '{{.Names}}')
+            test -z "$PORTAINER_RUNNING"
+            $SUDO docker volume inspect portainer-vpn4_portainer_data >/dev/null
+            LISTENERS="$TRANSACTION_DIR/listeners"
+            $SUDO ss -ltn | $SUDO tee "$LISTENERS" >/dev/null
+            if $SUDO grep -Eq ':(8000|9000|9443)\b' "$LISTENERS"; then exit 1; fi
+        env:
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          DEPLOY_REF: ${{ inputs.target_ref }}
+
+      - name: Verify public route retirement and existing authentication boundaries
+        run: |
+          PORTAINER_CODE=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 https://portainer.hangocthanh.io.vn/api/status || true)
+          case "$PORTAINER_CODE" in
+            000) ;;
+            *) echo "::error::Portainer public SNI route still responds with HTTP"; exit 1 ;;
+          esac
+          DERP_CODE=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 https://vpn4.hangocthanh.io.vn/derp/probe || true)
+          test "$DERP_CODE" = "200"
+          CLIPROXY_CODE=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 https://cliproxy.hangocthanh.io.vn/v1/models || true)
+          case "$CLIPROXY_CODE" in
+            401|403) ;;
+            *) echo "::error::CLIProxy authentication route regressed"; exit 1 ;;
+          esac
+          OPENCODE_CODE=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 https://opencode.hangocthanh.io.vn/global/health || true)
+          test "$OPENCODE_CODE" = "401"
+
+      - name: Restore Portainer transaction if removal or external verification failed
+        if: failure()
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SSH_HOST_VPN4 }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT || '22' }}
+          envs: DEPLOY_PATH
+          script_stop: false
+          command_timeout: 15m
+          script: |
+            set +e
+            SUDO="sudo -n"
+            TRANSACTION_DIR="$DEPLOY_PATH/.portainer-rollback-transaction"
+            TRANSACTION_MARKER="$TRANSACTION_DIR/pending"
+            ROLLBACK_FAILED=0
+            rollback_run() { "$@" || ROLLBACK_FAILED=1; }
+            $SUDO test -f "$TRANSACTION_MARKER" || exit 0
+            OLD_SHA=$($SUDO cat "$TRANSACTION_DIR/old-sha")
+            rollback_run git reset --hard "$OLD_SHA"
+            if $SUDO test -f "$TRANSACTION_DIR/caddy-change-attempted"; then
+              rollback_run $SUDO cp "$TRANSACTION_DIR/Caddyfile.previous" "$DEPLOY_PATH/edge-vpn4/Caddyfile"
+              rollback_run $SUDO chown "$(id -u):$(id -g)" "$DEPLOY_PATH/edge-vpn4/Caddyfile"
+              rollback_run $SUDO docker run --rm --add-host cliproxy:127.0.0.1 --add-host portainer:127.0.0.1 --add-host opencode-server:127.0.0.1 -v "$DEPLOY_PATH/edge-vpn4/Caddyfile:/etc/caddy/Caddyfile:ro" caddy:2.8-alpine caddy validate --adapter caddyfile --config /etc/caddy/Caddyfile
+              rollback_run $SUDO docker compose -f "$DEPLOY_PATH/edge-vpn4/docker-compose.yml" up -d --force-recreate --no-deps caddy-edge
+            fi
+            if $SUDO test -f "$TRANSACTION_DIR/nginx-change-attempted"; then
+              rollback_run $SUDO cp "$TRANSACTION_DIR/nginx.conf.previous" "$DEPLOY_PATH/edge-vpn4/nginx.conf"
+              rollback_run $SUDO chown "$(id -u):$(id -g)" "$DEPLOY_PATH/edge-vpn4/nginx.conf"
+              rollback_run $SUDO docker run --rm -v "$DEPLOY_PATH/edge-vpn4/nginx.conf:/etc/nginx/nginx.conf:ro" nginx:1.27-alpine nginx -t
+              rollback_run $SUDO docker compose -f "$DEPLOY_PATH/edge-vpn4/docker-compose.yml" up -d --force-recreate --no-deps nginx
+            fi
+            if $SUDO test -f "$TRANSACTION_DIR/portainer-down-attempted"; then
+              rollback_run $SUDO docker compose --project-name portainer-vpn4 -f "$DEPLOY_PATH/portainer-vpn4/docker-compose.yml" up -d portainer
+            fi
+            test "$ROLLBACK_FAILED" = "0" && $SUDO rm -rf "$TRANSACTION_DIR"
+            test "$ROLLBACK_FAILED" = "0" || exit 1
+
+      - name: Commit successful rollback transaction cleanup
+        if: success()
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SSH_HOST_VPN4 }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT || '22' }}
+          envs: DEPLOY_PATH
+          script_stop: false
+          command_timeout: 5m
+          script: |
+            set -euo pipefail
+            SUDO="sudo -n"
+            TRANSACTION_DIR="$DEPLOY_PATH/.portainer-rollback-transaction"
+            test -d "$TRANSACTION_DIR" || exit 0
+            $SUDO rm -rf "$TRANSACTION_DIR"

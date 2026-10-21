@@ -155,6 +155,43 @@ jobs:
       - name: Integration — dinh tuyen SNI that
         run: bash test/edge_vpn4_integration.sh
 
+  portainer-vpn4:
+    name: portainer-vpn4 — private SNI ingress and service isolation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate Portainer Compose render
+        run: docker compose --project-name portainer-vpn4 -f portainer-vpn4/docker-compose.yml config --quiet
+
+      - name: Validate exact edge Nginx config
+        run: |
+          docker run --rm \
+            -v "${{ github.workspace }}/edge-vpn4/nginx.conf:/etc/nginx/nginx.conf:ro" \
+            nginx:1.27-alpine nginx -t
+
+      - name: Validate exact edge Caddy config without production backends
+        run: |
+          # Caddy's config preflight must remain local: give each named upstream
+          # a loopback-only placeholder instead of resolving a live vpn4 service.
+          docker run --rm \
+            --add-host cliproxy:127.0.0.1 \
+            --add-host portainer:127.0.0.1 \
+            --add-host opencode-server:127.0.0.1 \
+            -v "${{ github.workspace }}/edge-vpn4/Caddyfile:/etc/caddy/Caddyfile:ro" \
+            caddy:2.8-alpine caddy validate --adapter caddyfile --config /etc/caddy/Caddyfile
+
+      - name: Test Portainer and edge contracts (pytest)
+        run: |
+          python3 -m venv /tmp/venv-portainer-vpn4
+          /tmp/venv-portainer-vpn4/bin/pip install --quiet pytest pyyaml
+          /tmp/venv-portainer-vpn4/bin/python -m pytest -q \
+            test/test_portainer_vpn4.py test/test_edge_vpn4.py
+
+      - name: Integration — local disposable SNI routing
+        run: bash test/portainer_vpn4_integration.sh
+
   cliproxy:
     name: cliproxy — compose/config validate + integration (401/200 + persist token)
     runs-on: ubuntu-latest

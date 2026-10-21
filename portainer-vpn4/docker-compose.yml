@@ -1,0 +1,27 @@
+name: portainer-vpn4
+
+services:
+  portainer:
+    image: portainer/portainer-ce:lts
+    command: ["--http-enabled"]
+    container_name: portainer
+    restart: unless-stopped
+    mem_limit: 256m
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - portainer_data:/data
+    networks:
+      - portainer_proxy
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+networks:
+  portainer_proxy:
+    external: true
+    name: portainer_proxy
+
+volumes:
+  portainer_data:

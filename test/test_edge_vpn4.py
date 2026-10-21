@@ -28,6 +28,7 @@ WORKFLOW = ROOT / ".github" / "workflows" / "deploy-edge-vpn4.yml"
 
 CLIPROXY_HOST = "cliproxy.hangocthanh.io.vn"
 OPENCODE_HOST = "opencode.hangocthanh.io.vn"
+PORTAINER_HOST = "portainer.hangocthanh.io.vn"
 
 
 def load(path):
@@ -131,6 +132,27 @@ def test_ten_mien_opencode_duoc_dinh_tuyen():
     assert OPENCODE_HOST in conf, f"thieu route cho {OPENCODE_HOST}"
 
 
+def test_portainer_sni_route_is_exact_and_existing_routes_stay_unchanged():
+    """Portainer chi duoc them vao map SNI; DERP va hai duong cu phai bat bien."""
+    conf = NGINX_CONF.read_text(encoding="utf-8")
+
+    assert re.search(
+        rf"^\s*{re.escape(PORTAINER_HOST)} caddy-edge:8447;$", conf, re.MULTILINE
+    ), "Portainer phai co route SNI chinh xac, TLS thuong, toi caddy-edge:8447"
+    assert re.search(r"^\s*default\s+derper:443;$", conf, re.MULTILINE), (
+        "default SNI phai giu NGUYEN derper:443"
+    )
+    assert re.search(
+        rf"^\s*{re.escape(CLIPROXY_HOST)}\s+caddy-edge:8444;$", conf, re.MULTILINE
+    ), "khong duoc doi route CLIProxy 8444"
+    assert re.search(
+        rf"^\s*{re.escape(OPENCODE_HOST)}\s+127\.0\.0\.1:8446;$", conf, re.MULTILINE
+    ), "khong duoc doi route OpenCode qua listener 127.0.0.1:8446"
+    assert "listen 443;" in conf and "listen [::]:443;" in conf, (
+        "khong duoc doi listener SNI cong 443"
+    )
+
+
 def test_opencode_di_qua_chang_proxy_protocol():
     """opencode phai VONG qua listener noi bo (127.0.0.1:8446) co proxy_protocol
     de Caddy log IP THAT cho fail2ban — tro thang caddy-edge thi chi thay IP noi
@@ -230,6 +252,32 @@ def test_caddy_tro_dung_backend():
     assert CLIPROXY_HOST in body
     assert "reverse_proxy opencode-server:4096" in body
     assert OPENCODE_HOST in body
+
+
+def test_portainer_caddy_site_terminates_normal_tls_and_forwards_browser_origin():
+    """8447 la TLS thuong nhu 8444, khong phai chang PROXY protocol cua OpenCode."""
+    body = CADDYFILE.read_text(encoding="utf-8")
+    site = f"https://{PORTAINER_HOST}:8447"
+    assert site in body, "Caddy phai nghe TLS cho Portainer tren 8447"
+
+    site_body = body[body.index(site):]
+    next_site = site_body.find("\nhttps://", 1)
+    if next_site >= 0:
+        site_body = site_body[:next_site]
+
+    assert "disable_http_challenge" in site_body, (
+        "Portainer phai dung TLS-ALPN vi derper giu host port 80"
+    )
+    assert "reverse_proxy portainer:9000" in site_body
+    assert "header_up X-Forwarded-Proto https" in site_body
+    assert "header_up Host {http.request.host}" in site_body
+    assert "output stdout" in site_body and "format json" in site_body, (
+        "access log Portainer phai la JSON ra stdout"
+    )
+    assert "proxy_protocol" not in site_body
+    assert not re.search(r"servers\s+:8447\s*\{", body), (
+        "8447 khong duoc co listener wrapper PROXY protocol"
+    )
 
 
 # ---------- workflow ----------
