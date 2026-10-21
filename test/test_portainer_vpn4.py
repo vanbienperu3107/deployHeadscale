@@ -238,7 +238,7 @@ def test_deploy_snapshots_unrelated_containers_before_and_after_the_change():
     assert "SNAPSHOT_AFTER=" in body
     assert "RestartCount" in body
     assert "StartedAt" in body
-    assert '"$container" = "portainer"' in body
+    assert 'portainer|caddy-edge|edge-nginx' in body
     assert "cmp -s \"$SNAPSHOT_BEFORE\" \"$SNAPSHOT_AFTER\"" in body
     assert "diff -u \"$SNAPSHOT_BEFORE\" \"$SNAPSHOT_AFTER\"" in body
     assert body.index("SNAPSHOT_BEFORE=") < body.index("pull portainer")
@@ -382,6 +382,8 @@ def test_deploy_is_a_fail_closed_transaction_until_external_checks_commit_it():
             "docker network inspect portainer_proxy",
     ):
         assert needle in diagnostics_script
+    assert "setup_token=|Paste it into the setup screen" in diagnostics_script
+    assert '$SUDO docker logs --tail 100 portainer 2>&1 | sed -E' in diagnostics_script
     assert steps[rollback_index].get("if") == "failure()"
     rollback_script = steps[rollback_index]["with"]["script"]
     assert "edge-vpn4/Caddyfile" in rollback_script

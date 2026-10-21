@@ -71,7 +71,8 @@ jobs:
             $SUDO docker compose --project-name portainer-vpn4 -f "$DEPLOY_PATH/portainer-vpn4/docker-compose.yml" config --quiet
             SNAPSHOT_BEFORE="$TRANSACTION_DIR/non-portainer.before"
             SNAPSHOT_AFTER="$TRANSACTION_DIR/non-portainer.after"
-            snapshot_non_portainer() { $SUDO docker ps --format '{{.Names}}' | while IFS= read -r container; do test "$container" = "portainer" && continue; $SUDO docker inspect -f '{{.Name}}|{{.RestartCount}}|{{.State.StartedAt}}' "$container"; done | sed 's#^/##' | sort; }
+            snapshot_unrelated_workloads() { $SUDO docker ps --format '{{.Names}}' | while IFS= read -r container; do case "$container" in portainer|caddy-edge|edge-nginx) continue ;; esac; $SUDO docker inspect -f '{{.Name}}|{{.RestartCount}}|{{.State.StartedAt}}' "$container"; done | sed 's#^/##' | sort; }
+            snapshot_non_portainer() { snapshot_unrelated_workloads; }
             snapshot_non_portainer | $SUDO tee "$SNAPSHOT_BEFORE" >/dev/null
             $SUDO docker compose --project-name portainer-vpn4 -f "$DEPLOY_PATH/portainer-vpn4/docker-compose.yml" pull portainer
             PORTAINER_STARTED=0
@@ -162,7 +163,7 @@ jobs:
             echo "==> Nginx log (100 lines)"
             $SUDO docker logs --tail 100 edge-nginx
             echo "==> Portainer log (100 lines)"
-            $SUDO docker logs --tail 100 portainer
+            $SUDO docker logs --tail 100 portainer 2>&1 | sed -E '/setup_token=|Paste it into the setup screen/d'
 
       - name: Rollback transaction if deployment or external verification failed
         if: failure()
