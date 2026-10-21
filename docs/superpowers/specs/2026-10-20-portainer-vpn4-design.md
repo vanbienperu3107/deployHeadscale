@@ -149,7 +149,7 @@ It shares `concurrency.group: deploy-vpn4-host` and sets `cancel-in-progress: fa
 3. Wait for Portainer to start, then verify Portainer's `GET /api/status` through the newly configured public TLS route. This is the application readiness check; no unsupported Compose healthcheck is declared.
 4. Recreate only `caddy-edge` using the existing `edge-vpn4` Compose project and `--force-recreate`; do not run `docker compose up` for the entire edge project if it would recreate Nginx or fail2ban.
 5. Reload or recreate only `edge-nginx` after a syntax preflight. This change is unavoidable because Nginx reads its SNI map at startup. It must be a targeted change and must be followed by an immediate DERP probe.
-6. Verify that every pre-existing container outside Portainer has the same restart count and started-at value as its pre-deploy snapshot. If any differ, fail the workflow and print the diff.
+6. Verify that every pre-existing container except the three intentional deployment targets (`portainer`, `caddy-edge`, and `edge-nginx`) has the same restart count and started-at value as its pre-deploy snapshot. The two edge components are expected to recreate to load bind-mounted route changes. If any other container differs, fail the workflow and print the diff.
 
 ### Remote verification
 
