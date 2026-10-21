@@ -142,7 +142,7 @@ docker run -d --name "$CADDY" --network "$NETWORK" --network-alias caddy-edge \
   -v "$TMP/caddy-edge.Caddyfile:/etc/caddy/Caddyfile:ro" \
   caddy:2.8-alpine >/dev/null
 docker network connect "$PROXY_NETWORK" "$CADDY"
-PROXY_MEMBERS="$(docker network inspect "$PROXY_NETWORK" --format '{{range .Containers}}{{.Name}} {{end}}' | tr ' ' '\n' | sort | tr '\n' ' ')"
+PROXY_MEMBERS="$(docker network inspect "$PROXY_NETWORK" --format '{{range .Containers}}{{.Name}} {{end}}' | tr ' ' '\n' | sed '/^$/d; s#^/##' | sort | tr '\n' ' ')"
 EXPECTED_PROXY_MEMBERS="$(printf '%s\n%s\n' "$CADDY" "$PORTAINER_STUB" | sort | tr '\n' ' ')"
 [ "$PROXY_MEMBERS" = "$EXPECTED_PROXY_MEMBERS" ] || fail "private proxy test network members differ: ${PROXY_MEMBERS:-<empty>}"
 
