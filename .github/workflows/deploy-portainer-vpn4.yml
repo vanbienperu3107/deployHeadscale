@@ -138,6 +138,32 @@ jobs:
           fi
           rm -f "$STATUS_BODY"
 
+      - name: Collect Portainer failure diagnostics before rollback
+        if: failure()
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SSH_HOST_VPN4 }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT || '22' }}
+          envs: DEPLOY_PATH
+          script_stop: false
+          command_timeout: 5m
+          script: |
+            set +e
+            SUDO="sudo -n"
+            echo "==> Portainer state"
+            $SUDO docker ps -a --filter "name=^/portainer$" --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}'
+            $SUDO docker inspect -f 'state={{.State.Status}} running={{.State.Running}} networks={{range $name, $_ := .NetworkSettings.Networks}}{{$name}} {{end}} ports={{json .HostConfig.PortBindings}}' portainer
+            echo "==> portainer_proxy members"
+            $SUDO docker network inspect portainer_proxy --format '{{range .Containers}}{{.Name}} {{end}}'
+            echo "==> Caddy log (200 lines)"
+            $SUDO docker logs --tail 200 caddy-edge
+            echo "==> Nginx log (100 lines)"
+            $SUDO docker logs --tail 100 edge-nginx
+            echo "==> Portainer log (100 lines)"
+            $SUDO docker logs --tail 100 portainer
+
       - name: Rollback transaction if deployment or external verification failed
         if: failure()
         uses: appleboy/ssh-action@v1.2.0
