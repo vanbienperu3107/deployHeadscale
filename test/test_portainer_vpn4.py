@@ -5,6 +5,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 PORTAINER_COMPOSE = ROOT / "portainer-vpn4" / "docker-compose.yml"
+INTEGRATION = ROOT / "test" / "portainer_vpn4_integration.sh"
 
 
 def load_portainer_compose():
@@ -69,3 +70,26 @@ def test_portainer_uses_existing_json_log_rotation_convention():
         "driver": "json-file",
         "options": {"max-size": "10m", "max-file": "3"},
     }
+
+
+def test_integration_harness_generates_a_valid_unique_resource_suffix():
+    """Bash parses `${$}` but fails it at runtime as a bad substitution.
+
+    The harness creates disposable Docker resource names from this value. It
+    must use Bash's process identifier `$$`, not invalid `${$}` or `$-`.
+    """
+    body = INTEGRATION.read_text(encoding="utf-8")
+    assert 'SUFFIX="${$}-${RANDOM}"' not in body
+    assert 'SUFFIX="$$-${RANDOM}"' in body
+
+
+def test_integration_harness_does_not_leak_caddy_anonymous_volumes():
+    """Caddy images declare /data and /config volumes by default.
+
+    Removing the three disposable Caddy containers without `-v` would leave
+    anonymous volumes on every local/CI integration run. The harness does not
+    need persistence, so each Caddy stub must override both paths with tmpfs.
+    """
+    body = INTEGRATION.read_text(encoding="utf-8")
+    assert body.count("--tmpfs /data:rw,noexec,nosuid,size=16m") == 3
+    assert body.count("--tmpfs /config:rw,noexec,nosuid,size=16m") == 3
