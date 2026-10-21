@@ -131,6 +131,8 @@ def test_integration_harness_exercises_the_private_proxy_network_topology():
     assert 'docker run -d --name "$PORTAINER_STUB" --network "$PROXY_NETWORK"' in body
     assert 'docker network connect "$PROXY_NETWORK" "$CADDY"' in body
     assert 'docker network inspect "$PROXY_NETWORK"' in body
+    assert 'EXPECTED_PROXY_MEMBERS="$(printf' in body
+    assert 'sort | tr' in body
 
 
 def load_deploy_workflow():

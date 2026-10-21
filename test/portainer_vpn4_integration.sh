@@ -143,7 +143,8 @@ docker run -d --name "$CADDY" --network "$NETWORK" --network-alias caddy-edge \
   caddy:2.8-alpine >/dev/null
 docker network connect "$PROXY_NETWORK" "$CADDY"
 PROXY_MEMBERS="$(docker network inspect "$PROXY_NETWORK" --format '{{range .Containers}}{{.Name}} {{end}}' | tr ' ' '\n' | sort | tr '\n' ' ')"
-[ "$PROXY_MEMBERS" = "$CADDY $PORTAINER_STUB " ] || fail "private proxy test network members differ: ${PROXY_MEMBERS:-<empty>}"
+EXPECTED_PROXY_MEMBERS="$(printf '%s\n%s\n' "$CADDY" "$PORTAINER_STUB" | sort | tr '\n' ' ')"
+[ "$PROXY_MEMBERS" = "$EXPECTED_PROXY_MEMBERS" ] || fail "private proxy test network members differ: ${PROXY_MEMBERS:-<empty>}"
 
 echo "==> [5/7] Start exact repository Nginx with a random loopback-only port"
 docker run -d --name "$NGINX" --network "$NETWORK" -p 127.0.0.1::443 \
