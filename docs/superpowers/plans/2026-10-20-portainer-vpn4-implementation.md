@@ -261,7 +261,7 @@ Implement exactly this sequence:
 2. Ensure secrets are non-empty without logging them.
 3. SSH using `sudo -n`; fetch `origin/<ref>` and reset `$DEPLOY_PATH` to it, recording old and new SHA.
 4. Create `edge` only if absent; validate the Nginx file in a disposable container and validate Portainer Compose.
-5. Snapshot all running non-Portainer containers using `Name RestartCount StartedAt`.
+5. Snapshot all running containers other than the intentional deployment targets `portainer`, `caddy-edge`, and `edge-nginx`, using `Name RestartCount StartedAt`.
 6. Pull and start only `portainer-vpn4` with `docker compose up -d --remove-orphans`; wait for the container to be running. After the targeted edge change, verify app readiness via HTTPS `GET /api/status`.
 7. Target-recreate Caddy then Nginx only. Do not start/recreate the complete edge project and do not reference DERP/CLIProxy commands except read-only verification.
 8. If Caddy/Nginx change fails or DERP probe fails, restore the prior edge config/ref and target-recreate only the component the workflow changed; retain Portainer data.
