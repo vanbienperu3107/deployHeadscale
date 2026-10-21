@@ -16,7 +16,11 @@ CADDY="portainer-vpn4-test-caddy-${SUFFIX}"
 PORTAINER_STUB="portainer-vpn4-test-backend-${SUFFIX}"
 TMP="$(mktemp -d)"
 PORTAINER_SNI="portainer.hangocthanh.io.vn"
-UNKNOWN_SNI="unknown-sni.invalid"
+# This hostname is intentionally NOT listed in the repository's SNI map, so
+# it must take Nginx's default -> derper branch. Using vpn4's real DERP name
+# also gives the TLS stub a concrete host to serve while remaining entirely
+# local through curl --resolve below.
+DERP_DEFAULT_SNI="vpn4.hangocthanh.io.vn"
 
 cleanup() {
   status=$?
@@ -95,7 +99,7 @@ cat > "$TMP/derp.Caddyfile" <<'EOF'
 	auto_https disable_redirects
 }
 
-:443 {
+https://vpn4.hangocthanh.io.vn {
 	tls internal
 	respond "DERP STUB" 200
 }
@@ -177,9 +181,17 @@ done
 [ "$ready" = 1 ] || fail "exact Portainer SNI did not reach the private Portainer-compatible backend (got ${actual:-<empty>})"
 echo "  $PORTAINER_SNI -> $actual"
 
-echo "==> [7/7] Unknown SNI must stay on the DERP default, never Portainer"
-unknown="$(request "$UNKNOWN_SNI" / 2>/dev/null || true)"
-[ "$unknown" = "DERP STUB" ] || fail "unknown SNI escaped DERP default or reached Portainer (got ${unknown:-<empty>})"
-echo "  $UNKNOWN_SNI -> $unknown"
+echo "==> [7/7] Default SNI must stay on the DERP stub, never Portainer"
+derp_ready=0
+for _ in $(seq 1 20); do
+  actual="$(request "$DERP_DEFAULT_SNI" / 2>/dev/null || true)"
+  if [ "$actual" = "DERP STUB" ]; then
+    derp_ready=1
+    break
+  fi
+  sleep 1
+done
+[ "$derp_ready" = 1 ] || fail "default SNI escaped DERP default or reached Portainer (got ${actual:-<empty>})"
+echo "  $DERP_DEFAULT_SNI -> $actual"
 
 echo "PASS: local disposable SNI routing keeps Portainer exact and DERP default."

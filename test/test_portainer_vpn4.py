@@ -134,6 +134,9 @@ def test_integration_harness_exercises_the_private_proxy_network_topology():
     assert 'EXPECTED_PROXY_MEMBERS="$(printf' in body
     assert "sed '/^$/d; s#^/##'" in body
     assert 'sort | tr' in body
+    assert 'DERP_DEFAULT_SNI="vpn4.hangocthanh.io.vn"' in body
+    assert 'https://vpn4.hangocthanh.io.vn {' in body
+    assert 'for _ in $(seq 1 20); do' in body
 
 
 def load_deploy_workflow():
