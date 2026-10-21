@@ -7,6 +7,7 @@ ROOT = Path(__file__).resolve().parents[1]
 PORTAINER_COMPOSE = ROOT / "portainer-vpn4" / "docker-compose.yml"
 INTEGRATION = ROOT / "test" / "portainer_vpn4_integration.sh"
 DEPLOY_WORKFLOW = ROOT / ".github" / "workflows" / "deploy-portainer-vpn4.yml"
+ROLLBACK_WORKFLOW = ROOT / ".github" / "workflows" / "rollback-portainer-vpn4.yml"
 
 
 def load_portainer_compose():
@@ -398,3 +399,181 @@ def test_rollback_reads_every_root_owned_transaction_marker_via_sudo():
         '"$TRANSACTION_DIR/portainer-attempted"',
     ):
         assert f"$SUDO test -f {marker}" in rollback_script
+
+
+def load_rollback_workflow():
+    """Load the Task 5 manual, data-preserving removal workflow."""
+    assert ROLLBACK_WORKFLOW.exists(), "rollback-portainer-vpn4.yml phai ton tai"
+    data = yaml.safe_load(ROLLBACK_WORKFLOW.read_text(encoding="utf-8"))
+    assert isinstance(data, dict), "rollback workflow phai la mot YAML mapping"
+    return data
+
+
+def rollback_body():
+    load_rollback_workflow()
+    return ROLLBACK_WORKFLOW.read_text(encoding="utf-8")
+
+
+def rollback_stage_step():
+    return next(
+        step
+        for step in load_rollback_workflow()["jobs"]["rollback"]["steps"]
+        if step.get("name", "").startswith("Remove only Portainer")
+    )
+
+
+def test_rollback_workflow_is_manual_serialized_and_uses_an_explicit_target_ref():
+    workflow = load_rollback_workflow()
+    triggers = workflow.get("on", workflow.get(True))
+
+    assert isinstance(triggers, dict)
+    assert set(triggers) == {"workflow_dispatch"}
+    assert triggers["workflow_dispatch"]["inputs"]["target_ref"] == {
+        "description": "Git branch containing the Portainer configuration to remove",
+        "required": True,
+        "default": "main",
+        "type": "string",
+    }
+    assert workflow["concurrency"] == {
+        "group": "deploy-vpn4-host",
+        "cancel-in-progress": False,
+    }
+    assert workflow["jobs"]["rollback"]["steps"]
+
+
+def test_rollback_preflight_checks_secrets_and_the_exact_portainer_dns_before_ssh():
+    workflow = load_rollback_workflow()
+    body = rollback_body()
+    steps = workflow["jobs"]["rollback"]["steps"]
+    ssh_index = next(
+        index
+        for index, step in enumerate(steps)
+        if str(step.get("uses", "")).startswith("appleboy/ssh-action")
+    )
+    dns_index = next(index for index, step in enumerate(steps) if "DNS" in step["name"])
+
+    assert dns_index < ssh_index
+    assert "portainer.hangocthanh.io.vn" in steps[dns_index]["run"]
+    assert '"$RESOLVED" != "$SSH_HOST_VPN4"' in steps[dns_index]["run"]
+    for secret in ("SSH_HOST_VPN4", "SSH_USER", "SSH_KEY", "DEPLOY_PATH"):
+        assert f"{secret}: ${{{{ secrets.{secret} }}}}" in body
+        assert f'echo "${secret}"' not in body
+    assert rollback_stage_step()["env"] == {
+        "DEPLOY_PATH": "${{ secrets.DEPLOY_PATH }}",
+        "DEPLOY_REF": "${{ inputs.target_ref }}",
+    }
+    assert 'git fetch origin "$DEPLOY_REF:refs/remotes/origin/$DEPLOY_REF"' in body
+    assert 'git reset --hard "origin/$DEPLOY_REF"' in body
+    assert "git check-ref-format --branch \"$DEPLOY_REF\"" in body
+
+
+def test_rollback_removes_only_the_exact_portainer_routes_with_guarded_editing():
+    script = rollback_stage_step()["with"]["script"]
+
+    assert "portainer.hangocthanh.io.vn caddy-edge:8447;" in script
+    assert "https://portainer.hangocthanh.io.vn:8447 {" in script
+    assert "assert s.count(route) == 1" in script
+    assert "assert s.count(site) == 1" in script
+    assert "edge-vpn4/nginx.conf" in script
+    assert "edge-vpn4/Caddyfile" in script
+    assert 'p.write_text(s.replace(route, ""))' in script
+    assert 'p.write_text(s.replace(site, ""))' in script
+
+
+def test_rollback_validates_route_free_candidate_before_target_edge_recreates():
+    script = rollback_stage_step()["with"]["script"]
+    caddy_recreate = (
+        'docker compose -f "$DEPLOY_PATH/edge-vpn4/docker-compose.yml" '
+        "up -d --force-recreate --no-deps caddy-edge"
+    )
+    nginx_recreate = (
+        'docker compose -f "$DEPLOY_PATH/edge-vpn4/docker-compose.yml" '
+        "up -d --force-recreate --no-deps nginx"
+    )
+
+    assert "nginx:1.27-alpine nginx -t" in script
+    assert "caddy:2.8-alpine caddy validate --adapter caddyfile --config /etc/caddy/Caddyfile" in script
+    assert script.index("nginx:1.27-alpine nginx -t") < script.index(caddy_recreate)
+    assert script.index("caddy:2.8-alpine caddy validate --adapter caddyfile --config /etc/caddy/Caddyfile") < script.index(caddy_recreate)
+    assert script.index(caddy_recreate) < script.index(nginx_recreate)
+    assert 'docker compose -f "$DEPLOY_PATH/edge-vpn4/docker-compose.yml" up -d --remove-orphans' not in script
+    for unrelated in ("--no-deps derper", "--no-deps cliproxy", "--no-deps opencode", "--no-deps fail2ban"):
+        assert unrelated not in script
+
+
+def test_rollback_stops_only_portainer_and_preserves_its_named_volume_without_public_admin_ports():
+    script = rollback_stage_step()["with"]["script"]
+    down = 'docker compose -f "$DEPLOY_PATH/portainer-vpn4/docker-compose.yml" down'
+
+    assert down in script
+    assert "portainer-vpn4/docker-compose.yml" not in script.replace(down, "")
+    for forbidden in ("down -v", "docker volume rm", "docker system prune", "docker volume prune", "docker compose rm"):
+        assert forbidden not in rollback_body()
+    assert "docker volume inspect portainer-vpn4_portainer_data" in script
+    assert 'docker ps --filter "name=^/portainer$" --format' in script
+    assert "8000|9000|9443" in script
+
+
+def test_rollback_verifies_the_retired_public_route_and_existing_route_boundaries():
+    body = rollback_body()
+
+    assert "https://portainer.hangocthanh.io.vn/api/status" in body
+    assert '''case "$PORTAINER_CODE" in
+            000) ;;
+            *) echo "::error::Portainer public SNI route still responds with HTTP"; exit 1 ;;
+          esac''' in body
+    assert "https://vpn4.hangocthanh.io.vn/derp/probe" in body
+    assert 'test "$DERP_CODE" = "200"' in body
+    assert "https://cliproxy.hangocthanh.io.vn/v1/models" in body
+    assert '401|403) ;;' in body
+    assert "https://opencode.hangocthanh.io.vn/global/health" in body
+    assert 'test "$OPENCODE_CODE" = "401"' in body
+    assert "Authorization:" not in body
+    assert "-k" not in body
+
+
+def test_rollback_recovers_original_routes_and_portainer_if_the_transaction_fails():
+    workflow = load_rollback_workflow()
+    steps = workflow["jobs"]["rollback"]["steps"]
+    stage_script = rollback_stage_step()["with"]["script"]
+    recovery_step = next(
+        step
+        for step in steps
+        if step.get("name", "").startswith("Restore Portainer transaction")
+    )
+    recovery_script = recovery_step["with"]["script"]
+
+    assert "TRANSACTION_MARKER" in stage_script
+    assert "PREVIOUS_NGINX" in stage_script and "PREVIOUS_CADDY" in stage_script
+    assert "caddy-change-attempted" in stage_script
+    assert "nginx-change-attempted" in stage_script
+    assert "portainer-down-attempted" in stage_script
+    assert recovery_step["if"] == "failure()"
+    assert 'cp "$TRANSACTION_DIR/Caddyfile.previous" "$DEPLOY_PATH/edge-vpn4/Caddyfile"' in recovery_script
+    assert 'cp "$TRANSACTION_DIR/nginx.conf.previous" "$DEPLOY_PATH/edge-vpn4/nginx.conf"' in recovery_script
+    assert 'caddy:2.8-alpine caddy validate --adapter caddyfile --config /etc/caddy/Caddyfile' in recovery_script
+    assert recovery_script.index("caddy validate") < recovery_script.index(
+        "up -d --force-recreate --no-deps caddy-edge"
+    )
+    assert recovery_script.index("nginx:1.27-alpine nginx -t") < recovery_script.index(
+        "up -d --force-recreate --no-deps nginx"
+    )
+    assert 'docker compose -f "$DEPLOY_PATH/edge-vpn4/docker-compose.yml" up -d --force-recreate --no-deps caddy-edge' in recovery_script
+    assert 'docker compose -f "$DEPLOY_PATH/edge-vpn4/docker-compose.yml" up -d --force-recreate --no-deps nginx' in recovery_script
+    assert 'docker compose -f "$DEPLOY_PATH/portainer-vpn4/docker-compose.yml" up -d portainer' in recovery_script
+    assert 'git reset --hard "$OLD_SHA"' in recovery_script
+    assert "ROLLBACK_FAILED=0" in recovery_script
+    assert 'test "$ROLLBACK_FAILED" = "0" || exit 1' in recovery_script
+    assert all("portainer_data" not in line for line in recovery_script.splitlines() if "rm" in line)
+
+
+def test_rollback_ssh_scripts_do_not_use_heredocs_bare_else_or_script_stop_true():
+    workflow = load_rollback_workflow()
+
+    for step in workflow["jobs"]["rollback"]["steps"]:
+        if not str(step.get("uses", "")).startswith("appleboy/ssh-action"):
+            continue
+        assert step["with"].get("script_stop") is False
+        script = step["with"]["script"]
+        assert "<<" not in script
+        assert all(line.strip() != "else" for line in script.splitlines())
