@@ -13,7 +13,7 @@ The read-only survey ran successfully on vpn4 in GitHub Actions run `39467047869
 - Docker is standalone (`Swarm LocalNodeState: inactive`), rootful, with Docker Engine 29.6.0 and Compose 5.1.4.
 - The Docker API socket is `/var/run/docker.sock`; it is usable by the deployment account through `sudo -n`.
 - vpn4 has 3.8 GiB RAM, with 1.8 GiB available at the time of survey; 14 GiB disk space remains on `/`.
-- `edge` is an external bridge network on `172.23.0.0/16` and contains `edge-nginx`, `caddy-edge`, `derper`, `cliproxy`, and `opencode-server`.
+- `edge` is an external bridge network on `172.23.0.0/16` and contains `edge-nginx`, `caddy-edge`, `derper`, `cliproxy`, and `opencode-server`. It is shared ingress transport and is not a Portainer trust boundary.
 - `edge-nginx` owns host TCP 443. `derper` owns host TCP 80 and UDP 3478. The Nginx SNI default must remain DERP.
 - Host ports 8000, 9000, 9443, 8446, and 8447 were unbound during the survey.
 - Existing Caddy listeners use 8444 for CLIProxyAPI and 8445 for OpenCode. Port 8447 is reserved for Portainer's internal TLS listener.
@@ -25,7 +25,7 @@ The read-only survey ran successfully on vpn4 in GitHub Actions run `39467047869
 ### In scope
 
 - A `portainer-vpn4` Docker Compose stack with a Portainer CE LTS server.
-- An external `edge` network connection for that server.
+- A private external `portainer_proxy` network shared only by Portainer and `caddy-edge`.
 - SNI routing and Caddy TLS/reverse-proxy configuration for `portainer.hangocthanh.io.vn`.
 - A manual GitHub Actions deploy workflow with DNS validation, deploy safeguards, and remote verification.
 - Automated configuration/integration tests covering the new stack, routes, deploy policy, and rollback behavior.
@@ -46,7 +46,7 @@ Portainer will mount `/var/run/docker.sock`. This grants it effective root-equiv
 Controls:
 
 - No Portainer administrative port is published to the host. The Compose service has no `ports:` section.
-- The service is reachable only from `caddy-edge` over the existing private `edge` network.
+- The service is reachable only from `caddy-edge` over a dedicated private `portainer_proxy` network. It must not attach to the shared `edge` network, whose other members include DERP, CLIProxy, and OpenCode.
 - Only the domain `portainer.hangocthanh.io.vn` maps through Nginx SNI to a dedicated Caddy listener.
 - Caddy terminates TLS with Let's Encrypt via TLS-ALPN because derper owns host port 80; HTTP-01 must remain disabled for this domain.
 - The initial Portainer administrator password is created in the Portainer web UI. It is not supplied by workflow logs, Compose environment variables, or GitHub secrets.
@@ -63,11 +63,11 @@ edge-nginx (host 443, stream ssl_preread; does not decrypt TLS)
   |
   | SNI route to caddy-edge:8447 over network edge
   v
-caddy-edge (TLS-ALPN certificate, Caddy listener 8447)
+caddy-edge (TLS-ALPN certificate, Caddy listener 8447; member of edge + portainer_proxy)
   |
-  | HTTP reverse_proxy portainer:9000 over network edge
+  | HTTP reverse_proxy portainer:9000 over private network portainer_proxy
   v
-portainer (Portainer CE LTS)
+portainer (Portainer CE LTS; only member of portainer_proxy besides caddy-edge)
   |-- /var/run/docker.sock (Docker host authority)
   `-- portainer_data:/data (persistent configuration)
 ```
@@ -94,14 +94,14 @@ Create `portainer-vpn4/docker-compose.yml` with one service:
 - Memory limit: `256m`.
 - Command: `--http-enabled`. Current Portainer CE LTS serves HTTPS internally on 9443 by default; this explicitly enables private HTTP on 9000 for the existing Caddy TLS terminator. It does not publish 9000 to the host.
 - No host port publication.
-- Networks: the external network named `edge`.
+- Networks: the external network named `portainer_proxy`.
 - Volumes:
   - `/var/run/docker.sock:/var/run/docker.sock`
   - `portainer_data:/data`
 - No Compose `healthcheck`: Portainer CE LTS does not document an in-image HTTP probe tool or CLI health command, so declaring `curl`, `wget`, or a guessed flag would create a false health state. The deploy workflow verifies the live app through the TLS route with Portainer's public `GET /api/status` endpoint instead.
 - JSON log rotation consistent with existing vpn4 Compose stacks: 10 MiB max file size, 3 retained files.
 
-The stack must declare `edge` as `external: true`, `name: edge`. The deploy workflow may create this network only when it does not exist; normal Portainer deploy must not recreate it.
+The stack must declare `portainer_proxy` as `external: true`, `name: portainer_proxy`. `caddy-edge` joins both `edge` and `portainer_proxy`; no other service may join the latter. The deploy workflow may create either external network only when it does not exist; normal Portainer deploy must not recreate either network.
 
 `portainer_data` remains a named volume after a normal rollback. This protects the initial administrator configuration, endpoints, users, and stack metadata. The operator can intentionally remove it only in a separately reviewed destructive reset procedure.
 
@@ -145,7 +145,7 @@ It shares `concurrency.group: deploy-vpn4-host` and sets `cancel-in-progress: fa
 ### Deploy sequence
 
 1. Pull the pinned Portainer image.
-2. Start or update only the `portainer-vpn4` stack with `docker compose up -d --remove-orphans`.
+2. Start or update only the `portainer-vpn4` stack with `docker compose --project-name portainer-vpn4 up -d --remove-orphans`. Every Portainer Compose command pins this project name so the persistent Docker volume is deterministically `portainer-vpn4_portainer_data`, independent of host `COMPOSE_PROJECT_NAME`.
 3. Wait for Portainer to start, then verify Portainer's `GET /api/status` through the newly configured public TLS route. This is the application readiness check; no unsupported Compose healthcheck is declared.
 4. Recreate only `caddy-edge` using the existing `edge-vpn4` Compose project and `--force-recreate`; do not run `docker compose up` for the entire edge project if it would recreate Nginx or fail2ban.
 5. Reload or recreate only `edge-nginx` after a syntax preflight. This change is unavoidable because Nginx reads its SNI map at startup. It must be a targeted change and must be followed by an immediate DERP probe.
@@ -155,7 +155,7 @@ It shares `concurrency.group: deploy-vpn4-host` and sets `cancel-in-progress: fa
 
 1. Poll `https://portainer.hangocthanh.io.vn/` for an HTTP response indicating the Portainer UI is reachable through valid TLS. Redirects are acceptable; a connection/TLS failure is not.
 2. Verify from vpn4 that no host listener exists on 8000, 9000, or 9443 after deployment.
-3. Verify the Portainer service has no Compose `ports` mapping and is attached to `edge`.
+3. Verify the Portainer service has no Compose `ports` mapping and is attached only to `portainer_proxy`.
 4. Verify DERP remains reachable at `https://vpn4.hangocthanh.io.vn/derp/probe` with HTTP 200.
 5. Verify the existing CLIProxy path `https://cliproxy.hangocthanh.io.vn/v1/models` retains its expected authentication behavior, without printing API keys.
 6. Verify the existing OpenCode route still returns an authenticated response (401 without credentials is acceptable and expected).
@@ -178,7 +178,7 @@ Provide a manual workflow or documented operational command to remove the Portai
 1. `https://portainer.hangocthanh.io.vn` serves Portainer through a valid publicly trusted TLS certificate.
 2. Portainer manages the local standalone Docker endpoint through `/var/run/docker.sock`.
 3. No host listener or published Compose port exists for 8000, 9000, or 9443.
-4. The Portainer container is only connected to `edge` and its service definition has a 256 MiB memory limit.
+4. The Portainer container is only connected to `portainer_proxy`; that network has exactly `portainer` and `caddy-edge`; and the service definition has a 256 MiB memory limit.
 5. `portainer_data` persists Portainer state across an ordinary deploy/recreate and is preserved by rollback.
 6. Existing DERP, CLIProxy, and OpenCode routes remain healthy after deployment.
 7. Nginx's SNI default remains `derper:443`.
@@ -189,7 +189,7 @@ Provide a manual workflow or documented operational command to remove the Portai
 
 ### Static/unit tests
 
-- Parse Portainer Compose and assert: LTS image, no `ports`, external `edge`, socket/data mounts, `mem_limit: 256m`, restart policy, no unsupported image healthcheck, and log rotation.
+- Parse Portainer Compose and assert: LTS image, no `ports`, external `portainer_proxy`, socket/data mounts, `mem_limit: 256m`, restart policy, no unsupported image healthcheck, and log rotation.
 - Parse Nginx/Caddy and assert: exact Portainer domain route to 8447, TLS-ALPN-compatible issuer, proxy to `portainer:9000`, no new default route, and no change to the DERP default.
 - Parse deploy workflow and assert: dispatch-only, shared concurrency, DNS before edge changes, targeted component operations, no `down -v`, no data-volume deletion, no API-key echo, required verification commands, and snapshot comparison.
 - Extend edge tests so new SNI/Caddy route is included alongside the existing cliproxy/OpenCode invariants.
@@ -208,7 +208,8 @@ Provide a manual workflow or documented operational command to remove the Portai
 
 | Risk | Decision |
 | --- | --- |
-| Portainer controls Docker with root-equivalent authority | Expose only behind the dedicated HTTPS hostname; no direct admin ports; operator-managed first user/password. |
+| Portainer controls Docker with root-equivalent authority | Expose only behind the dedicated HTTPS hostname; no direct admin ports; `portainer_proxy` limits private HTTP reachability to Caddy; operator-managed first user/password. |
+| Docker network TOCTOU | The deploy workflow checks exact proxy-network membership before Portainer start and after Caddy/Nginx activation, then rolls back detected drift. Docker users able to attach a peer between checks already hold host-level Docker authority; absolute prevention requires host-level Docker authorization policy outside this scope. |
 | vpn4 memory is constrained and other containers have no memory cap | Cap Portainer at 256 MiB; deployment checks actual memory and preserves existing workloads. |
 | Nginx owns 443 and DERP must remain default SNI | Add only exact SNI mapping; verify DERP probe immediately after edge change. |
 | Port 80 belongs to DERP | Use Caddy TLS-ALPN with HTTP-01 disabled. |

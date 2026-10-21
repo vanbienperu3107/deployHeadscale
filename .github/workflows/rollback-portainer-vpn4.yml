@@ -4,9 +4,8 @@ on:
   workflow_dispatch:
     inputs:
       target_ref:
-        description: Git branch containing the Portainer configuration to remove
+        description: Exact Git branch containing the deployed Portainer configuration to remove
         required: true
-        default: main
         type: string
 
 concurrency:
@@ -35,7 +34,8 @@ jobs:
           SSH_HOST_VPN4: ${{ secrets.SSH_HOST_VPN4 }}
         run: |
           RESOLVED=$(python3 -c "import socket; print(socket.gethostbyname('portainer.hangocthanh.io.vn'))" 2>/dev/null || true)
-          if [ -z "$RESOLVED" ] || [ "$RESOLVED" != "$SSH_HOST_VPN4" ]; then
+          EXPECTED=$(python3 -c "import socket; print(socket.gethostbyname('$SSH_HOST_VPN4'))" 2>/dev/null || true)
+          if [ -z "$RESOLVED" ] || [ -z "$EXPECTED" ] || [ "$RESOLVED" != "$EXPECTED" ]; then
             echo "::error::Portainer DNS does not resolve to the configured deployment host"
             exit 1
           fi
@@ -70,6 +70,7 @@ jobs:
             git reset --hard "origin/$DEPLOY_REF"
             NEW_SHA=$(git rev-parse HEAD)
             echo "Rollback source revision changed: $OLD_SHA -> $NEW_SHA"
+            test -f "$DEPLOY_PATH/portainer-vpn4/docker-compose.yml"
             python3 -c 'from pathlib import Path; import sys; p=Path(sys.argv[1]); route="        portainer.hangocthanh.io.vn caddy-edge:8447;\n"; s=p.read_text(); assert s.count(route) == 1; p.write_text(s.replace(route, ""))' "$DEPLOY_PATH/edge-vpn4/nginx.conf"
             python3 -c 'from pathlib import Path; import sys; p=Path(sys.argv[1]); site="# Portainer la trang quan tri Docker, chi truy cap qua TLS cua Caddy tren mang\n# edge. 8447 nhan TLS binh thuong tu nginx nhu 8444; chi 8445 cua OpenCode\n# nhan PROXY protocol de phuc vu fail2ban.\nhttps://portainer.hangocthanh.io.vn:8447 {\n\ttls {\n\t\tissuer acme {\n\t\t\tdisable_http_challenge\n\t\t}\n\t}\n\n\treverse_proxy portainer:9000 {\n\t\theader_up X-Forwarded-Proto https\n\t\theader_up Host {http.request.host}\n\t}\n\n\tlog {\n\t\toutput stdout\n\t\tformat json\n\t}\n}\n\n"; s=p.read_text(); assert s.count(site) == 1; p.write_text(s.replace(site, ""))' "$DEPLOY_PATH/edge-vpn4/Caddyfile"
             $SUDO docker run --rm -v "$DEPLOY_PATH/edge-vpn4/nginx.conf:/etc/nginx/nginx.conf:ro" nginx:1.27-alpine nginx -t
@@ -81,7 +82,7 @@ jobs:
             DERP_CODE=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 https://vpn4.hangocthanh.io.vn/derp/probe || true)
             test "$DERP_CODE" = "200"
             $SUDO touch "$TRANSACTION_DIR/portainer-down-attempted"
-            $SUDO docker compose -f "$DEPLOY_PATH/portainer-vpn4/docker-compose.yml" down
+            $SUDO docker compose --project-name portainer-vpn4 -f "$DEPLOY_PATH/portainer-vpn4/docker-compose.yml" down
             PORTAINER_RUNNING=$($SUDO docker ps --filter "name=^/portainer$" --format '{{.Names}}')
             test -z "$PORTAINER_RUNNING"
             $SUDO docker volume inspect portainer-vpn4_portainer_data >/dev/null
@@ -143,7 +144,7 @@ jobs:
               rollback_run $SUDO docker compose -f "$DEPLOY_PATH/edge-vpn4/docker-compose.yml" up -d --force-recreate --no-deps nginx
             fi
             if $SUDO test -f "$TRANSACTION_DIR/portainer-down-attempted"; then
-              rollback_run $SUDO docker compose -f "$DEPLOY_PATH/portainer-vpn4/docker-compose.yml" up -d portainer
+              rollback_run $SUDO docker compose --project-name portainer-vpn4 -f "$DEPLOY_PATH/portainer-vpn4/docker-compose.yml" up -d portainer
             fi
             test "$ROLLBACK_FAILED" = "0" && $SUDO rm -rf "$TRANSACTION_DIR"
             test "$ROLLBACK_FAILED" = "0" || exit 1

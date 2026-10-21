@@ -4,7 +4,7 @@
 
 **Goal:** Deploy Portainer CE LTS on vpn4 at `https://portainer.hangocthanh.io.vn` with trusted TLS, no exposed administrative ports, preserved data, and no regression to DERP, CLIProxy, or OpenCode.
 
-**Architecture:** A standalone Portainer CE container joins the existing external `edge` network and exposes no host port. Nginx retains host 443 and forwards exact SNI `portainer.hangocthanh.io.vn` to a new private Caddy TLS listener on 8447; Caddy acquires TLS via ALPN and reverse-proxies to Portainer's explicitly enabled private HTTP port 9000. A manual deployment workflow stages Portainer first, then target-recreates only Caddy and Nginx after config preflight, snapshots unrelated containers, and verifies all existing routes.
+**Architecture:** A standalone Portainer CE container joins only dedicated external network `portainer_proxy`, shared solely with `caddy-edge`; it exposes no host port. Nginx retains host 443 and forwards exact SNI `portainer.hangocthanh.io.vn` to a new private Caddy TLS listener on 8447; Caddy acquires TLS via ALPN and reverse-proxies to Portainer's explicitly enabled private HTTP port 9000. A manual deployment workflow stages Portainer first, then target-recreates only Caddy and Nginx after config preflight, snapshots unrelated containers, and verifies all existing routes.
 
 **Tech Stack:** Docker Compose v5, Portainer CE LTS, Nginx stream/SNI routing, Caddy 2.8, GitHub Actions, `appleboy/ssh-action`, pytest/PyYAML, Playwright.
 
@@ -16,6 +16,8 @@
 - Use image `portainer/portainer-ce:lts`, `container_name: portainer`, `restart: unless-stopped`, and `mem_limit: 256m`.
 - Use command `--http-enabled`; no host publication of 8000, 9000, or 9443 is allowed.
 - Mount `/var/run/docker.sock:/var/run/docker.sock` and `portainer_data:/data`; never delete `portainer_data` or use `docker compose down -v`.
+- Portainer joins only external `portainer_proxy`; `caddy-edge` joins `edge` plus `portainer_proxy`; no other service joins `portainer_proxy`.
+- Every Portainer Compose command uses `--project-name portainer-vpn4` so its data volume is predictably `portainer-vpn4_portainer_data` regardless of host environment.
 - The only permitted edge changes are targeted Caddy/Nginx reload or recreation required to load the exact Portainer SNI route. Never recreate, stop, or alter DERP, CLIProxy, OpenCode, or fail2ban.
 - Nginx's default SNI route must remain `derper:443`; derper retains host 80 and UDP 3478.
 - Portainer Caddy site runs at `https://portainer.hangocthanh.io.vn:8447`, disables HTTP-01, proxies `portainer:9000`, and passes `X-Forwarded-Proto: https` plus original Host.
@@ -28,6 +30,7 @@
 
 - **Portainer HTTP enablement:** Test service command includes `--http-enabled`, while Caddy is the only TLS termination point and 9000 remains unbound on the host.
 - **Host-port isolation:** Test absent `ports:` definition and production check that listeners 8000/9000/9443 remain absent after deploy.
+- **Proxy-network drift:** Before start, allow only empty, Caddy-only, or the existing trusted Caddy+Portainer pair; after activation require exactly Caddy+Portainer. A separate Docker-root actor can race these checks, which is a host authorization concern outside the workflow.
 - **SNI default safety:** Test new exact Portainer mapping points to 8447 without changing default `derper:443` or OpenCode's 8446/PROXY-protocol path.
 - **Persistent data safety:** Test deploy and rollback workflows never use `down -v`, `volume rm`, or destructive cleanup of `portainer_data`.
 - **Unrelated service regression:** Test snapshot/check compares non-Portainer container restart count and `StartedAt`; production workflow additionally probes DERP, CLIProxy authentication, and OpenCode authentication.
@@ -38,7 +41,7 @@
 
 | File | Responsibility |
 | --- | --- |
-| `portainer-vpn4/docker-compose.yml` | Single Portainer CE service, private `edge` connectivity, persistence, health, resource/log limits. |
+| `portainer-vpn4/docker-compose.yml` | Single Portainer CE service, private `portainer_proxy` connectivity, persistence, health, resource/log limits. |
 | `edge-vpn4/nginx.conf` | Exact SNI stream route from public 443 to Caddy listener 8447. |
 | `edge-vpn4/Caddyfile` | Private 8447 TLS site and reverse proxy to Portainer HTTP 9000. |
 | `.github/workflows/deploy-portainer-vpn4.yml` | Manual guarded deployment, verification, targeted recovery. |
@@ -54,7 +57,7 @@
 - Create: `test/test_portainer_vpn4.py`
 
 **Interfaces:**
-- Consumes: Existing external Docker network `edge` and host socket `/var/run/docker.sock`.
+- Consumes: Dedicated external Docker network `portainer_proxy` and host socket `/var/run/docker.sock`.
 - Produces: Compose project `portainer-vpn4`, service `portainer`, named volume `portainer_data`.
 
 - [ ] **Step 1: Write failing Compose contract tests**
@@ -72,7 +75,7 @@ def test_portainer_service_is_private_and_persistent():
     assert "portainer_data:/data" in service["volumes"]
 ```
 
-Add assertions for: external network named `edge`, service only joins that network, `portainer_data` exists, no unsupported `healthcheck` is declared, and json-file log rotation uses `10m` / `3`.
+Add assertions for: top-level project name `portainer-vpn4`; external network named `portainer_proxy`; Portainer only joins that network; `caddy-edge` is its only peer; `portainer_data` exists; no unsupported `healthcheck` is declared; and json-file log rotation uses `10m` / `3`.
 
 - [ ] **Step 2: Run test to verify it fails**
 
@@ -89,7 +92,7 @@ Implement the single service and declarations fixed by Global Constraints. Use C
 Run:
 
 ```bash
-docker compose -f portainer-vpn4/docker-compose.yml config --quiet
+docker compose --project-name portainer-vpn4 -f portainer-vpn4/docker-compose.yml config --quiet
 python -m pytest -q test/test_portainer_vpn4.py
 ```
 
@@ -350,7 +353,7 @@ git commit -m "feat(portainer): add data-preserving rollback workflow"
 Run:
 
 ```bash
-docker compose -f portainer-vpn4/docker-compose.yml config --quiet
+docker compose --project-name portainer-vpn4 -f portainer-vpn4/docker-compose.yml config --quiet
 python -m pytest -q test/test_portainer_vpn4.py test/test_edge_vpn4.py test/test_derp_config.py
 bash test/portainer_vpn4_integration.sh
 ```

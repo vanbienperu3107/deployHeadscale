@@ -1,3 +1,5 @@
+name: portainer-vpn4
+
 services:
   portainer:
     image: portainer/portainer-ce:lts
@@ -9,7 +11,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - portainer_data:/data
     networks:
-      - edge
+      - portainer_proxy
     logging:
       driver: json-file
       options:
@@ -17,9 +19,9 @@ services:
         max-file: "3"
 
 networks:
-  edge:
+  portainer_proxy:
     external: true
-    name: edge
+    name: portainer_proxy
 
 volumes:
   portainer_data:

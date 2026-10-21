@@ -163,7 +163,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Validate Portainer Compose render
-        run: docker compose -f portainer-vpn4/docker-compose.yml config --quiet
+        run: docker compose --project-name portainer-vpn4 -f portainer-vpn4/docker-compose.yml config --quiet
 
       - name: Validate exact edge Nginx config
         run: |

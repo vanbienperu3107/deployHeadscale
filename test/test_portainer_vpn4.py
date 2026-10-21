@@ -46,8 +46,32 @@ def test_portainer_uses_only_the_external_edge_network():
     compose = load_portainer_compose()
     service = compose["services"]["portainer"]
 
-    assert service["networks"] == ["edge"]
-    assert compose["networks"] == {"edge": {"external": True, "name": "edge"}}
+    assert compose["name"] == "portainer-vpn4"
+    assert service["networks"] == ["portainer_proxy"]
+    assert compose["networks"] == {
+        "portainer_proxy": {"external": True, "name": "portainer_proxy"}
+    }
+
+
+def test_portainer_proxy_network_is_a_private_caddy_to_portainer_boundary():
+    """Shared `edge` includes derper/cliproxy/opencode and is not a boundary.
+
+    Portainer's Docker socket grants near-root authority. Its HTTP service must
+    therefore share a dedicated network only with Caddy, not the shared ingress
+    bridge where every existing workload could otherwise connect to :9000.
+    """
+    edge_compose = yaml.safe_load(
+        (ROOT / "edge-vpn4" / "docker-compose.yml").read_text(encoding="utf-8")
+    )
+
+    caddy_networks = edge_compose["services"]["caddy-edge"]["networks"]
+    assert "edge" in caddy_networks
+    assert "portainer_proxy" in caddy_networks
+    assert edge_compose["networks"]["portainer_proxy"] == {
+        "external": True,
+        "name": "portainer_proxy",
+    }
+    assert "portainer_proxy" not in edge_compose["services"]["nginx"]["networks"]
 
 
 def test_portainer_declares_its_named_data_volume():
@@ -97,6 +121,18 @@ def test_integration_harness_does_not_leak_caddy_anonymous_volumes():
     assert body.count("--tmpfs /config:rw,noexec,nosuid,size=16m") == 3
 
 
+def test_integration_harness_exercises_the_private_proxy_network_topology():
+    """The disposable harness must not keep testing the retired shared-edge model."""
+    body = INTEGRATION.read_text(encoding="utf-8")
+
+    assert 'assert names == ["portainer_proxy"], networks' in body
+    assert 'PROXY_NETWORK="portainer-vpn4-proxy-test-${SUFFIX}"' in body
+    assert 'docker network create "$PROXY_NETWORK"' in body
+    assert 'docker run -d --name "$PORTAINER_STUB" --network "$PROXY_NETWORK"' in body
+    assert 'docker network connect "$PROXY_NETWORK" "$CADDY"' in body
+    assert 'docker network inspect "$PROXY_NETWORK"' in body
+
+
 def load_deploy_workflow():
     """Load the Task 4 production deploy contract.
 
@@ -144,7 +180,8 @@ def test_deploy_preflight_validates_dns_secrets_and_candidate_configs_before_ssh
 
     assert dns_index < ssh_index, "DNS phai duoc kiem tra truoc khi SSH vao vpn4"
     assert "portainer.hangocthanh.io.vn" in steps[dns_index]["run"]
-    assert "SSH_HOST" in steps[dns_index]["run"]
+    assert "socket.gethostbyname('portainer.hangocthanh.io.vn')" in steps[dns_index]["run"]
+    assert "socket.gethostbyname('$SSH_HOST_VPN4')" in steps[dns_index]["run"]
     assert "SSH_HOST_VPN4" in body
     for secret in ("SSH_HOST_VPN4", "SSH_USER", "SSH_KEY", "DEPLOY_PATH"):
         assert f"{secret}: ${{{{ secrets.{secret} }}}}" in body
@@ -159,7 +196,7 @@ def test_deploy_preflight_validates_dns_secrets_and_candidate_configs_before_ssh
     assert "OLD_SHA=" in body and "NEW_SHA=" in body
     assert "nginx:1.27-alpine nginx -t" in body
     assert "caddy:2.8-alpine caddy validate --adapter caddyfile --config /etc/caddy/Caddyfile" in body
-    assert "docker compose -f \"$DEPLOY_PATH/portainer-vpn4/docker-compose.yml\" config --quiet" in body
+    assert "docker compose --project-name portainer-vpn4 -f \"$DEPLOY_PATH/portainer-vpn4/docker-compose.yml\" config --quiet" in body
 
 
 def test_deploy_only_recreates_the_two_affected_edge_services_and_preserves_data():
@@ -177,8 +214,9 @@ def test_deploy_only_recreates_the_two_affected_edge_services_and_preserves_data
     assert nginx_recreate in body
     assert body.index(caddy_recreate) < body.index(nginx_recreate)
     assert body.index("nginx:1.27-alpine nginx -t") < body.index(nginx_recreate)
-    assert "docker compose -f \"$DEPLOY_PATH/portainer-vpn4/docker-compose.yml\" pull portainer" in body
-    assert "docker compose -f \"$DEPLOY_PATH/portainer-vpn4/docker-compose.yml\" up -d --remove-orphans portainer" in body
+    portainer_compose = 'docker compose --project-name portainer-vpn4 -f "$DEPLOY_PATH/portainer-vpn4/docker-compose.yml"'
+    assert f"{portainer_compose} pull portainer" in body
+    assert f"{portainer_compose} up -d --remove-orphans portainer" in body
     assert "docker compose -f \"$DEPLOY_PATH/edge-vpn4/docker-compose.yml\" up -d --remove-orphans" not in body
     for forbidden in ("docker compose down -v", "docker volume rm", "docker system prune", "docker volume prune"):
         assert forbidden not in body
@@ -214,7 +252,28 @@ def test_deploy_verifies_public_tls_isolation_and_existing_routes_after_edge_act
     assert body.index(status_url) > body.index("up -d --force-recreate --no-deps nginx")
     assert "8000|9000|9443" in body
     assert "HostConfig.PortBindings" in body
-    assert "NetworkSettings.Networks.edge" in body
+    assert "NetworkSettings.Networks" in body
+    assert 'test "$PORTAINER_NETWORKS" = "portainer_proxy "' in body
+    assert 'test "$PROXY_MEMBERS" = "caddy-edge portainer "' in body
+    assert "docker network inspect portainer_proxy" in body
+
+
+def test_deploy_rejects_untrusted_private_network_peers_before_starting_portainer():
+    """Portainer must not briefly share its Docker-root API with a drift peer.
+
+    First deployment legitimately sees an empty proxy network; redeploy can
+    see only Caddy. Every other member must stop the transaction before the
+    Portainer container is created.
+    """
+    body = deploy_body()
+    start = 'up -d --remove-orphans portainer'
+
+    assert 'PRE_PROXY_MEMBERS=$($SUDO docker network inspect portainer_proxy' in body
+    assert '''case "$PRE_PROXY_MEMBERS" in
+              ""|"caddy-edge "|"caddy-edge portainer ") ;;
+              *) echo "::error::portainer_proxy has an untrusted existing member"; exit 1 ;;
+            esac''' in body
+    assert body.index("PRE_PROXY_MEMBERS=") < body.index(start)
     assert "RepoDigests" in body
     assert "https://vpn4.hangocthanh.io.vn/derp/probe" in body
     assert "https://cliproxy.hangocthanh.io.vn/v1/models" in body
@@ -248,7 +307,7 @@ def test_deploy_recovers_only_its_route_changes_and_never_prints_secret_values()
     assert "nginx-change-attempted" in rollback_script
     assert "edge-vpn4/nginx.conf" in script
     assert "edge-vpn4/Caddyfile" in script
-    assert "docker compose -f \"$DEPLOY_PATH/portainer-vpn4/docker-compose.yml\" down" in rollback_script
+    assert "docker compose --project-name portainer-vpn4 -f \"$DEPLOY_PATH/portainer-vpn4/docker-compose.yml\" down" in rollback_script
     assert "$SUDO rm -rf \"$TRANSACTION_DIR\"" in rollback_script
     assert "<<" not in script and "<<" not in rollback_script
     assert all(line.strip() != "else" for line in script.splitlines())
@@ -304,7 +363,7 @@ def test_deploy_is_a_fail_closed_transaction_until_external_checks_commit_it():
     rollback_script = steps[rollback_index]["with"]["script"]
     assert "edge-vpn4/Caddyfile" in rollback_script
     assert "edge-vpn4/nginx.conf" in rollback_script
-    assert 'docker compose -f "$DEPLOY_PATH/portainer-vpn4/docker-compose.yml" down' in rollback_script
+    assert 'docker compose --project-name portainer-vpn4 -f "$DEPLOY_PATH/portainer-vpn4/docker-compose.yml" down' in rollback_script
     assert any(
         step.get("name", "").startswith("Commit successful transaction")
         and step.get("if") == "success()"
@@ -338,6 +397,15 @@ def test_deploy_writes_root_owned_transaction_artifacts_via_sudo_tee():
     assert 'snapshot_non_portainer > "$SNAPSHOT_BEFORE"' not in script
     assert 'snapshot_non_portainer > "$SNAPSHOT_AFTER"' not in script
     assert '$SUDO ss -ltn > "$LISTENERS"' not in script
+
+
+def test_every_deploy_portainer_compose_command_pins_project_identity():
+    """Rollback volume name must not depend on inherited COMPOSE_PROJECT_NAME."""
+    body = deploy_body()
+    for line in body.splitlines():
+        if "portainer-vpn4/docker-compose.yml" not in line:
+            continue
+        assert "--project-name portainer-vpn4" in line, line.strip()
 
 
 def test_rollback_keeps_transaction_artifacts_when_restore_fails():
@@ -429,9 +497,8 @@ def test_rollback_workflow_is_manual_serialized_and_uses_an_explicit_target_ref(
     assert isinstance(triggers, dict)
     assert set(triggers) == {"workflow_dispatch"}
     assert triggers["workflow_dispatch"]["inputs"]["target_ref"] == {
-        "description": "Git branch containing the Portainer configuration to remove",
+        "description": "Exact Git branch containing the deployed Portainer configuration to remove",
         "required": True,
-        "default": "main",
         "type": "string",
     }
     assert workflow["concurrency"] == {
@@ -454,7 +521,8 @@ def test_rollback_preflight_checks_secrets_and_the_exact_portainer_dns_before_ss
 
     assert dns_index < ssh_index
     assert "portainer.hangocthanh.io.vn" in steps[dns_index]["run"]
-    assert '"$RESOLVED" != "$SSH_HOST_VPN4"' in steps[dns_index]["run"]
+    assert "socket.gethostbyname('portainer.hangocthanh.io.vn')" in steps[dns_index]["run"]
+    assert "socket.gethostbyname('$SSH_HOST_VPN4')" in steps[dns_index]["run"]
     for secret in ("SSH_HOST_VPN4", "SSH_USER", "SSH_KEY", "DEPLOY_PATH"):
         assert f"{secret}: ${{{{ secrets.{secret} }}}}" in body
         assert f'echo "${secret}"' not in body
@@ -465,6 +533,7 @@ def test_rollback_preflight_checks_secrets_and_the_exact_portainer_dns_before_ss
     assert 'git fetch origin "$DEPLOY_REF:refs/remotes/origin/$DEPLOY_REF"' in body
     assert 'git reset --hard "origin/$DEPLOY_REF"' in body
     assert "git check-ref-format --branch \"$DEPLOY_REF\"" in body
+    assert 'test -f "$DEPLOY_PATH/portainer-vpn4/docker-compose.yml"' in rollback_stage_step()["with"]["script"]
 
 
 def test_rollback_removes_only_the_exact_portainer_routes_with_guarded_editing():
@@ -503,15 +572,22 @@ def test_rollback_validates_route_free_candidate_before_target_edge_recreates():
 
 def test_rollback_stops_only_portainer_and_preserves_its_named_volume_without_public_admin_ports():
     script = rollback_stage_step()["with"]["script"]
-    down = 'docker compose -f "$DEPLOY_PATH/portainer-vpn4/docker-compose.yml" down'
+    down = 'docker compose --project-name portainer-vpn4 -f "$DEPLOY_PATH/portainer-vpn4/docker-compose.yml" down'
 
     assert down in script
-    assert "portainer-vpn4/docker-compose.yml" not in script.replace(down, "")
     for forbidden in ("down -v", "docker volume rm", "docker system prune", "docker volume prune", "docker compose rm"):
         assert forbidden not in rollback_body()
     assert "docker volume inspect portainer-vpn4_portainer_data" in script
     assert 'docker ps --filter "name=^/portainer$" --format' in script
     assert "8000|9000|9443" in script
+
+
+def test_every_rollback_portainer_compose_command_pins_project_identity():
+    body = rollback_body()
+    for line in body.splitlines():
+        if "docker compose" not in line or "portainer-vpn4/docker-compose.yml" not in line:
+            continue
+        assert "--project-name portainer-vpn4" in line, line.strip()
 
 
 def test_rollback_verifies_the_retired_public_route_and_existing_route_boundaries():
@@ -560,7 +636,7 @@ def test_rollback_recovers_original_routes_and_portainer_if_the_transaction_fail
     )
     assert 'docker compose -f "$DEPLOY_PATH/edge-vpn4/docker-compose.yml" up -d --force-recreate --no-deps caddy-edge' in recovery_script
     assert 'docker compose -f "$DEPLOY_PATH/edge-vpn4/docker-compose.yml" up -d --force-recreate --no-deps nginx' in recovery_script
-    assert 'docker compose -f "$DEPLOY_PATH/portainer-vpn4/docker-compose.yml" up -d portainer' in recovery_script
+    assert 'docker compose --project-name portainer-vpn4 -f "$DEPLOY_PATH/portainer-vpn4/docker-compose.yml" up -d portainer' in recovery_script
     assert 'git reset --hard "$OLD_SHA"' in recovery_script
     assert "ROLLBACK_FAILED=0" in recovery_script
     assert 'test "$ROLLBACK_FAILED" = "0" || exit 1' in recovery_script

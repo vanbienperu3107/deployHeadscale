@@ -9,6 +9,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SUFFIX="$$-${RANDOM}"
 NETWORK="portainer-vpn4-test-${SUFFIX}"
+PROXY_NETWORK="portainer-vpn4-proxy-test-${SUFFIX}"
 NGINX="portainer-vpn4-test-nginx-${SUFFIX}"
 DERP="portainer-vpn4-test-derp-${SUFFIX}"
 CADDY="portainer-vpn4-test-caddy-${SUFFIX}"
@@ -22,6 +23,7 @@ cleanup() {
   echo "==> Cleanup disposable Docker resources"
   docker rm -f "$NGINX" "$DERP" "$CADDY" "$PORTAINER_STUB" >/dev/null 2>&1 || true
   docker network rm "$NETWORK" >/dev/null 2>&1 || true
+  docker network rm "$PROXY_NETWORK" >/dev/null 2>&1 || true
   rm -rf "$TMP"
   trap - EXIT
   exit "$status"
@@ -57,8 +59,8 @@ echo "==> [1/7] Require the local default Docker daemon"
 require_local_docker
 
 echo "==> [2/7] Render Portainer Compose and verify it publishes no host port"
-docker compose -f "$ROOT/portainer-vpn4/docker-compose.yml" config --quiet
-docker compose -f "$ROOT/portainer-vpn4/docker-compose.yml" config --format json \
+docker compose --project-name portainer-vpn4 -f "$ROOT/portainer-vpn4/docker-compose.yml" config --quiet
+docker compose --project-name portainer-vpn4 -f "$ROOT/portainer-vpn4/docker-compose.yml" config --format json \
   | python3 -c '
 import json
 import sys
@@ -68,7 +70,7 @@ ports = service.get("ports", [])
 assert not ports, f"portainer rendered host ports must be empty: {ports!r}"
 networks = service.get("networks")
 names = networks if isinstance(networks, list) else list(networks or {})
-assert names == ["edge"], networks
+assert names == ["portainer_proxy"], networks
 print("rendered Portainer service has no host port mappings")
 '
 
@@ -123,12 +125,13 @@ EOF
 
 echo "==> [4/7] Start only disposable local stubs on $NETWORK"
 docker network create "$NETWORK" >/dev/null
+docker network create "$PROXY_NETWORK" >/dev/null
 docker run -d --name "$DERP" --network "$NETWORK" --network-alias derper \
   --tmpfs /data:rw,noexec,nosuid,size=16m \
   --tmpfs /config:rw,noexec,nosuid,size=16m \
   -v "$TMP/derp.Caddyfile:/etc/caddy/Caddyfile:ro" \
   caddy:2.8-alpine >/dev/null
-docker run -d --name "$PORTAINER_STUB" --network "$NETWORK" --network-alias portainer \
+docker run -d --name "$PORTAINER_STUB" --network "$PROXY_NETWORK" --network-alias portainer \
   --tmpfs /data:rw,noexec,nosuid,size=16m \
   --tmpfs /config:rw,noexec,nosuid,size=16m \
   -v "$TMP/portainer.Caddyfile:/etc/caddy/Caddyfile:ro" \
@@ -138,6 +141,9 @@ docker run -d --name "$CADDY" --network "$NETWORK" --network-alias caddy-edge \
   --tmpfs /config:rw,noexec,nosuid,size=16m \
   -v "$TMP/caddy-edge.Caddyfile:/etc/caddy/Caddyfile:ro" \
   caddy:2.8-alpine >/dev/null
+docker network connect "$PROXY_NETWORK" "$CADDY"
+PROXY_MEMBERS="$(docker network inspect "$PROXY_NETWORK" --format '{{range .Containers}}{{.Name}} {{end}}' | tr ' ' '\n' | sort | tr '\n' ' ')"
+[ "$PROXY_MEMBERS" = "$CADDY $PORTAINER_STUB " ] || fail "private proxy test network members differ: ${PROXY_MEMBERS:-<empty>}"
 
 echo "==> [5/7] Start exact repository Nginx with a random loopback-only port"
 docker run -d --name "$NGINX" --network "$NETWORK" -p 127.0.0.1::443 \

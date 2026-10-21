@@ -1,4 +1,7 @@
-# Stack "edge" cua vpn4: chia se cong 443 giua derper va CLIProxyAPI.
+# Stack "edge" cua vpn4: Nginx chia se cong 443 theo SNI cho DERP, CLIProxy,
+# OpenCode va Portainer. Nginx chi o mang `edge`; Caddy noi them vao private
+# `portainer_proxy` de portainer:9000 khong the bi DERP/CLIProxy/OpenCode goi
+# truc tiep qua shared ingress bridge.
 #
 #   Internet :443
 #        |
@@ -7,6 +10,9 @@
 #        `-- SNI cliproxy.hangocthanh.io.vn           --> caddy-edge:8444
 #                                                            |
 #                                                       cliproxy:8317
+#        `-- SNI portainer.hangocthanh.io.vn           --> caddy-edge:8447
+#                                                            |
+#                                             portainer_proxy only: portainer:9000
 #
 # Cong 80 van thuoc ve derper (ACME HTTP-01 cua no) — stack nay khong dung 80.
 services:
@@ -45,6 +51,7 @@ services:
       - caddy_edge_logs:/var/log/caddy   # log opencode ra file cho fail2ban doc
     networks:
       - edge
+      - portainer_proxy
     mem_limit: 256m
     logging:
       driver: json-file
@@ -80,6 +87,11 @@ services:
 networks:
   edge:
     name: edge
+    external: true
+  # Only Caddy and Portainer join this private bridge. Other `edge` members
+  # (DERP, CLIProxy, OpenCode) must not reach Portainer's Docker-root HTTP API.
+  portainer_proxy:
+    name: portainer_proxy
     external: true
 
 volumes:
