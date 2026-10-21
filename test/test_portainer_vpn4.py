@@ -366,6 +366,22 @@ def test_deploy_is_a_fail_closed_transaction_until_external_checks_commit_it():
         if step.get("name", "").startswith("Rollback transaction")
     )
     assert external_index < rollback_index
+    diagnostics_index = next(
+        index
+        for index, step in enumerate(steps)
+        if step.get("name", "").startswith("Collect Portainer failure diagnostics")
+    )
+    assert diagnostics_index < rollback_index
+    assert steps[diagnostics_index].get("if") == "failure()"
+    diagnostics_script = steps[diagnostics_index]["with"]["script"]
+    for needle in (
+            "docker logs --tail 200 caddy-edge",
+            "docker logs --tail 100 edge-nginx",
+            "docker logs --tail 100 portainer",
+            "docker inspect -f",
+            "docker network inspect portainer_proxy",
+    ):
+        assert needle in diagnostics_script
     assert steps[rollback_index].get("if") == "failure()"
     rollback_script = steps[rollback_index]["with"]["script"]
     assert "edge-vpn4/Caddyfile" in rollback_script
