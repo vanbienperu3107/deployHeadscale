@@ -1,0 +1,25 @@
+services:
+  portainer:
+    image: portainer/portainer-ce:lts
+    command: ["--http-enabled"]
+    container_name: portainer
+    restart: unless-stopped
+    mem_limit: 256m
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - portainer_data:/data
+    networks:
+      - edge
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+networks:
+  edge:
+    external: true
+    name: edge
+
+volumes:
+  portainer_data:

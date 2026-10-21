@@ -98,7 +98,7 @@ Create `portainer-vpn4/docker-compose.yml` with one service:
 - Volumes:
   - `/var/run/docker.sock:/var/run/docker.sock`
   - `portainer_data:/data`
-- Health check: an in-container local HTTP check of Portainer's port 9000; it must not depend on public DNS or Caddy.
+- No Compose `healthcheck`: Portainer CE LTS does not document an in-image HTTP probe tool or CLI health command, so declaring `curl`, `wget`, or a guessed flag would create a false health state. The deploy workflow verifies the live app through the TLS route with Portainer's public `GET /api/status` endpoint instead.
 - JSON log rotation consistent with existing vpn4 Compose stacks: 10 MiB max file size, 3 retained files.
 
 The stack must declare `edge` as `external: true`, `name: edge`. The deploy workflow may create this network only when it does not exist; normal Portainer deploy must not recreate it.
@@ -146,7 +146,7 @@ It shares `concurrency.group: deploy-vpn4-host` and sets `cancel-in-progress: fa
 
 1. Pull the pinned Portainer image.
 2. Start or update only the `portainer-vpn4` stack with `docker compose up -d --remove-orphans`.
-3. Wait for Portainer's health check or direct private-network HTTP readiness on port 9000.
+3. Wait for Portainer to start, then verify Portainer's `GET /api/status` through the newly configured public TLS route. This is the application readiness check; no unsupported Compose healthcheck is declared.
 4. Recreate only `caddy-edge` using the existing `edge-vpn4` Compose project and `--force-recreate`; do not run `docker compose up` for the entire edge project if it would recreate Nginx or fail2ban.
 5. Reload or recreate only `edge-nginx` after a syntax preflight. This change is unavoidable because Nginx reads its SNI map at startup. It must be a targeted change and must be followed by an immediate DERP probe.
 6. Verify that every pre-existing container outside Portainer has the same restart count and started-at value as its pre-deploy snapshot. If any differ, fail the workflow and print the diff.
@@ -189,7 +189,7 @@ Provide a manual workflow or documented operational command to remove the Portai
 
 ### Static/unit tests
 
-- Parse Portainer Compose and assert: LTS image, no `ports`, external `edge`, socket/data mounts, `mem_limit: 256m`, restart policy, health check, log rotation.
+- Parse Portainer Compose and assert: LTS image, no `ports`, external `edge`, socket/data mounts, `mem_limit: 256m`, restart policy, no unsupported image healthcheck, and log rotation.
 - Parse Nginx/Caddy and assert: exact Portainer domain route to 8447, TLS-ALPN-compatible issuer, proxy to `portainer:9000`, no new default route, and no change to the DERP default.
 - Parse deploy workflow and assert: dispatch-only, shared concurrency, DNS before edge changes, targeted component operations, no `down -v`, no data-volume deletion, no API-key echo, required verification commands, and snapshot comparison.
 - Extend edge tests so new SNI/Caddy route is included alongside the existing cliproxy/OpenCode invariants.

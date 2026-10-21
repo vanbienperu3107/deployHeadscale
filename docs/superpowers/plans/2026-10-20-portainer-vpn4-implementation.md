@@ -72,7 +72,7 @@ def test_portainer_service_is_private_and_persistent():
     assert "portainer_data:/data" in service["volumes"]
 ```
 
-Add assertions for: external network named `edge`, service only joins that network, `portainer_data` exists, healthcheck targets 127.0.0.1:9000 without public DNS, and json-file log rotation uses `10m` / `3`.
+Add assertions for: external network named `edge`, service only joins that network, `portainer_data` exists, no unsupported `healthcheck` is declared, and json-file log rotation uses `10m` / `3`.
 
 - [ ] **Step 2: Run test to verify it fails**
 
@@ -82,7 +82,7 @@ Expected: FAIL because `portainer-vpn4/docker-compose.yml` does not exist.
 
 - [ ] **Step 3: Create `portainer-vpn4/docker-compose.yml`**
 
-Implement the single service and declarations fixed by Global Constraints. Use Compose syntax and logging conventions from `edge-vpn4/docker-compose.yml`. The healthcheck must work inside the image without adding an external host port.
+Implement the single service and declarations fixed by Global Constraints. Use Compose syntax and logging conventions from `edge-vpn4/docker-compose.yml`. Do not add a healthcheck: the Portainer LTS image has no documented in-image HTTP probe tool, and Task 4 verifies `/api/status` through the real TLS ingress.
 
 - [ ] **Step 4: Validate the rendered Compose config and unit test**
 
@@ -259,7 +259,7 @@ Implement exactly this sequence:
 3. SSH using `sudo -n`; fetch `origin/<ref>` and reset `$DEPLOY_PATH` to it, recording old and new SHA.
 4. Create `edge` only if absent; validate the Nginx file in a disposable container and validate Portainer Compose.
 5. Snapshot all running non-Portainer containers using `Name RestartCount StartedAt`.
-6. Pull and start only `portainer-vpn4` with `docker compose up -d --remove-orphans`; wait for the container health/direct private readiness.
+6. Pull and start only `portainer-vpn4` with `docker compose up -d --remove-orphans`; wait for the container to be running. After the targeted edge change, verify app readiness via HTTPS `GET /api/status`.
 7. Target-recreate Caddy then Nginx only. Do not start/recreate the complete edge project and do not reference DERP/CLIProxy commands except read-only verification.
 8. If Caddy/Nginx change fails or DERP probe fails, restore the prior edge config/ref and target-recreate only the component the workflow changed; retain Portainer data.
 9. Run the exact verification list from the spec and compare snapshots.
