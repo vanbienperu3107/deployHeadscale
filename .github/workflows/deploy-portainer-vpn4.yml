@@ -76,7 +76,7 @@ jobs:
             $SUDO docker compose --project-name portainer-vpn4 -f "$DEPLOY_PATH/portainer-vpn4/docker-compose.yml" pull portainer
             PORTAINER_STARTED=0
             EDGE_CHANGED=0
-            PRE_PROXY_MEMBERS=$($SUDO docker network inspect portainer_proxy --format '{{range .Containers}}{{.Name}} {{end}}' | tr ' ' '\n' | sort | tr '\n' ' ')
+            PRE_PROXY_MEMBERS=$($SUDO docker network inspect portainer_proxy --format '{{range .Containers}}{{.Name}} {{end}}' | tr ' ' '\n' | sed '/^$/d; s#^/##' | sort | tr '\n' ' ')
             case "$PRE_PROXY_MEMBERS" in
               ""|"caddy-edge "|"caddy-edge portainer ") ;;
               *) echo "::error::portainer_proxy has an untrusted existing member"; exit 1 ;;
@@ -104,7 +104,7 @@ jobs:
             test "$($SUDO docker inspect -f '{{json .HostConfig.PortBindings}}' portainer)" = "null"
             PORTAINER_NETWORKS=$($SUDO docker inspect -f '{{range $name, $_ := .NetworkSettings.Networks}}{{$name}} {{end}}' portainer)
             test "$PORTAINER_NETWORKS" = "portainer_proxy "
-            PROXY_MEMBERS=$($SUDO docker network inspect portainer_proxy --format '{{range .Containers}}{{.Name}} {{end}}' | tr ' ' '\n' | sort | tr '\n' ' ')
+            PROXY_MEMBERS=$($SUDO docker network inspect portainer_proxy --format '{{range .Containers}}{{.Name}} {{end}}' | tr ' ' '\n' | sed '/^$/d; s#^/##' | sort | tr '\n' ' ')
             test "$PROXY_MEMBERS" = "caddy-edge portainer "
             echo "Portainer image: $($SUDO docker image inspect --format '{{index .RepoDigests 0}}' portainer/portainer-ce:lts 2>/dev/null || echo portainer/portainer-ce:lts)"
             snapshot_non_portainer | $SUDO tee "$SNAPSHOT_AFTER" >/dev/null
