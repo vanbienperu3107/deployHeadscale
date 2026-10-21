@@ -275,6 +275,7 @@ def test_deploy_rejects_untrusted_private_network_peers_before_starting_portaine
     start = 'up -d --remove-orphans portainer'
 
     assert 'PRE_PROXY_MEMBERS=$($SUDO docker network inspect portainer_proxy' in body
+    assert "sed '/^$/d; s#^/##'" in body
     assert '''case "$PRE_PROXY_MEMBERS" in
               ""|"caddy-edge "|"caddy-edge portainer ") ;;
               *) echo "::error::portainer_proxy has an untrusted existing member"; exit 1 ;;
