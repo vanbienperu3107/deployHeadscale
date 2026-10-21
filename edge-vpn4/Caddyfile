@@ -1,4 +1,4 @@
-# Caddy chi phuc vu DUY NHAT ten mien cliproxy.hangocthanh.io.vn, nam sau nginx.
+# Caddy phuc vu cac ten mien rieng sau nginx.
 #
 # Caddy nghe 8444 (khong publish ra host). nginx nhan 443, thay SNI la
 # cliproxy.hangocthanh.io.vn thi noi TCP toi day, Caddy terminate TLS.
@@ -48,6 +48,27 @@ https://cliproxy.hangocthanh.io.vn:8444 {
 	log {
 		output stdout
 		format console
+	}
+}
+
+# Portainer la trang quan tri Docker, chi truy cap qua TLS cua Caddy tren mang
+# edge. 8447 nhan TLS binh thuong tu nginx nhu 8444; chi 8445 cua OpenCode
+# nhan PROXY protocol de phuc vu fail2ban.
+https://portainer.hangocthanh.io.vn:8447 {
+	tls {
+		issuer acme {
+			disable_http_challenge
+		}
+	}
+
+	reverse_proxy portainer:9000 {
+		header_up X-Forwarded-Proto https
+		header_up Host {http.request.host}
+	}
+
+	log {
+		output stdout
+		format json
 	}
 }
 
