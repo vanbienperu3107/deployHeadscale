@@ -265,6 +265,42 @@ def test_management_mo_ra_internet_phai_co_secret_key():
     )
 
 
+def test_gap_429_thi_bo_qua_credential_chu_khong_nam_cho():
+    """Yeu cau nguoi dung 2026-10-22: "cli proxy tu bo qua khi bi 429".
+
+    CLIProxyAPI da tu danh dau credential 429 la cooldown va chuyen sang credential
+    khac (conductor_cooldown.go case 429). Thu lam request VAN TREO la vi
+    max-retry-interval: mac dinh 30 -> duoc phep NGU toi 30s cho mot credential
+    nguoi lai. Dat 0 thi shouldRetryAfterError tu choi moi cooldown wait > 0
+    (conductor_selection.go: `maxWait <= 0 || wait > maxWait` -> return false),
+    tuc la bo qua credential dang cooldown va di tiep ngay.
+    """
+    cfg = load_template()
+    assert cfg["max-retry-interval"] == 0, (
+        "max-retry-interval phai la 0 — khac 0 thi request co the nam cho credential "
+        "bi 429 nguoi lai thay vi bo qua no"
+    )
+    assert cfg["max-retry-credentials"] == 0, (
+        "max-retry-credentials phai la 0 de moi vong retry thu HET credential con khoe"
+    )
+    assert cfg["request-retry"] >= 1, (
+        "request-retry = 0 thi khong co vong retry nao sau vong dau -> khong con "
+        "co hoi chuyen sang credential khac"
+    )
+
+
+def test_khong_dung_disable_cooling_de_thay_cho_max_retry_interval():
+    """disable-cooling=true lam NGUOC y muon: credential vua 429 khong bi danh dau
+    cooldown nen vong retry sau lai chon trung no (conductor_cooldown.go case 429
+    chi set NextRetryAfter khi !disableCooling).
+    """
+    cfg = load_template()
+    assert cfg.get("disable-cooling") in (None, False), (
+        "disable-cooling phai tat — bat len thi credential 429 khong bi loai ra va "
+        "vong retry se quay lai dung no"
+    )
+
+
 def test_khong_ghi_request_log_ra_file_vi_da_gay_oom():
     """SU CO 2026-08-02: logging-to-file=true khien moi request cua OpenCode sinh
     mot file request-log-parts-request-body-* phinh toi 32MB; bo nho container cham

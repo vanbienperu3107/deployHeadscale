@@ -78,8 +78,25 @@ chat-history:
 # Thong ke dung luong cho Management API.
 usage-statistics-enabled: true
 
-# Retry khi upstream tra 403/408/500/502/503/504.
+# Retry khi upstream tra 403/408/429/500/502/503/504: so VONG retry them sau khi
+# vong dau da thu het credential du dieu kien.
 request-retry: 3
+
+# 0 = moi vong thu HET credential dang co (khong chan so luong).
+max-retry-credentials: 0
+
+# BO QUA 429 THAY VI NAM CHO (yeu cau nguoi dung 2026-10-22).
+# Tran thoi gian (giay) duoc phep NGU cho mot credential nguoi lai giua hai vong
+# retry. Mac dinh cua CLIProxyAPI la 30 -> mot request co the treo toi 30s khi moi
+# credential deu dang cooldown vi 429.
+# Dat 0 = KHONG BAO GIO cho: credential nao dang cooldown thi bo qua luon, chi dung
+# credential con khoe; het sach credential khoe thi tra loi ngay thay vi treo.
+# (sdk/cliproxy/auth/conductor_selection.go: maxWait <= 0 -> moi cooldown wait > 0
+# deu lam shouldRetryAfterError tra false.)
+#
+# KHONG dat disable-cooling: true de thay cho khoa nay — no lam nguoc y muon:
+# credential vua 429 se khong bi danh dau cooldown nen vong sau lai chon trung no.
+max-retry-interval: 0
 
 # Het quota mot credential thi tu chuyen sang credential/model khac.
 quota-exceeded:

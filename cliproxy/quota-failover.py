@@ -15,6 +15,10 @@ Thay doi:
   - Tai khoan Claude cua 2 email: priority theo input, weight=1, bat lai neu dang tat.
   - quota-exceeded.switch-project = true, switch-preview-model = true.
   - routing.session-affinity = false (affinity giu phien o tai khoan het quota).
+  - max-retry-interval = 0, max-retry-credentials = 0: gap 429 thi BO QUA credential
+    do va di tiep, khong nam cho het cooldown (mac dinh 30s). Xem ghi chu dai trong
+    config.template.yaml. Phai dat qua API chu khong chi sua template: khi PGSTORE
+    bat, DB la nguon su that va deploy KHONG seed lai (cliproxy/pgstore.sh).
 """
 import json
 import os
@@ -70,6 +74,42 @@ def find_email(entry):
     return ""
 
 
+# Cac khoa quyet dinh viec gap 429 thi BO QUA hay NAM CHO. Dat qua Management API
+# vi khi PGSTORE bat, config nam trong Postgres va file template khong con tac dung.
+#   max-retry-interval = 0  -> khong duoc phep ngu cho credential nguoi (mac dinh 30s)
+#   max-retry-credentials = 0 -> moi vong retry thu het credential dang co
+RETRY_SETTINGS = (
+    ("max-retry-interval", 0),
+    ("max-retry-credentials", 0),
+)
+
+
+def read_int_setting(path, key):
+    """Doc gia tri hien tai cua mot khoa int qua Management API. None neu khong doc duoc."""
+    code, raw = call("GET", path)
+    if code < 200 or code >= 300:
+        return None
+    try:
+        value = json.loads(raw.decode("utf-8")).get(key)
+    except (ValueError, AttributeError):
+        return None
+    return value if isinstance(value, int) else None
+
+
+def apply_retry_settings():
+    """Dat cac khoa retry; tra ve list (key, truoc, sau) de in ra log deploy."""
+    applied = []
+    for key, want in RETRY_SETTINGS:
+        path = "/" + key
+        before = read_int_setting(path, key)
+        must("PUT", path, body={"value": want})
+        after = read_int_setting(path, key)
+        if after is not None and after != want:
+            raise SystemExit("%s van la %r sau khi dat %r" % (key, after, want))
+        applied.append((key, before, want))
+    return applied
+
+
 def set_session_affinity_false(text):
     """Doi `session-affinity: true` -> false trong khoi routing (giu nguyen moi dong khac)."""
     out, changed, in_routing = [], False, False
@@ -119,6 +159,9 @@ def main():
     must("PUT", "/quota-exceeded/switch-project", body={"value": True})
     must("PUT", "/quota-exceeded/switch-preview-model", body={"value": True})
     print("quota-exceeded: switch-project=true switch-preview-model=true")
+
+    for key, before, after in apply_retry_settings():
+        print("retry: %s %s -> %d" % (key, "?" if before is None else before, after))
 
     cfg_text = must("GET", "/config.yaml").decode("utf-8")
     new_text, did = set_session_affinity_false(cfg_text)

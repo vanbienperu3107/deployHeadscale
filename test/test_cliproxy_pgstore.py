@@ -306,6 +306,134 @@ def test_danh_sach_rong_thi_tu_choi(tmp_path):
     assert r.returncode != 0 and "rong" in r.stderr
 
 
+class FakeMgmt:
+    """Mo phong cac endpoint int cua Management API ma quota-failover.py dung.
+
+    GET/PUT /v0/management/<key> voi body {"value": n} — chep hop dong cua
+    updateIntField trong internal/api/handlers/management/handler.go.
+    """
+
+    def __init__(self, values, mgmt="mgmt-ok", readonly=False):
+        self.values = dict(values)
+        self.mgmt = mgmt
+        self.readonly = readonly  # mo phong proxy nhan PUT nhung khong doi gia tri
+        self.puts = []
+        owner = self
+
+        class H(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                pass
+
+            def _send(self, code, obj):
+                b = json.dumps(obj).encode()
+                self.send_response(code)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(b)))
+                self.end_headers()
+                self.wfile.write(b)
+
+            def _key(self):
+                prefix = "/v0/management/"
+                return self.path[len(prefix):] if self.path.startswith(prefix) else ""
+
+            def _auth(self):
+                return self.headers.get("Authorization", "") == "Bearer " + owner.mgmt
+
+            def do_GET(self):
+                key = self._key()
+                if not self._auth():
+                    return self._send(401, {"error": "invalid management key"})
+                if key not in owner.values:
+                    return self._send(404, {})
+                self._send(200, {key: owner.values[key]})
+
+            def do_PUT(self):
+                key = self._key()
+                if not self._auth():
+                    return self._send(401, {"error": "invalid management key"})
+                if key not in owner.values:
+                    return self._send(404, {})
+                n = int(self.headers.get("Content-Length", "0"))
+                body = json.loads(self.rfile.read(n))
+                owner.puts.append((key, body))
+                if not isinstance(body.get("value"), int):
+                    return self._send(400, {"error": "invalid body"})
+                if not owner.readonly:
+                    owner.values[key] = body["value"]
+                self._send(200, {"status": "ok"})
+
+        self.srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), H)
+        self.url = "http://127.0.0.1:%d" % self.srv.server_address[1]
+        threading.Thread(target=self.srv.serve_forever, daemon=True).start()
+
+    def close(self):
+        self.srv.shutdown()
+
+
+def _load_failover(url, monkeypatch, mgmt="mgmt-ok"):
+    """Nap quota-failover.py (doc bien moi truong ngay luc import)."""
+    monkeypatch.setenv("CLIPROXY_BASE_URL", url)
+    monkeypatch.setenv("CLIPROXY_MGMT_KEY", mgmt)
+    return _load("quota_failover_%d" % time.time_ns(), STACK / "quota-failover.py")
+
+
+def test_failover_dat_max_retry_interval_0_de_bo_qua_credential_429(monkeypatch):
+    """Yeu cau nguoi dung 2026-10-22: gap 429 thi bo qua, khong nam cho.
+
+    Phai dat qua API chu khong chi sua config.template.yaml: khi PGSTORE bat, DB la
+    nguon su that va deploy KHONG seed lai (cliproxy/pgstore.sh: "DB da co du lieu
+    -> KHONG seed").
+    """
+    p = FakeMgmt({"max-retry-interval": 30, "max-retry-credentials": 0})
+    try:
+        fo = _load_failover(p.url, monkeypatch)
+        applied = fo.apply_retry_settings()
+    finally:
+        p.close()
+    assert p.values["max-retry-interval"] == 0, (
+        "khong dat ve 0 thi request van co the ngu toi 30s cho credential bi 429"
+    )
+    assert p.values["max-retry-credentials"] == 0
+    assert ("max-retry-interval", 30, 0) in applied, "phai bao cao gia tri truoc/sau"
+
+
+def test_failover_bao_loi_khi_proxy_khong_nhan_gia_tri_moi(monkeypatch):
+    """PUT tra 200 nhung gia tri khong doi (vd config read-only) = KHONG duoc coi la
+    thanh cong — neu khong, deploy bao xanh ma 429 van lam treo request.
+    """
+    p = FakeMgmt({"max-retry-interval": 30, "max-retry-credentials": 0}, readonly=True)
+    try:
+        fo = _load_failover(p.url, monkeypatch)
+        with pytest.raises(SystemExit) as e:
+            fo.apply_retry_settings()
+    finally:
+        p.close()
+    assert "max-retry-interval" in str(e.value)
+
+
+def test_failover_sai_management_key_dung_ngay_khong_thu_lai(monkeypatch):
+    """Sai key 5 lan = IP runner bi ban 30 phut (must() da chan 401/403)."""
+    p = FakeMgmt({"max-retry-interval": 30, "max-retry-credentials": 0})
+    try:
+        fo = _load_failover(p.url, monkeypatch, mgmt="sai")
+        with pytest.raises(SystemExit) as e:
+            fo.apply_retry_settings()
+    finally:
+        p.close()
+    assert "management key sai" in str(e.value)
+    assert p.puts == [], "sai key thi khong duoc ghi gi"
+
+
+def test_failover_main_co_goi_apply_retry_settings():
+    """Ham ton tai nhung khong duoc goi trong main = cau hinh khong bao gio duoc ap."""
+    src = (STACK / "quota-failover.py").read_text(encoding="utf-8")
+    main_body = src[src.index("def main"):]
+    assert "apply_retry_settings()" in main_body, (
+        "main() phai goi apply_retry_settings(), neu khong workflow chay xong ma "
+        "max-retry-interval van la 30"
+    )
+
+
 def test_failover_doi_session_affinity_chi_trong_routing():
     fo = _load("qf", STACK / "quota-failover.py") if False else None  # noqa: F841
     src = (STACK / "quota-failover.py").read_text(encoding="utf-8")
