@@ -78,6 +78,53 @@ chat-history:
 # Thong ke dung luong cho Management API.
 usage-statistics-enabled: true
 
+# Plugin fallback: khi toan bo credential Claude bi 429/rate limit, chuyen sang
+# model khac provider thay vi de client retry mai tren cung model da die.
+#
+# Chon goi ngay 2026-10-22: gpt-5.5/gpt-5.4 da bi OpenAI rut khoi catalog, do
+# do thay bang hai model con song /v1/models tren vpn4:
+#   - gpt-5.6-terra: model codex con hoat dong,
+#   - gemini-3.8-flash: du phong khac provider hoan toan.
+# gpt-6-sol khong dua vao danh sach vi thoi diem chot, tat ca credential codex
+# cung no van con cooldown 111h49m (run diag 39804597093).
+plugins:
+  enabled: true
+  dir: "/CLIProxyAPI/plugins"
+  configs:
+    model-fallback-router:
+      enabled: true
+      priority: 100
+      rules:
+        - name: claude_rate_limit_fallback
+          source_formats:
+            - claude
+            - anthropic
+            - openai
+            - chat-completions
+          models:
+            - claude-*
+          primary_model: "$requested"
+          fallback_models:
+            - gpt-5.6-terra
+            - gemini-3.8-flash
+      fallback:
+        enabled: true
+        cooldown_seconds: 300
+        fallback_on_status:
+          - 401
+          - 403
+          - 408
+          - 409
+          - 429
+          - 500
+          - 502
+          - 503
+          - 504
+        no_fallback_on_status:
+          - 400
+          - 404
+          - 422
+
 # Retry khi upstream tra 403/408/429/500/502/503/504: so VONG retry them sau khi
 # vong dau da thu het credential du dieu kien.
 request-retry: 3

@@ -17,6 +17,10 @@ import yaml
 ROOT = pathlib.Path(__file__).parent.parent
 COMPOSE = ROOT / "cliproxy" / "docker-compose.yml"
 TEMPLATE = ROOT / "cliproxy" / "config.template.yaml"
+RESET_WORKFLOW = ROOT / ".github" / "workflows" / "reset-cliproxy-cooldowns.yml"
+# Model fallback hop le, chot ngay 2026-10-22 sau khi xac nhan /v1/models:
+# gpt-5.5/gpt-5.4 da bi OpenAI rut, chi con gpt-5.6-terra (codex) + gemini-3.8-flash.
+FALLBACK_MODELS = ["gpt-5.6-terra", "gemini-3.8-flash"]
 GITIGNORE = ROOT / "cliproxy" / ".gitignore"
 WORKFLOW = ROOT / ".github" / "workflows" / "deploy-cliproxy.yml"
 INTEGRATION = ROOT / "test" / "cliproxy_integration.sh"
@@ -417,3 +421,67 @@ def test_workflow_dung_chung_concurrency_group_voi_stack_vpn4_khac():
     """derper/vpn-gw cung o vpn4 — deploy song song de dinh lock docker/dpkg."""
     body = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
     assert body["concurrency"]["group"] == "deploy-vpn4-host"
+
+
+# ---------- fallback router (claude 429 -> model khac provider) ----------
+
+def test_model_fallback_router_dung_model_dang_song():
+    """Plugin fallback phai ton tai trong template va khong chi model da chet.
+
+    Lich su su co: fallback_models [gpt-5.5, gpt-5.4] bi OpenAI rut khoi
+    catalog Codex. Run diag 39804597093 xac nhan /v1/models tren vpn4 khong
+    con gpt-5.5/gpt-5.4 — khi claude-* bi 429, nhay sang model chet la tuong
+    duong khong co fallback.
+    """
+    cfg = load_template()
+    fallback = cfg["plugins"]["configs"]["model-fallback-router"]
+    assert fallback["enabled"] is True
+    assert fallback["priority"] == 100
+    rule = fallback["rules"][0]
+    assert rule["models"] == ["claude-*"]
+    assert rule["primary_model"] == "$requested"
+    assert rule["fallback_models"] == FALLBACK_MODELS, (
+        "fallback_models khong duoc chi model da chet — xem /v1/models moi nhat"
+    )
+    assert 429 in fallback["fallback"]["fallback_on_status"]
+    assert fallback["fallback"]["cooldown_seconds"] >= 300
+    assert 400 in fallback["fallback"]["no_fallback_on_status"]
+
+
+def test_deploy_tai_rieng_plugin_model_fallback_router():
+    """Plugin .so phai duoc tai o lan deploy (deploy-cliproxy.yml)."""
+    body = WORKFLOW.read_text(encoding="utf-8")
+    assert "mkdir -p auths logs plugins" in body
+    assert "model-fallback-router_0.1.3_linux_amd64.zip" in body
+    assert "plugins/model-fallback-router.so" in body
+
+    vols = service()["volumes"]
+    assert any(v.split(":")[1] == "/CLIProxyAPI/plugins" for v in vols), (
+        f"compose phai bind mount ./plugins -> /CLIProxyAPI/plugins: {vols}"
+    )
+
+
+def test_workflow_reset_phu_claude_va_codex_va_probe_gpt6sol():
+    """Reset cooldown phai giai chung credential codex, roi probe gpt-6-sol.
+
+    Chot ngay 2026-10-22: gpt-6-sol tra 429 model_cooldown tu tat ca credential
+    codex (run diag 39804597093). Reset cu chi cho claude la khong giai duoc.
+    """
+    body = yaml.safe_load(RESET_WORKFLOW.read_text(encoding="utf-8"))
+    steps = body["jobs"]["reset"]["steps"]
+    names = " ".join(s.get("name") or "" for s in steps)
+    assert "claude + codex" in names, "phai reset ca hai provider"
+    all_text = "\n".join(
+        str(s.get("name", "")) + "\n" + "\n".join(s.get("run", "").splitlines())
+        for s in steps
+    )
+    assert "model-fallback-router" in all_text, (
+        "phai co buoc dong bo config plugin fallback"
+    )
+    assert "('claude','codex')" in all_text or '("claude", "codex")' in all_text or '"codex","claude"' in all_text, (
+        "danh sach provider reset phai co ca claude va codex"
+    )
+    assert "gpt-6-sol" in all_text, "phai co buoc probe gpt-6-sol"
+    assert 'test "$CODE" = "200"' in all_text, (
+        "probe gpt-6-sol phai yeu cau HTTP 200 (neu khong 200 thi run DO)"
+    )

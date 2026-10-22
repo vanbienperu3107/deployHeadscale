@@ -69,6 +69,9 @@ services:
       # Bind mount (khong phai named volume) de backup/di chuyen server de dang.
       - ./auths:/root/.cli-proxy-api
       - ./logs:/CLIProxyAPI/logs
+      # Plugin cai .so (model-fallback-router) phai song qua moi lan recreate
+      # container: neu khong mount, plugin bien mat sau khi deploy.
+      - ./plugins:/CLIProxyAPI/plugins
       # Spool cua PGSTORE (ban phan chieu cua DB). Bind mount de pgstore.sh export
       # duoc khi can rollback ve file. Proxy tu dung lai tu DB moi lan khoi dong.
       - ./pgstore-spool:/pgstore-spool

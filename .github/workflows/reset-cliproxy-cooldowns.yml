@@ -1,0 +1,102 @@
+name: Reset CLIProxy cooldowns (claude + codex)
+
+# Xoa cooldown dinh dan quyt tai PROXY cho moi credential claude + codex.
+#
+# Vi sao can tay nghia nay: cooldown cua CLIProxyAPI co the la HOAI. v7.2.149
+# (image dang pin) ton nhieu Retry-After ngan cua rate limit the phut thanh
+# cooldown tung gio; v8 db1bab01 chua sua rieng cho ("narrow Claude per-minute
+# rate-limit cooldown when short Retry-After is present"). Ket qua proxy tra
+# 429 model_cooldown voi reset_time ~111h cho ngay ma thu tu tren cha cua la
+# rate limit binh thuong vay.
+#
+# Lang sang bien khac cho code: reset-quota cua management CHI xoa trang thai
+# cooldown ben proxy (Quota/ModelState), chi khong lam sinh quota upstream;
+# sau reset quota phan nhanh upstream can quyet dinh.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-vpn4-host
+  cancel-in-progress: false
+
+jobs:
+  reset:
+    name: Reset cooldowns (claude + codex) + probe
+    runs-on: ubuntu-latest
+    steps:
+      # Neu plugin fallback DANG soong tren config live (xem test_*) thi dong bo
+      # fallback_models. Doi so khop template: gpt-5.5/gpt-5.4 da bi OpenAI rut
+      # khoi catalog Codex — dieu tra run 39804597093 xac nhan /v1/models con
+      # gpt-5.6-terra cung khong con gpt-5.5 su thuc dang vao cap quay ngang do.
+      - name: Dong bo config fallback (model-fallback-router)
+        env:
+          BASE_URL: https://cliproxy.hangocthanh.io.vn
+          MGMT_KEY: ${{ secrets.CLIPROXY_MGMT_KEY }}
+        run: |
+          test -n "$MGMT_KEY"
+          CODE=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 -H "Authorization: Bearer $MGMT_KEY" "$BASE_URL/v0/management/plugins/model-fallback-router/config" || true); CODE=${CODE:-000}
+          echo "GET plugins/model-fallback-router/config -> HTTP $CODE"
+          if [ "$CODE" != "200" ]; then
+            echo "Plugin khong chay o config live -> bo qua chung minh doi nua template khong thua hai tac du nhu lan deploy nay doi template da thay."
+            exit 0
+          fi
+          curl -fsS --max-time 30 -H "Authorization: Bearer $MGMT_KEY" -H "Content-Type: application/json" --data '{"enabled":true,"priority":100,"rules":[{"name":"claude_rate_limit_fallback","source_formats":["claude","anthropic","openai","chat-completions"],"models":["claude-*"],"primary_model":"$requested","fallback_models":["gpt-5.6-terra","gemini-3.8-flash"]}],"fallback":{"enabled":true,"cooldown_seconds":300,"fallback_on_status":[401,403,408,409,429,500,502,503,504],"no_fallback_on_status":[400,404,422]}}' "$BASE_URL/v0/management/plugins/model-fallback-router/config"
+          echo
+          echo "Doc lai sau PUT (xac nhan fallback_models doi that):"
+          curl -fsS --max-time 30 -H "Authorization: Bearer $MGMT_KEY" "$BASE_URL/v0/management/plugins/model-fallback-router/config" | python3 -c "import json,sys;d=json.load(sys.stdin);print('fallback_models =',d.get('rules',[{}])[0].get('fallback_models'))"
+
+      - name: Reset moi credential claude + codex
+        env:
+          BASE_URL: https://cliproxy.hangocthanh.io.vn
+          MGMT_KEY: ${{ secrets.CLIPROXY_MGMT_KEY }}
+        run: |
+          test -n "$MGMT_KEY"
+          curl -fsS --max-time 30 -H "Authorization: Bearer $MGMT_KEY" "$BASE_URL/v0/management/auth-files" -o /tmp/auth-files.json
+          python3 -c "import json;d=json.load(open('/tmp/auth-files.json'));xs=[(x['auth_index'],x['provider']) for x in d.get('files',[]) if str(x.get('provider','')).lower() in ('claude','codex') and x.get('auth_index')];open('/tmp/indexes','w').write(''.join('%s %s\n'%(p,i) for (i,p) in xs));print('Claude+Codex credentials:',len(xs))"
+          test -s /tmp/indexes
+          echo "--- trang thai truoc reset ---"
+          python3 -c "import json;d=json.load(open('/tmp/auth-files.json'));print('\n'.join('%-10s %-14s %s'%(x.get('provider'),x.get('status',''),x.get('label','')) for x in d.get('files',[]) if str(x.get('provider','')).lower() in ('claude','codex')))"
+          while IFS=' ' read -r PROVIDER AUTH_INDEX; do
+            test -n "$AUTH_INDEX" || continue
+            python3 -c "import json,sys;open('/tmp/reset.json','w').write(json.dumps({'auth_index':sys.argv[1]}))" "$AUTH_INDEX"
+            echo "[$PROVIDER] reset $AUTH_INDEX:"
+            curl -fsS --max-time 30 -H "Authorization: Bearer $MGMT_KEY" -H "Content-Type: application/json" --data-binary @/tmp/reset.json "$BASE_URL/v0/management/reset-quota"
+            echo
+          done < /tmp/indexes
+          echo "--- trang thai sau reset (doc lai tu API) ---"
+          curl -fsS --max-time 30 -H "Authorization: Bearer $MGMT_KEY" "$BASE_URL/v0/management/auth-files" -o /tmp/auth-after.json
+          python3 -c "import json;d=json.load(open('/tmp/auth-after.json'));print('\n'.join('%-10s %-14s %s'%(x.get('provider'),x.get('status',''),x.get('label','')) for x in d.get('files',[]) if str(x.get('provider','')).lower() in ('claude','codex')))"
+
+      # Muc tieu cong bao minh chung 2026-10-22 (run 39804597093): gpt-6-sol tra
+      # 429 model_cooldown voi reset_time 111h49m duoc gan cho MOI credential
+      # codex. Sau day reset phai lai co the goi duoc; neu van 429 thi run DO.
+      - name: Probe gpt-6-sol (bat buoc 200)
+        env:
+          BASE_URL: https://cliproxy.hangocthanh.io.vn
+          API_KEY: ${{ secrets.CLIPROXY_API_KEY }}
+        run: |
+          test -n "$API_KEY"
+          CODE=000
+          for i in 1 2 3; do
+            CODE=$(curl -sS -o /tmp/probe.json -w '%{http_code}' --max-time 90 -H "Authorization: Bearer $API_KEY" -H "Content-Type: application/json" --data '{"model":"gpt-6-sol","max_tokens":8,"messages":[{"role":"user","content":"Reply OK"}]}' "$BASE_URL/v1/chat/completions")
+            echo "gpt-6-sol -> HTTP $CODE"
+            if [ "$CODE" = "200" ]; then break; fi
+            python3 -c "import json;e=json.load(open('/tmp/probe.json')).get('error',{});print('error:',e.get('message',''),'| reset_time:',e.get('reset_time','?'))" 2>/dev/null || head -c 300 /tmp/probe.json
+            sleep 20
+          done
+          test "$CODE" = "200"
+
+      # Chi doc trang thai: claude van co the o tren doan van la doan co ly do.
+      - name: Probe claude-opus-5-5 (thong tin)
+        env:
+          BASE_URL: https://cliproxy.hangocthanh.io.vn
+          API_KEY: ${{ secrets.CLIPROXY_API_KEY }}
+        run: |
+          test -n "$API_KEY"
+          CODE=$(curl -sS -o /tmp/probe-claude.json -w '%{http_code}' --max-time 90 -H "Authorization: Bearer $API_KEY" -H "Content-Type: application/json" --data '{"model":"claude-opus-5-5","max_tokens":8,"messages":[{"role":"user","content":"Reply OK"}]}' "$BASE_URL/v1/chat/completions")
+          echo "claude-opus-5-5 -> HTTP $CODE"
+          python3 -c "import json;d=json.load(open('/tmp/probe-claude.json'));m=d.get('choices',[{}])[0].get('message',{});print('content:',m.get('content') or d.get('error',{}).get('message',''))" || true
