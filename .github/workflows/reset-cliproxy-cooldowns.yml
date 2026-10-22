@@ -14,8 +14,15 @@ name: Reset CLIProxy cooldowns (claude + codex)
 # db1bab01 chua rieng cho claude per-minute — van dung lam tham khao.
 #
 
+# Chay thu cong + tu dong:
+# - 03:00 UTC hang ngay: sau 2026-10-27 hay ~27-28/10 (4.6 ngay tu 22/10)
+#   cua so quota codex/claude ma run 39814322604 phat hien se het; run nay se
+#   tu xac nhan probe gpt-5.6-terra 200 that (issue #148: doi chieu truoc/sau
+#   khi nang v8).
 on:
   workflow_dispatch:
+  schedule:
+    - cron: '0 3 * * *'
 
 permissions:
   contents: read
