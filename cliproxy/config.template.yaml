@@ -81,12 +81,16 @@ usage-statistics-enabled: true
 # Plugin fallback: khi toan bo credential Claude bi 429/rate limit, chuyen sang
 # model khac provider thay vi de client retry mai tren cung model da die.
 #
-# Chon goi ngay 2026-10-22: gpt-5.5/gpt-5.4 da bi OpenAI rut khoi catalog, do
-# do thay bang hai model con song /v1/models tren vpn4:
-#   - gpt-5.6-terra: model codex con hoat dong,
-#   - gemini-3.8-flash: du phong khac provider hoan toan.
-# gpt-6-sol khong dua vao danh sach vi thoi diem chot, tat ca credential codex
-# cung no van con cooldown 111h49m (run diag 39804597093).
+# Chon goi ngay 2026-10-22: gpt-5.5/gpt-5.4 da bi OpenAI rut khoi catalog.
+# Run deploy 39811952352 chi ra sau: "unknown provider for model
+# gemini-3.8-flash" — proxy vpn4 KHONG co provider gemini trong catalog, dua
+# no vao fallback chi lam response 502 voi mo hoi loi. Chi cong con song la
+# gpt-5.6-terra. Vo toc su dung khi dieu khoan thuong nguon de co model du.
+#
+# gpt-6-sol khong dua vao danh sach vi cung credential voi gpt-5.6-terra:
+# usage_limit_reached, plan prolite, window 7 ngay — reset_in_seconds
+# 399685s = 111.0h, khop chinh xac reset_time 111h10m cua cooldown proxy
+# (run deploy 39811952352).
 plugins:
   enabled: true
   dir: "/CLIProxyAPI/plugins"
@@ -106,7 +110,6 @@ plugins:
           primary_model: "$requested"
           fallback_models:
             - gpt-5.6-terra
-            - gemini-3.8-flash
       fallback:
         enabled: true
         cooldown_seconds: 300

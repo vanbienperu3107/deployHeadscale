@@ -19,8 +19,10 @@ COMPOSE = ROOT / "cliproxy" / "docker-compose.yml"
 TEMPLATE = ROOT / "cliproxy" / "config.template.yaml"
 RESET_WORKFLOW = ROOT / ".github" / "workflows" / "reset-cliproxy-cooldowns.yml"
 # Model fallback hop le, chot ngay 2026-10-22 sau khi xac nhan /v1/models:
-# gpt-5.5/gpt-5.4 da bi OpenAI rut, chi con gpt-5.6-terra (codex) + gemini-3.8-flash.
-FALLBACK_MODELS = ["gpt-5.6-terra", "gemini-3.8-flash"]
+# gpt-5.5/gpt-5.4 da bi OpenAI rut, chi con gpt-5.6-terra trong catalog codex.
+# gemini-3.8-flash bi loai: run deploy 39811952352 — proxy khong co provider
+# cho no ("unknown provider for model gemini-3.8-flash").
+FALLBACK_MODELS = ["gpt-5.6-terra"]
 GITIGNORE = ROOT / "cliproxy" / ".gitignore"
 WORKFLOW = ROOT / ".github" / "workflows" / "deploy-cliproxy.yml"
 INTEGRATION = ROOT / "test" / "cliproxy_integration.sh"
