@@ -461,11 +461,14 @@ def test_deploy_tai_rieng_plugin_model_fallback_router():
     )
 
 
-def test_workflow_reset_phu_claude_va_codex_va_probe_gpt6sol():
-    """Reset cooldown phai giai chung credential codex, roi probe gpt-6-sol.
+def test_workflow_reset_phu_claude_va_codex_va_probe_codex():
+    """Reset cooldown phai giai chung credential codex, roi probe model codex song.
 
-    Chot ngay 2026-10-22: gpt-6-sol tra 429 model_cooldown tu tat ca credential
-    codex (run diag 39804597093). Reset cu chi cho claude la khong giai duoc.
+    Chot ngay 2026-10-22 (run 39810529521): sau reset-quota codex error -> active
+    ben proxy nhung gpt-6-sol van 429 vi upstream THAT bao "usage limit has been
+    reached" (proxy khong nao xoa duoc). Vay gate "codex song" la gpt-5.6-terra
+    (model codex duy nhat con trong /v1/models — diag 39804597093); gpt-6-sol
+    chi de thong tin.
     """
     body = yaml.safe_load(RESET_WORKFLOW.read_text(encoding="utf-8"))
     steps = body["jobs"]["reset"]["steps"]
@@ -481,7 +484,18 @@ def test_workflow_reset_phu_claude_va_codex_va_probe_gpt6sol():
     assert "('claude','codex')" in all_text or '("claude", "codex")' in all_text or '"codex","claude"' in all_text, (
         "danh sach provider reset phai co ca claude va codex"
     )
-    assert "gpt-6-sol" in all_text, "phai co buoc probe gpt-6-sol"
-    assert 'test "$CODE" = "200"' in all_text, (
-        "probe gpt-6-sol phai yeu cau HTTP 200 (neu khong 200 thi run DO)"
+    # Gate bat buoc la gpt-5.6-terra: buoc probe chua model do PHAI test CODE=200.
+    gate_steps = [
+        s for s in steps if "gpt-5.6-terra" in str(s.get("name", ""))
+    ]
+    assert gate_steps, "phai co buoc probe gpt-5.6-terra"
+    gate_text = "\n".join(str(s.get("run", "")) for s in gate_steps)
+    assert '"model":"gpt-5.6-terra"' in gate_text, (
+        "gate codex phai probe chinh model gpt-5.6-terra"
+    )
+    assert 'test "$CODE" = "200"' in gate_text, (
+        "gate codex phai yeu cau HTTP 200 (neu khong 200 thi run DO)"
+    )
+    assert "gpt-6-sol" in names + all_text, (
+        "gpt-6-sol van phai duoc probe de thong tin usage limit upstream"
     )

@@ -71,10 +71,14 @@ jobs:
           curl -fsS --max-time 30 -H "Authorization: Bearer $MGMT_KEY" "$BASE_URL/v0/management/auth-files" -o /tmp/auth-after.json
           python3 -c "import json;d=json.load(open('/tmp/auth-after.json'));print('\n'.join('%-10s %-14s %s'%(x.get('provider'),x.get('status',''),x.get('label','')) for x in d.get('files',[]) if str(x.get('provider','')).lower() in ('claude','codex')))"
 
-      # Muc tieu cong bao minh chung 2026-10-22 (run 39804597093): gpt-6-sol tra
-      # 429 model_cooldown voi reset_time 111h49m duoc gan cho MOI credential
-      # codex. Sau day reset phai lai co the goi duoc; neu van 429 thi run DO.
-      - name: Probe gpt-6-sol (bat buoc 200)
+      # Ket qua run 39810529521 (2026-10-22): sau reset-quota, codex error ->
+      # active ben proxy, nhung request dau tien van bi upstream tra
+      # "usage_limit reached" THAT (khong phai cooldown proxy) va lan goi sau
+      # do cooldown gan: gpt-6-sol van 429, reset_time ~111h la noi suy cua
+      # v7.2.149. Do vay gpt-6-sol CHI de thong tin.
+      # Gate "codex song" la gpt-5.6-terra — model codex duy nhat con trong
+      # catalog (/v1/models, chay diag 39804597093) khong dan vao bang dung luong.
+      - name: Probe gpt-5.6-terra (bat buoc 200 = bang chung codex song)
         env:
           BASE_URL: https://cliproxy.hangocthanh.io.vn
           API_KEY: ${{ secrets.CLIPROXY_API_KEY }}
@@ -82,13 +86,24 @@ jobs:
           test -n "$API_KEY"
           CODE=000
           for i in 1 2 3; do
-            CODE=$(curl -sS -o /tmp/probe.json -w '%{http_code}' --max-time 90 -H "Authorization: Bearer $API_KEY" -H "Content-Type: application/json" --data '{"model":"gpt-6-sol","max_tokens":8,"messages":[{"role":"user","content":"Reply OK"}]}' "$BASE_URL/v1/chat/completions")
-            echo "gpt-6-sol -> HTTP $CODE"
+            CODE=$(curl -sS -o /tmp/probe.json -w '%{http_code}' --max-time 90 -H "Authorization: Bearer $API_KEY" -H "Content-Type: application/json" --data '{"model":"gpt-5.6-terra","max_tokens":8,"messages":[{"role":"user","content":"Reply OK"}]}' "$BASE_URL/v1/chat/completions")
+            echo "gpt-5.6-terra -> HTTP $CODE"
             if [ "$CODE" = "200" ]; then break; fi
             python3 -c "import json;e=json.load(open('/tmp/probe.json')).get('error',{});print('error:',e.get('message',''),'| reset_time:',e.get('reset_time','?'))" 2>/dev/null || head -c 300 /tmp/probe.json
             sleep 20
           done
           test "$CODE" = "200"
+
+      # Chi doc trang thai; khong lam run fail.
+      - name: Probe gpt-6-sol (thong tin usage limit upstream)
+        env:
+          BASE_URL: https://cliproxy.hangocthanh.io.vn
+          API_KEY: ${{ secrets.CLIPROXY_API_KEY }}
+        run: |
+          test -n "$API_KEY"
+          CODE=$(curl -sS -o /tmp/probe-sol.json -w '%{http_code}' --max-time 90 -H "Authorization: Bearer $API_KEY" -H "Content-Type: application/json" --data '{"model":"gpt-6-sol","max_tokens":8,"messages":[{"role":"user","content":"Reply OK"}]}' "$BASE_URL/v1/chat/completions")
+          echo "gpt-6-sol -> HTTP $CODE (informational)"
+          python3 -c "import json;d=json.load(open('/tmp/probe-sol.json'));e=d.get('error',{});print('content:',(d.get('choices',[{}])[0].get('message',{}) or {}).get('content') or e.get('message',''),'| reset_time:',e.get('reset_time','?'))" || true
 
       # Chi doc trang thai: claude van co the o tren doan van la doan co ly do.
       - name: Probe claude-opus-5-5 (thong tin)
