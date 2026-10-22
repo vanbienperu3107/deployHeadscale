@@ -4,23 +4,34 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     steps:
-      - name: Probe v8 endpoints + version
+      - name: Probe v8 endpoints + version + plugin
         env:
           HOST: ${{ secrets.SSH_HOST_VPN4 }}
           API_KEY: ${{ secrets.CLIPROXY_API_KEY }}
           MGMT_KEY: ${{ secrets.CLIPROXY_MGMT_KEY }}
         run: |
-          echo "=== version headers"
-          curl -s -D - -o /dev/null --max-time 20 -H "Authorization: Bearer $API_KEY" \
-            "http://$HOST:28417/v1/models" | grep -iE "x-cpa-version|x-cpa-commit|x-cpa-support-plugin|x-server-version" || echo "(khong co header version)"
-          echo "=== management endpoints"
-          for p in /v0/management/config /v1/management/config /v8/management/config; do
+          echo "=== version (tu response header cua 1 request that)"
+          curl -s -D /tmp/h.txt -o /dev/null --max-time 20 -H "Authorization: Bearer $API_KEY" \
+            -H "Content-Type: application/json" -X POST --data '{"model":"claude-opus-5","max_tokens":8,"messages":[{"role":"user","content":"hi"}]}' \
+            "http://$HOST:28417/v1/chat/completions"
+          grep -iE "^x-cpa-version|^x-cpa-commit|^x-cpa-support-plugin|^x-server-version" /tmp/h.txt || echo "(server khong gui header version)"
+          echo "=== management config (ca 2 prefix)"
+          for p in /v0/management/config /v8/management/config; do
             code=$(curl -s -o /tmp/mg.json -w '%{http_code}' --max-time 20 -H "Authorization: Bearer $MGMT_KEY" "http://$HOST:28417$p" || echo 000)
             echo "$p -> $code ($(wc -c < /tmp/mg.json) bytes)"
           done
-          echo "=== plugin model-fallback-router"
-          code=$(curl -s -o /tmp/pl.json -w '%{http_code}' --max-time 20 -H "Authorization: Bearer $MGMT_KEY" \
-            "http://$HOST:28417/v8/management/plugins/model-fallback-router/config" || echo 000)
-          echo "plugin config -> $code"; head -c 400 /tmp/pl.json; echo
-          echo "=== management.html"
-          curl -s -o /dev/null -w "management.html -> %{http_code}\n" --max-time 20 "http://$HOST:28417/management.html"
+          echo "=== plugin: liet ke roi moi doc config"
+          for p in /v0/management/plugins /v8/management/plugins; do
+            code=$(curl -s -o /tmp/pls.json -w '%{http_code}' --max-time 20 -H "Authorization: Bearer $MGMT_KEY" "http://$HOST:28417$p" || echo 000)
+            echo "$p -> $code"; head -c 600 /tmp/pls.json; echo
+          done
+          for p in /v0/management/plugins/model-fallback-router/config /v8/management/plugins/model-fallback-router/config; do
+            code=$(curl -s -o /tmp/pl.json -w '%{http_code}' --max-time 20 -H "Authorization: Bearer $MGMT_KEY" "http://$HOST:28417$p" || echo 000)
+            echo "$p -> $code"; head -c 400 /tmp/pl.json; echo
+          done
+          echo "=== fallback that su hoat dong? goi model chinh"
+          curl -s -o /tmp/fb.json -w 'POST chat (claude-opus-5) -> %{http_code}\n' --max-time 120 \
+            -H "Authorization: Bearer $API_KEY" -H "Content-Type: application/json" \
+            --data '{"model":"claude-opus-5","max_tokens":16,"messages":[{"role":"user","content":"tra loi dung chu OK"}]}' \
+            "http://$HOST:28417/v1/chat/completions"
+          head -c 300 /tmp/fb.json; echo
