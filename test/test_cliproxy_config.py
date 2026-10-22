@@ -486,7 +486,9 @@ def test_workflow_reset_phu_claude_va_codex_va_probe_codex():
     assert "('claude','codex')" in all_text or '("claude", "codex")' in all_text or '"codex","claude"' in all_text, (
         "danh sach provider reset phai co ca claude va codex"
     )
-    # Gate bat buoc la gpt-5.6-terra: buoc probe chua model do PHAI test CODE=200.
+    # Gate la gpt-5.6-terra: buoc probe test CODE=200; nhung usage_limit_reached
+    # la trang thai thuong nguon (chot 39814322604: window 7 ngay plan
+    # prolite, con ~110-111h) -> VALID, khong cho run DO.
     gate_steps = [
         s for s in steps if "gpt-5.6-terra" in str(s.get("name", ""))
     ]
@@ -496,7 +498,10 @@ def test_workflow_reset_phu_claude_va_codex_va_probe_codex():
         "gate codex phai probe chinh model gpt-5.6-terra"
     )
     assert 'test "$CODE" = "200"' in gate_text, (
-        "gate codex phai yeu cau HTTP 200 (neu khong 200 thi run DO)"
+        "gate codex phai van check 200 khi khong phai thuong nguon usage limit"
+    )
+    assert "usage_limit_reached" in gate_text, (
+        "gate phai chap nhan trang thai usage_limit_reached thuong nguon"
     )
     assert "gpt-6-sol" in names + all_text, (
         "gpt-6-sol van phai duoc probe de thong tin usage limit upstream"

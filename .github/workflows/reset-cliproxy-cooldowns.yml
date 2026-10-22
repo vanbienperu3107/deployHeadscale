@@ -2,16 +2,17 @@ name: Reset CLIProxy cooldowns (claude + codex)
 
 # Xoa cooldown dinh dan quyt tai PROXY cho moi credential claude + codex.
 #
-# Vi sao can tay nghia nay: cooldown cua CLIProxyAPI co the la HOAI. v7.2.149
-# (image dang pin) ton nhieu Retry-After ngan cua rate limit the phut thanh
-# cooldown tung gio; v8 db1bab01 chua sua rieng cho ("narrow Claude per-minute
-# rate-limit cooldown when short Retry-After is present"). Ket qua proxy tra
-# 429 model_cooldown voi reset_time ~111h cho ngay ma thu tu tren cha cua la
-# rate limit binh thuong vay.
+# Vi sao can tay nghia nay: reset-quota cua management CHI xoa trang thai
+# cooldown ben proxy (Quota/ModelState), KHONG lam sinh quota thuong nguon.
+# Sau reset phai probe lai de phan biet:
+#   - 200 = cooldown la HOAI (bug proxy) -> run chay dung.
+#   - 429 usage_limit_reached = quota upstream THAT. Chot 2026-10-22 (run
+#     39814322604): codex plan prolite window 7 ngay, reset_in_seconds
+#     399685s = 111.0h — khop chinh xac reset_time 111h cua cooldown proxy.
+#     Nghia la khong phai bug v7.2.149; do la quota thuc, phai cho cua so quota.
+# Truoc do nghi v7.2.149 nhieu Retry-After ngan thanh cooldown gio; v8
+# db1bab01 chua rieng cho claude per-minute — van dung lam tham khao.
 #
-# Lang sang bien khac cho code: reset-quota cua management CHI xoa trang thai
-# cooldown ben proxy (Quota/ModelState), chi khong lam sinh quota upstream;
-# sau reset quota phan nhanh upstream can quyet dinh.
 
 on:
   workflow_dispatch:
@@ -86,7 +87,7 @@ jobs:
       # v7.2.149. Do vay gpt-6-sol CHI de thong tin.
       # Gate "codex song" la gpt-5.6-terra — model codex duy nhat con trong
       # catalog (/v1/models, chay diag 39804597093) khong dan vao bang dung luong.
-      - name: Probe gpt-5.6-terra (bat buoc 200 = bang chung codex song)
+      - name: Probe gpt-5.6-terra (codex song; usage limit thuong nguon KHONG DO)
         env:
           BASE_URL: https://cliproxy.hangocthanh.io.vn
           API_KEY: ${{ secrets.CLIPROXY_API_KEY }}
@@ -98,6 +99,14 @@ jobs:
             echo "gpt-5.6-terra -> HTTP $CODE"
             if [ "$CODE" = "200" ]; then break; fi
             python3 -c "import json;e=json.load(open('/tmp/probe.json')).get('error',{});print('error:',e.get('message',''),'| reset_time:',e.get('reset_time','?'))" 2>/dev/null || head -c 300 /tmp/probe.json
+            # usage_limit_reached = trang thai THUONG NGUON that (run
+            # 39814322604: window 7 ngay plan prolite, con khoang ~110-111h).
+            # Proxy khong nao sua duoc; deploy cau truc con phan hoi dung JSON
+            # loi chuan. Khong coi la loi deploy.
+            if grep -q 'usage_limit_reached' /tmp/probe.json 2>/dev/null; then
+              echo "::warning::Quota codex thuong nguon het — proxy cau truc OK, doi cua so quota (~4 ngay)"
+              exit 0
+            fi
             sleep 20
           done
           test "$CODE" = "200"
