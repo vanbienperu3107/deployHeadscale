@@ -1,0 +1,26 @@
+name: Verify v8 (vpn4)
+on: { workflow_dispatch: {} }
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Probe v8 endpoints + version
+        env:
+          HOST: ${{ secrets.SSH_HOST_VPN4 }}
+          API_KEY: ${{ secrets.CLIPROXY_API_KEY }}
+          MGMT_KEY: ${{ secrets.CLIPROXY_MGMT_KEY }}
+        run: |
+          echo "=== version headers"
+          curl -s -D - -o /dev/null --max-time 20 -H "Authorization: Bearer $API_KEY" \
+            "http://$HOST:28417/v1/models" | grep -iE "x-cpa-version|x-cpa-commit|x-cpa-support-plugin|x-server-version" || echo "(khong co header version)"
+          echo "=== management endpoints"
+          for p in /v0/management/config /v1/management/config /v8/management/config; do
+            code=$(curl -s -o /tmp/mg.json -w '%{http_code}' --max-time 20 -H "Authorization: Bearer $MGMT_KEY" "http://$HOST:28417$p" || echo 000)
+            echo "$p -> $code ($(wc -c < /tmp/mg.json) bytes)"
+          done
+          echo "=== plugin model-fallback-router"
+          code=$(curl -s -o /tmp/pl.json -w '%{http_code}' --max-time 20 -H "Authorization: Bearer $MGMT_KEY" \
+            "http://$HOST:28417/v8/management/plugins/model-fallback-router/config" || echo 000)
+          echo "plugin config -> $code"; head -c 400 /tmp/pl.json; echo
+          echo "=== management.html"
+          curl -s -o /dev/null -w "management.html -> %{http_code}\n" --max-time 20 "http://$HOST:28417/management.html"
