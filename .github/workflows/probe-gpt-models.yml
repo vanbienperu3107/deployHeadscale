@@ -1,0 +1,19 @@
+name: Probe GPT models (vpn4)
+on: { workflow_dispatch: {} }
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Goi thu tung model gpt
+        env:
+          HOST: ${{ secrets.SSH_HOST_VPN4 }}
+          API_KEY: ${{ secrets.CLIPROXY_API_KEY }}
+        run: |
+          for m in gpt-5.6-terra gpt-5.6-sol gpt-5.6-luna gpt-6-astra gpt-6-sol gpt-6-luna gpt-6.1-sol; do
+            code=$(curl -s -o /tmp/r.json -w '%{http_code}' --max-time 90 \
+              -H "Authorization: Bearer $API_KEY" -H "Content-Type: application/json" \
+              --data "{\"model\":\"$m\",\"max_tokens\":16,\"messages\":[{\"role\":\"user\",\"content\":\"say OK\"}]}" \
+              "http://$HOST:28417/v1/chat/completions" || echo 000)
+            body=$(head -c 220 /tmp/r.json | tr -d '\n')
+            echo "$m -> $code | $body"
+          done
