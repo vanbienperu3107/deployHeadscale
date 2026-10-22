@@ -102,7 +102,11 @@ done
 
 echo "==> [4/8] 'Deploy' bat PGSTORE"
 deploy_like "$PGPASS"
-docker logs cliproxy 2>&1 | grep -q 'postgres-backed token store enabled'
+# KHONG dung `docker logs | grep -q`: grep -q dong stdin ngay khi khop, docker
+# con ghi tiep phan log con lai -> SIGPIPE (141), tha luot kill chinh script vi
+# set -o pipefail (bug 2026-10-22: run 39808055802). Doc day log ra file roi grep.
+docker logs cliproxy >/tmp/cliproxy-container.log 2>&1
+grep -q 'postgres-backed token store enabled' /tmp/cliproxy-container.log
 
 q() { docker exec "$PGC" psql -U derp -d derp -qtAXc "$1"; }
 echo "==> [5/8] Kiem DB: config co khoa cu + Gemini key, token da vao"
