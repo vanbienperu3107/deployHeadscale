@@ -49,8 +49,20 @@ Controls:
 - The service is reachable only from `caddy-edge` over a dedicated private `portainer_proxy` network. It must not attach to the shared `edge` network, whose other members include DERP, CLIProxy, and OpenCode.
 - Only the domain `portainer.hangocthanh.io.vn` maps through Nginx SNI to a dedicated Caddy listener.
 - Caddy terminates TLS with Let's Encrypt via TLS-ALPN because derper owns host port 80; HTTP-01 must remain disabled for this domain.
-- The initial Portainer administrator password is created in the Portainer web UI. It is not supplied by workflow logs, Compose environment variables, or GitHub secrets.
+- Every request passes Google SSO before Caddy proxies it to Portainer. `forward_auth` consults a dedicated `portainer-oauth2-proxy` and only `hangocthanh3107@gmail.com` is accepted, from the auditable allowlist `portainer-vpn4/allowed-emails.txt`.
+- The Portainer administrator is created on first start from `--admin-password-file`, written on the host under `umask 077` from a GitHub secret. No credential is printed to workflow logs.
 - `portainer_data` is a named volume and is never deleted in normal deploy or rollback paths.
+
+### Incident that produced these two controls (2026-10-21)
+
+Deploy run `39686831400` was reported as failed, but its rollback step never ran: the step forwarded `DEPLOY_PATH` through `envs:` without a matching `env:` block, so `DEPLOY_PATH` expanded to the empty string, the transaction marker was looked up under `/`, and the script exited 0 after 1.5 seconds while reporting success.
+
+Portainer therefore stayed publicly reachable overnight with **no administrator account**. Portainer's own five-minute initialisation timeout was the only thing preventing takeover; anyone able to restart the container would have had a fresh window to claim the admin account. Two independent controls now close this:
+
+1. The SSO gate means an unauthenticated request never reaches Portainer at all, initialised or not.
+2. Bootstrapping the admin means no unclaimed window exists in the first place.
+
+Additionally, the one-time setup token had been printed into that run's log. Diagnostics now redact it, and the exposed instance was removed.
 
 ## Architecture
 
@@ -208,7 +220,9 @@ Provide a manual workflow or documented operational command to remove the Portai
 
 | Risk | Decision |
 | --- | --- |
-| Portainer controls Docker with root-equivalent authority | Expose only behind the dedicated HTTPS hostname; no direct admin ports; `portainer_proxy` limits private HTTP reachability to Caddy; operator-managed first user/password. |
+| Portainer controls Docker with root-equivalent authority | Expose only behind the dedicated HTTPS hostname; no direct admin ports; `portainer_proxy` limits private HTTP reachability to Caddy; Google SSO gate rejects every account except the single allowlisted address; admin bootstrapped at first start so no unclaimed window exists. |
+| A rollback step silently does nothing and still reports success | Every SSH step that forwards a name through `envs:` must define it in `env:`; rollback aborts loudly when `DEPLOY_PATH` is empty rather than treating it as "no transaction to undo". Covered by `test_every_ssh_step_defines_env_values_for_the_names_it_forwards`. |
+| A correct rollback is reported as failed | Route-retirement probes run under `set +e`: once the SNI route is gone, curl exits 35 and `VAR=$(curl ...) || true` would still abort under `bash -e`. |
 | Docker network TOCTOU | The deploy workflow checks exact proxy-network membership before Portainer start and after Caddy/Nginx activation, then rolls back detected drift. Docker users able to attach a peer between checks already hold host-level Docker authority; absolute prevention requires host-level Docker authorization policy outside this scope. |
 | vpn4 memory is constrained and other containers have no memory cap | Cap Portainer at 256 MiB; deployment checks actual memory and preserves existing workloads. |
 | Nginx owns 443 and DERP must remain default SNI | Add only exact SNI mapping; verify DERP probe immediately after edge change. |

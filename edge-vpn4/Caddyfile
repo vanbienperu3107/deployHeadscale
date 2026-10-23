@@ -54,6 +54,11 @@ https://cliproxy.hangocthanh.io.vn:8444 {
 # Portainer la trang quan tri Docker, chi truy cap qua TLS cua Caddy tren mang
 # edge. 8447 nhan TLS binh thuong tu nginx nhu 8444; chi 8445 cua OpenCode
 # nhan PROXY protocol de phuc vu fail2ban.
+#
+# MOI request phai qua Google SSO truoc (su co 2026-10-21: Portainer chua co
+# admin nhung da cong khai -> ai restart duoc container thi chiem duoc quyen
+# admin trong ~5 phut). portainer-oauth2-proxy chi cho dung MOT email, xem
+# portainer-vpn4/allowed-emails.txt.
 https://portainer.hangocthanh.io.vn:8447 {
 	tls {
 		issuer acme {
@@ -61,9 +66,34 @@ https://portainer.hangocthanh.io.vn:8447 {
 		}
 	}
 
-	reverse_proxy portainer:9000 {
-		header_up X-Forwarded-Proto https
-		header_up Host {http.request.host}
+	# Trang dang nhap + callback cua oauth2-proxy. Phai de TRUOC route{} duoi,
+	# neu khong nguoi dung bi chuyen huong vao chinh no (vong lap vo han).
+	handle /oauth2/* {
+		reverse_proxy portainer-oauth2-proxy:4180 {
+			header_up X-Real-IP {remote_host}
+			header_up X-Forwarded-Uri {uri}
+		}
+	}
+
+	# route{} giu DUNG THU TU da viet. Khong co no, Caddy sap xep handler theo
+	# do cu the cua matcher va reverse_proxy co the chay TRUOC forward_auth —
+	# dung lop loi da gap voi Beszel (2026-09-14).
+	handle {
+		route {
+			forward_auth portainer-oauth2-proxy:4180 {
+				uri /oauth2/auth
+				copy_headers X-Auth-Request-Email X-Auth-Request-User
+				@unauth status 401
+				handle_response @unauth {
+					redir * /oauth2/start?rd={http.request.uri}
+				}
+			}
+
+			reverse_proxy portainer:9000 {
+				header_up X-Forwarded-Proto https
+				header_up Host {http.request.host}
+			}
+		}
 	}
 
 	log {
