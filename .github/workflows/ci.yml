@@ -178,6 +178,7 @@ jobs:
           docker run --rm \
             --add-host cliproxy:127.0.0.1 \
             --add-host portainer:127.0.0.1 \
+            --add-host portainer-oauth2-proxy:127.0.0.1 \
             --add-host opencode-server:127.0.0.1 \
             -v "${{ github.workspace }}/edge-vpn4/Caddyfile:/etc/caddy/Caddyfile:ro" \
             caddy:2.8-alpine caddy validate --adapter caddyfile --config /etc/caddy/Caddyfile

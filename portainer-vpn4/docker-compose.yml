@@ -1,15 +1,75 @@
+# Portainer (control plane cua Docker tren vpn4) + cong Google SSU rieng.
+#
+#   Internet :443 -> edge-nginx (SNI) -> caddy-edge:8447
+#                                           |
+#                            forward_auth --+--> portainer-oauth2-proxy:4180
+#                                           |      (Google login, allowlist 1 email)
+#                                           `--> portainer:9000   [chi khi 202]
+#
+# Vi sao can cong SSO rieng (su co 2026-10-21): Portainer tung chay CONG KHAI o
+# trang thai CHUA co admin. No tu khoa sau ~5 phut (/timeout.html), nhung bat ky
+# ai restart duoc container se co lai cua so ~5 phut de chiem quyen admin. Hai
+# lop chan dieu do: (1) oauth2-proxy khong cho request la cham toi Portainer;
+# (2) --admin-password-file tao san admin ngay lan khoi dong dau tien.
 name: portainer-vpn4
 
 services:
   portainer:
     image: portainer/portainer-ce:lts
-    command: ["--http-enabled"]
+    # --admin-password-file nhan PLAINTEXT (khac --admin-password: bcrypt hash).
+    # Chi co tac dung khi tao admin lan dau; cac lan khoi dong sau bi bo qua,
+    # nen deploy lai KHONG lam doi mat khau cua admin da ton tai.
+    command:
+      - --http-enabled
+      - --admin-password-file=/run/secrets/portainer-admin-password
     container_name: portainer
     restart: unless-stopped
     mem_limit: 256m
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - portainer_data:/data
+      # File do workflow deploy ghi tren host voi umask 077, khong nam trong repo.
+      - ./secrets/admin-password:/run/secrets/portainer-admin-password:ro
+    networks:
+      - portainer_proxy
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+  # Cong Google SSO chi phuc vu Portainer. Tach hoan toan khoi oauth2-proxy cua
+  # stack vpn2 (/stats, /derp-status): khac container_name, khac allowlist, khac
+  # cookie — de mot phien dang nhap cho trang thong ke KHONG tro thanh phien
+  # dang nhap cho control plane cua Docker.
+  oauth2-proxy:
+    image: quay.io/oauth2-proxy/oauth2-proxy:v7.6.0
+    container_name: portainer-oauth2-proxy
+    restart: unless-stopped
+    mem_limit: 128m
+    command:
+      - --provider=google
+      - --http-address=0.0.0.0:4180
+      # Tin X-Forwarded-* tu caddy-edge (chi Caddy goi toi duoc mang nay).
+      - --reverse-proxy=true
+      - --set-xauthrequest=true
+      # Chi lam cong xac thuc; Caddy moi la nguoi proxy toi Portainer.
+      - --upstream=static://200
+      # --email-domain=* MOT MINH se cho MOI tai khoan Google vao. Gioi han that
+      # nam o allowlist duoi day.
+      - --email-domain=*
+      - --authenticated-emails-file=/etc/oauth2-proxy/allowed-emails.txt
+      - --redirect-url=https://portainer.hangocthanh.io.vn/oauth2/callback
+      - --whitelist-domain=portainer.hangocthanh.io.vn
+      - --cookie-domain=portainer.hangocthanh.io.vn
+      - --cookie-secure=true
+    env_file:
+      # Workflow deploy ghi tu GitHub Secrets (gitignored). required:false de
+      # `docker compose config` tren CI khong fail khi chua co file.
+      - path: ./secrets/oauth2.env
+        required: false
+    volumes:
+      - ./allowed-emails.txt:/etc/oauth2-proxy/allowed-emails.txt:ro
     networks:
       - portainer_proxy
     logging:
