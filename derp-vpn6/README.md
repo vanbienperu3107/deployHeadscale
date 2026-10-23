@@ -1,7 +1,7 @@
 # vpn6 — DERP chuẩn (derper) dùng chung cổng 443 qua sslh
 
 > **ĐÃ DEPLOY PROD 2026-09-05** (PR #79, #80). vpn6 chạy **derper chuẩn giống vpn4**
-> (derper v1.100.0, tự lo TLS + STUN, handshake DERP trả `101`), thay cho custom relay
+> (derper v1.102.5 từ 2026-10-03, tự lo TLS + STUN, handshake DERP trả `101`), thay cho custom relay
 > tcp/udp (relay-vpn6) vốn không hoạt động như DERP thật (trả `426` qua Caddy).
 >
 > **Trạng thái thật trên box:** sslh-mux.service chạy `-F /etc/sslh/sslh.cfg` (rule SNI

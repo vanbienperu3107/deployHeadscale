@@ -8,9 +8,14 @@ services:
       # v1.100.0 da chay on tren chinh host nay khi con la derper2 (da retire).
       # v1.100.0 yeu cau go >= 1.26.4 -> phai override luon GO_VERSION=1.26
       # (mac dinh 1.23 chi build duoc v1.80.0).
+      # 2026-10-03: nang v1.100.0 -> v1.102.5 (fix derper ghi de tls.Certificate
+      # dung chung cua cert provider, tailscale #20478/#20484). v1.102.5 yeu cau
+      # go >= 1.26.6. Pin PATCH Go (khong dung tag "1.26") vi `compose up --build`
+      # KHONG pull lai base image: tag 1.26-alpine cache cu tren host co the < 1.26.6,
+      # va image golang dat GOTOOLCHAIN=local nen khong tu tai toolchain moi.
       args:
-        GO_VERSION: "1.26"
-        TAILSCALE_VERSION: v1.100.0
+        GO_VERSION: "1.26.8"
+        TAILSCALE_VERSION: v1.102.5
     container_name: derper
     restart: unless-stopped
     command:

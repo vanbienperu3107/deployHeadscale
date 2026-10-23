@@ -3,8 +3,27 @@
 # Chay trong CI (khong can VPS that). derper --dev chay tren port 3340 (HTTP, khong TLS).
 set -e
 
-echo "==> [1/3] Build derper image tu derp-vpn3/Dockerfile.derper"
-docker build -t derper-ci -f derp-vpn3/Dockerfile.derper derp-vpn3/
+# Build DUNG phien ban dang deploy (build.args cua derp-vpn4/docker-compose.yml),
+# khong phai ARG mac dinh v1.80.0 cua Dockerfile — neu khong CI se xanh du ban
+# that su len prod khong build duoc.
+GO_VERSION=$(sed -n 's/^ *GO_VERSION: *"\{0,1\}\([0-9.]*\)"\{0,1\} *$/\1/p' derp-vpn4/docker-compose.yml)
+TAILSCALE_VERSION=$(sed -n 's/^ *TAILSCALE_VERSION: *\(v[0-9.]*\) *$/\1/p' derp-vpn4/docker-compose.yml)
+if [ -z "$GO_VERSION" ] || [ -z "$TAILSCALE_VERSION" ]; then
+  echo "FAIL: khong doc duoc GO_VERSION/TAILSCALE_VERSION tu derp-vpn4/docker-compose.yml"
+  exit 1
+fi
+
+echo "==> [1/3] Build derper ${TAILSCALE_VERSION} (Go ${GO_VERSION}) tu derp-vpn3/Dockerfile.derper"
+docker build -t derper-ci -f derp-vpn3/Dockerfile.derper \
+  --build-arg GO_VERSION="$GO_VERSION" \
+  --build-arg TAILSCALE_VERSION="$TAILSCALE_VERSION" \
+  derp-vpn3/
+GOT=$(docker run --rm derper-ci --version | head -1)
+echo "  derper --version: $GOT"
+case "$GOT" in
+  "${TAILSCALE_VERSION#v}"*) ;;
+  *) echo "FAIL: image build ra '$GOT', mong ${TAILSCALE_VERSION#v}"; exit 1 ;;
+esac
 
 echo "==> [2/3] Start derper (dev mode: HTTP, port 3340, khong can cert)"
 docker run -d --name ci-derper -p 3340:3340 \
