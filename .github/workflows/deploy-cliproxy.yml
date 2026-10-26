@@ -192,6 +192,11 @@ jobs:
             $SUDO docker compose up -d --force-recreate --no-deps cliproxy
             $SUDO docker compose ps
 
+            # Plugin phai duoc host nap that, khong chi nam trong ./plugins.
+            sleep 5
+            $SUDO docker logs cliproxy 2>&1 | grep -E 'plugin loaded|plugin registered' | tail -10 || true
+            $SUDO docker logs cliproxy 2>&1 | grep -q 'deepseek-web' || { echo "::error::Plugin deepseek-web khong duoc nap"; $SUDO docker logs --tail 80 cliproxy 2>&1 || true; exit 1; }
+
             echo "==> [5b/6] Kho config dung + MOI khoa cu van goi duoc"
             # Them lai khoa cu con thieu qua Management API (vao DB hoac config.yaml,
             # tuy kho dang bat), roi goi /v1/models bang TUNG khoa. Mot khoa 401 =
