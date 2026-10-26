@@ -10,9 +10,9 @@ on:
   workflow_dispatch:
     inputs:
       image_tag:
-        description: "Tag image cli-proxy-api (vd v7.2.112). Bo trong = dung mac dinh trong docker-compose.yml"
+        description: "Tag image cli-proxy-api (vd main-d833ba5). Bo trong = dung main-d833ba5 (co plugin deepseek-web-go)"
         required: false
-        default: ""
+        default: "main-d833ba5"
       debug_logging:
         description: "Bat ghi log loi ra file de doc lai request that bai. CHI bat khi dang dieu tra roi tat lai."
         required: false
@@ -125,12 +125,13 @@ jobs:
             echo "==> [4/6] Ghi .env (tag image) + pull"
             # KHONG dung khoi if/else o day: ssh-action chen dong kiem tra exit code
             # ngay sau dong "else", luc do $? van la ket qua cua dieu kien if (=1 khi
-            # dieu kien sai) -> script thoat 1 vo co. Rong thi ghi CLIPROXY_IMAGE=
-            # cung duoc vi compose dung ${CLIPROXY_IMAGE:-<mac dinh>}.
+            # dieu kien sai) -> script thoat 1 vo co. Rong thi ghi tag mac dinh
+            # cua workflow (main-d833ba5, co plugin deepseek-web-go), khong de
+            # compose roi ve image v7 cu khong co plugin.
             # Giu dong PGSTORE_DSN cu qua lan ghi lai .env: pgstore.sh dua vao no de
             # biet kho Postgres dang bat hay tat (va keo du lieu ve file khi tat).
             grep '^PGSTORE_DSN=' .env > .env.keep 2>/dev/null || true
-            printf 'CLIPROXY_IMAGE=%s\n' "${CLIPROXY_IMAGE:-}" > .env
+            printf 'CLIPROXY_IMAGE=%s\n' "${CLIPROXY_IMAGE:-ghcr.io/vanbienperu3107/cliproxy_mod:main-d833ba5}" > .env
             cat .env.keep >> .env
             rm -f .env.keep
             chmod 600 .env
@@ -160,7 +161,7 @@ jobs:
 
             # Plugin deepseek-web-go duoc bake trong image, nhung compose bind mount
             # ./plugins de giu model-fallback-router -> copy .so ra bind mount.
-            IMAGE=$(grep '^CLIPROXY_IMAGE=' .env | cut -d= -f2-); IMAGE=${IMAGE:-eceasy/cli-proxy-api:v7.2.149}
+            IMAGE=$(grep '^CLIPROXY_IMAGE=' .env | cut -d= -f2-); IMAGE=${IMAGE:-ghcr.io/vanbienperu3107/cliproxy_mod:main-d833ba5}
             $SUDO docker rm -f cliproxy-plugin-extract >/dev/null 2>&1 || true
             $SUDO docker create --name cliproxy-plugin-extract "$IMAGE" >/dev/null
             $SUDO docker cp cliproxy-plugin-extract:/CLIProxyAPI/plugins/deepseek-web-go.so plugins/deepseek-web-go.so

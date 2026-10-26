@@ -14,7 +14,7 @@ set -euo pipefail
 # Chay voi CHINH anh dang chay tren vpn4 (fork cliproxy_mod), khong phai tag mac dinh
 # eceasy cu trong compose: kiem PGSTORE tren anh khac la kiem sai doi tuong.
 # Ghi de bang CLIPROXY_IMAGE neu can.
-export CLIPROXY_IMAGE="${CLIPROXY_IMAGE:-ghcr.io/vanbienperu3107/cliproxy_mod:main-df5a5b7}"
+export CLIPROXY_IMAGE="${CLIPROXY_IMAGE:-ghcr.io/vanbienperu3107/cliproxy_mod:main-d833ba5}"
 echo "anh proxy: $CLIPROXY_IMAGE"
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
