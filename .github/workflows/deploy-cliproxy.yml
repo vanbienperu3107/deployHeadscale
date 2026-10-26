@@ -10,9 +10,9 @@ on:
   workflow_dispatch:
     inputs:
       image_tag:
-        description: "Tag image cli-proxy-api (vd v7.2.112). Bo trong = dung mac dinh trong docker-compose.yml"
+        description: "Tag image cli-proxy-api (vd main-d833ba5). Bo trong = dung main-d833ba5 (co plugin deepseek-web-go)"
         required: false
-        default: ""
+        default: "main-d833ba5"
       debug_logging:
         description: "Bat ghi log loi ra file de doc lai request that bai. CHI bat khi dang dieu tra roi tat lai."
         required: false
@@ -51,7 +51,7 @@ jobs:
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_KEY }}
           port: ${{ secrets.SSH_PORT || '22' }}
-          envs: DEPLOY_PATH,REPO_URL,DEPLOY_REF,CLIPROXY_API_KEY,CLIPROXY_MGMT_KEY,CLIPROXY_IMAGE,DEBUG_LOGGING,CHAT_HISTORY_DSN,PG_REMOTE_HOST,SSH_HOST_VPN6,CLIPROXY_STORE_PG_PASSWORD
+          envs: DEPLOY_PATH,REPO_URL,DEPLOY_REF,CLIPROXY_API_KEY,CLIPROXY_MGMT_KEY,CLIPROXY_IMAGE,DEBUG_LOGGING,CHAT_HISTORY_DSN,PG_REMOTE_HOST,SSH_HOST_VPN6,CLIPROXY_STORE_PG_PASSWORD,DEEPSEEK_USER_TOKEN
           script_stop: true
           command_timeout: 15m
           script: |
@@ -78,6 +78,10 @@ jobs:
             # mount ./plugins, chi tai khi chua ton tai (idempotent).
             test -s plugins/model-fallback-router.so || curl -fsSL -o plugins/model-fallback-router_linux_amd64.zip https://github.com/thebtf/cpa-model-fallback-router/releases/download/v0.1.3/model-fallback-router_0.1.3_linux_amd64.zip
             test -s plugins/model-fallback-router.so || python3 -c "import zipfile,pathlib;z=zipfile.ZipFile('plugins/model-fallback-router_linux_amd64.zip');z.extract('model-fallback-router.so','plugins');pathlib.Path('plugins/model-fallback-router.so').chmod(0o755)"
+            # DeepSeek web: token nam trong secret, ghi thanh auth file neu co.
+            # Khong co secret thi van cai plugin nhung chua co credential.
+            test -z "$DEEPSEEK_USER_TOKEN" || python3 -c "import json,os,pathlib;p=pathlib.Path('auths/deepseek.json');p.write_text(json.dumps({'type':'deepseek-web','userToken':os.environ['DEEPSEEK_USER_TOKEN'],'prefix':'deepseek-web','persistSession':True}));p.chmod(0o600);print('  deepseek auth: da ghi')"
+            test -n "$DEEPSEEK_USER_TOKEN" || echo "  deepseek auth: THIEU secret DEEPSEEK_USER_TOKEN -> plugin chua co credential"
             # Don rac request-log cu (moi file toi 32MB, tung day logs len 204MB).
             # Chi xoa trong logs/, KHONG dung toi auths/.
             find logs -maxdepth 1 -name 'request-log-parts-*' -type d -exec rm -rf {} + 2>/dev/null || true
@@ -121,12 +125,13 @@ jobs:
             echo "==> [4/6] Ghi .env (tag image) + pull"
             # KHONG dung khoi if/else o day: ssh-action chen dong kiem tra exit code
             # ngay sau dong "else", luc do $? van la ket qua cua dieu kien if (=1 khi
-            # dieu kien sai) -> script thoat 1 vo co. Rong thi ghi CLIPROXY_IMAGE=
-            # cung duoc vi compose dung ${CLIPROXY_IMAGE:-<mac dinh>}.
+            # dieu kien sai) -> script thoat 1 vo co. Rong thi ghi tag mac dinh
+            # cua workflow (main-d833ba5, co plugin deepseek-web-go), khong de
+            # compose roi ve image v7 cu khong co plugin.
             # Giu dong PGSTORE_DSN cu qua lan ghi lai .env: pgstore.sh dua vao no de
             # biet kho Postgres dang bat hay tat (va keo du lieu ve file khi tat).
             grep '^PGSTORE_DSN=' .env > .env.keep 2>/dev/null || true
-            printf 'CLIPROXY_IMAGE=%s\n' "${CLIPROXY_IMAGE:-}" > .env
+            printf 'CLIPROXY_IMAGE=%s\n' "${CLIPROXY_IMAGE:-ghcr.io/vanbienperu3107/cliproxy_mod:main-d833ba5}" > .env
             cat .env.keep >> .env
             rm -f .env.keep
             chmod 600 .env
@@ -154,6 +159,16 @@ jobs:
             # khong can dang nhap. Secret GHCR_PAT cu da bi registry tu choi.
             $SUDO docker compose pull
 
+            # Plugin deepseek-web-go duoc bake trong image, nhung compose bind mount
+            # ./plugins de giu model-fallback-router -> copy .so ra bind mount.
+            IMAGE=$(grep '^CLIPROXY_IMAGE=' .env | cut -d= -f2-); IMAGE=${IMAGE:-ghcr.io/vanbienperu3107/cliproxy_mod:main-d833ba5}
+            $SUDO docker rm -f cliproxy-plugin-extract >/dev/null 2>&1 || true
+            $SUDO docker create --name cliproxy-plugin-extract "$IMAGE" >/dev/null
+            $SUDO docker cp cliproxy-plugin-extract:/CLIProxyAPI/plugins/deepseek-web-go.so plugins/deepseek-web-go.so
+            $SUDO docker rm -f cliproxy-plugin-extract >/dev/null
+            chmod 755 plugins/deepseek-web-go.so
+            echo "  deepseek plugin: $(ls -lh plugins/deepseek-web-go.so | awk '{print $5}')"
+
             # cliproxy nam tren mang 'edge' de Caddy (stack edge-vpn4, phuc vu
             # https://cliproxy.hangocthanh.io.vn tren cong 443) goi toi duoc.
             $SUDO docker network inspect edge >/dev/null 2>&1 || $SUDO docker network create edge
@@ -165,6 +180,8 @@ jobs:
             # Hai dong test rieng thay vi if/else (ssh-action pha nhanh else).
             test -z "$CLIPROXY_STORE_PG_PASSWORD" || PGSTORE_DSN="postgresql://cliproxy_store:${CLIPROXY_STORE_PG_PASSWORD}@cliproxy-pg-tunnel:5432/derp?sslmode=disable" bash pgstore.sh enable
             test -n "$CLIPROXY_STORE_PG_PASSWORD" || bash pgstore.sh off
+            # PGSTORE bat -> config/auth doc tu DB; bat plugin + ghi token vao DB.
+            test -z "$CLIPROXY_STORE_PG_PASSWORD" || bash pgstore.sh plugin-deepseek
 
             echo "==> [5/6] Compose up"
             $SUDO docker compose up -d --remove-orphans
@@ -175,6 +192,11 @@ jobs:
             # DB cloud, deploy xanh ma proxy van ghi vao vpn6 cho toi khi restart tay.
             $SUDO docker compose up -d --force-recreate --no-deps cliproxy
             $SUDO docker compose ps
+
+            # Plugin phai duoc host nap that, khong chi nam trong ./plugins.
+            sleep 5
+            $SUDO docker logs cliproxy 2>&1 | grep -E 'plugin loaded|plugin registered' | tail -10 || true
+            $SUDO docker logs cliproxy 2>&1 | grep -q 'deepseek-web' || { echo "::error::Plugin deepseek-web khong duoc nap"; $SUDO docker logs --tail 80 cliproxy 2>&1 || true; exit 1; }
 
             echo "==> [5b/6] Kho config dung + MOI khoa cu van goi duoc"
             # Them lai khoa cu con thieu qua Management API (vao DB hoac config.yaml,
@@ -221,6 +243,7 @@ jobs:
           # Kho Postgres (PGSTORE). Rong => tat. Tao role/schema truoc bang
           # migrate-cliproxy-store.yml.
           CLIPROXY_STORE_PG_PASSWORD: ${{ secrets.CLIPROXY_STORE_PG_PASSWORD }}
+          DEEPSEEK_USER_TOKEN: ${{ secrets.DEEPSEEK_USER_TOKEN }}
 
       - name: Verify tu Internet (runner goi vao 28417 cua vpn4)
         env:
