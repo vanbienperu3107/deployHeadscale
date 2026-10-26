@@ -184,6 +184,27 @@ off() {
   set_env PGSTORE_DSN ""
 }
 
+plugin_deepseek() {
+  if [ -z "$(env_get PGSTORE_DSN)" ]; then
+    log "PGSTORE tat -> plugin config/auth dung file"
+    return 0
+  fi
+  umask 077
+  seedctl dump-config > .db-config.yaml
+  if [ -s .db-config.yaml ]; then
+    python3 plugin-config.py .db-config.yaml
+    seedctl set-config /w/.db-config.yaml
+    log "da cap nhat plugins.deepseek-web-go trong DB"
+  else
+    log "config_store trong -> bo qua plugin config"
+  fi
+  rm -f .db-config.yaml
+  if [ -n "${DEEPSEEK_USER_TOKEN:-}" ] && [ -s auths/deepseek.json ]; then
+    seedctl upsert-auth /w/auths/deepseek.json
+    log "da ghi auth deepseek vao DB"
+  fi
+}
+
 rollback() {
   echo "::error::$1"
   local sc sa
@@ -274,7 +295,8 @@ case "${1:-}" in
   snapshot-keys) snapshot_keys ;;
   enable) enable ;;
   off) off ;;
+  plugin-deepseek) plugin_deepseek ;;
   verify) verify ;;
   export) export_db ;;
-  *) echo "dung: pgstore.sh snapshot-keys|enable|off|verify|export" >&2; exit 2 ;;
+  *) echo "dung: pgstore.sh snapshot-keys|enable|off|plugin-deepseek|verify|export" >&2; exit 2 ;;
 esac

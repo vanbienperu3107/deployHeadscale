@@ -127,6 +127,10 @@ plugins:
           - 400
           - 404
           - 422
+    # DeepSeek web (chat.deepseek.com) qua plugin native cua fork.
+    # .so duoc dong goi trong image va workflow deploy copy ra ./plugins.
+    deepseek-web-go:
+      enabled: true
 
 # Retry khi upstream tra 403/408/429/500/502/503/504: so VONG retry them sau khi
 # vong dau da thu het credential du dieu kien.

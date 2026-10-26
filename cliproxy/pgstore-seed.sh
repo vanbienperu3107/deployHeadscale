@@ -139,12 +139,27 @@ case "$cmd" in
     echo "CONFIG_ROWS=$(config_rows)"
     echo "AUTH_ROWS=$(auth_rows)"
     ;;
+  dump-config)
+    psql_q -c "SELECT content FROM config_store WHERE id = 'config'"
+    ;;
+  set-config)
+    cfg="${2:?thieu duong dan config.yaml}"
+    ensure_tables
+    printf "INSERT INTO config_store (id, content) VALUES ('config', convert_from(decode('%s', 'base64'), 'UTF8')) ON CONFLICT (id) DO UPDATE SET content = EXCLUDED.content, updated_at = NOW();\n" "$(b64 "$cfg")" | psql_q
+    echo "CONFIG_ROWS=$(config_rows)"
+    ;;
+  upsert-auth)
+    auth="${2:?thieu duong dan auth.json}"
+    ensure_tables
+    printf "INSERT INTO auth_store (id, content) VALUES ('deepseek.json', convert_from(decode('%s', 'base64'), 'UTF8')::jsonb) ON CONFLICT (id) DO UPDATE SET content = EXCLUDED.content, updated_at = NOW();\n" "$(b64 "$auth")" | psql_q
+    echo "AUTH_ROWS=$(auth_rows)"
+    ;;
   reset)
     psql_q -c "BEGIN; DELETE FROM config_store; DELETE FROM auth_store; DELETE FROM cooldown_store; COMMIT;"
     echo "RESET=1"
     ;;
   *)
-    echo "dung: pgstore-seed.sh check|need-seed|seed <config> <dir>|count|reset" >&2
+    echo "dung: pgstore-seed.sh check|need-seed|seed <config> <dir>|count|dump-config|set-config <config>|upsert-auth <auth>|reset" >&2
     exit 2
     ;;
 esac
