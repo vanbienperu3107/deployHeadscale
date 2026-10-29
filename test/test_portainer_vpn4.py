@@ -291,6 +291,15 @@ def test_deploy_verifies_public_tls_isolation_and_existing_routes_after_edge_act
     assert body.index(status_url) > body.index("up -d --force-recreate --no-deps nginx")
     assert "8000|9000|9443" in body
     assert "HostConfig.PortBindings" in body
+    # Docker tra "{}" khi khong co binding; so sanh cung voi "null" lam deploy
+    # that bai du contract bao mat van dung (run 40950665989).
+    assert 'test "$($SUDO docker inspect -f \'{{json .HostConfig.PortBindings}}\' portainer)" = "null"' not in body
+    assert body.count('null|"{}") ;;') == 2, (
+        "both Portainer and its SSO gate must accept either empty form while "
+        "still rejecting a real host port binding"
+    )
+    assert "Portainer must not publish host ports" in body
+    assert "SSO gate must not publish host ports" in body
     assert "NetworkSettings.Networks" in body
     assert 'test "$PORTAINER_NETWORKS" = "portainer_proxy "' in body
     assert 'test "$GATE_NETWORKS" = "portainer_proxy "' in body

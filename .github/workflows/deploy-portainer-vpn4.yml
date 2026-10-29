@@ -131,8 +131,21 @@ jobs:
             LISTENERS="$TRANSACTION_DIR/listeners"
             $SUDO ss -ltn | $SUDO tee "$LISTENERS" >/dev/null
             if $SUDO grep -Eq ':(8000|9000|9443)\b' "$LISTENERS"; then exit 1; fi
-            test "$($SUDO docker inspect -f '{{json .HostConfig.PortBindings}}' portainer)" = "null"
-            test "$($SUDO docker inspect -f '{{json .HostConfig.PortBindings}}' portainer-oauth2-proxy)" = "null"
+            # Docker tra "{}" (object rong) khi khong co port binding, chi tra
+            # "null" trong mot so phien ban/ngu canh khac. Assertion cu chi chap
+            # nhan "null" -> deploy that bai du Portainer KHONG publish port nao
+            # (run 40950665989: ports={}). Chap nhan ca hai dang rong, va van
+            # chan bat ky binding that nao.
+            PORTAINER_BINDINGS=$($SUDO docker inspect -f '{{json .HostConfig.PortBindings}}' portainer)
+            case "$PORTAINER_BINDINGS" in
+              null|"{}") ;;
+              *) echo "::error::Portainer must not publish host ports: $PORTAINER_BINDINGS"; exit 1 ;;
+            esac
+            GATE_BINDINGS=$($SUDO docker inspect -f '{{json .HostConfig.PortBindings}}' portainer-oauth2-proxy)
+            case "$GATE_BINDINGS" in
+              null|"{}") ;;
+              *) echo "::error::SSO gate must not publish host ports: $GATE_BINDINGS"; exit 1 ;;
+            esac
             PORTAINER_NETWORKS=$($SUDO docker inspect -f '{{range $name, $_ := .NetworkSettings.Networks}}{{$name}} {{end}}' portainer)
             test "$PORTAINER_NETWORKS" = "portainer_proxy "
             GATE_NETWORKS=$($SUDO docker inspect -f '{{range $name, $_ := .NetworkSettings.Networks}}{{$name}} {{end}}' portainer-oauth2-proxy)
