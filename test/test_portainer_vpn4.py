@@ -887,6 +887,33 @@ def test_caddy_requires_a_valid_google_session_before_reaching_portainer():
     )
 
 
+def test_redirect_target_is_read_from_the_location_header_not_redirect_url():
+    """`%{redirect_url}` is empty unless curl actually follows the redirect.
+
+    Caddy answers with a RELATIVE `Location: /oauth2/start?rd=...`. Without
+    `-L`, curl leaves `%{redirect_url}` empty, so the gate assertion failed
+    even though the redirect was correct (deploy run 40895576406). Every
+    redirect probe must therefore parse the Location header directly.
+    """
+    sources = [
+        deploy_body(),
+        rollback_body(),
+        INTEGRATION.read_text(encoding="utf-8"),
+    ]
+    for body in sources:
+        for line in body.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("#") or "%{redirect_url}" not in stripped:
+                continue
+            assert " -L" in stripped or "--location" in stripped, (
+                "%{redirect_url} without -L is always empty: " + stripped
+            )
+
+    deploy = deploy_body()
+    assert "sed -n 's/^[Ll]ocation: //p'" in deploy
+    assert "curl -sS -D - -o /dev/null" in deploy
+
+
 def test_portainer_admin_account_is_created_at_first_start():
     """An unclaimed Portainer is a takeover window, not a safe default.
 

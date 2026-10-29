@@ -257,10 +257,12 @@ case "$anon_body" in
 esac
 anon_code="$(status_of "$PORTAINER_SNI" /api/status 2>/dev/null || true)"
 [ "$anon_code" = "302" ] || fail "unauthenticated request returned $anon_code, expected a 302 redirect to the gate"
+# Location cua Caddy la duong dan TUONG DOI; %{redirect_url} chi co gia tri khi
+# curl di theo redirect (-L). Doc thang header de khong phu thuoc dieu do.
 anon_target="$(curl --noproxy '*' --silent --insecure --max-time 5 \
   --resolve "$PORTAINER_SNI:$HOST_PORT:127.0.0.1" \
-  -o /dev/null -w '%{redirect_url}' \
-  "https://$PORTAINER_SNI:$HOST_PORT/api/status" 2>/dev/null || true)"
+  -D - -o /dev/null \
+  "https://$PORTAINER_SNI:$HOST_PORT/api/status" 2>/dev/null | tr -d '\r' | sed -n 's/^[Ll]ocation: //p')"
 case "$anon_target" in
   */oauth2/start*) ;;
   *) fail "unauthenticated request was not redirected to the login gate: ${anon_target:-<empty>}" ;;
