@@ -945,12 +945,74 @@ def test_external_probes_retry_instead_of_failing_on_the_first_attempt():
 
     assert "probe_code()" in body
     assert "set +e; curl -sS -o /dev/null -w '%{http_code}'" in body
-    derp_loop = next(
-        line for line in body.splitlines() if "DERP_CODE=$(probe_code" in line
-    )
-    assert "for _ in $(seq 1" in derp_loop, (
+    helper = next(line for line in body.splitlines() if "wait_for_code()" in line)
+    assert "for _ in $(seq 1 \"$ATTEMPTS\")" in helper, (
         "the DERP probe must retry: it runs immediately after nginx is "
         "recreated, when the listener may not be accepting yet"
+    )
+    assert "DERP_CODE=$(wait_for_code 200 https://vpn4.hangocthanh.io.vn/derp/probe 15 4)" in body
+
+
+def test_retry_loops_do_not_leak_a_failing_status_into_the_ssh_exit_guard():
+    """drone-ssh appends an exit guard after EVERY line of the script.
+
+    A `for ... done` loop that ends by exhausting its attempts leaves `$?`
+    from its final `[ ... ]` test, so the injected guard turns a completed
+    line into `exit 1`. Deploy runs 40898209064 and 40900676924 both died
+    this way roughly a second after nginx was recreated -- the loop had run
+    to completion, and nothing was actually wrong.
+
+    Wrapping the loop in a function makes the value travel through stdout
+    and the caller's assignment, not through the loop's exit status.
+    """
+    for body in (deploy_body(), rollback_body()):
+        for line in body.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("#") or not stripped.startswith("for _ in $(seq"):
+                continue
+            assert stripped.startswith("for _ in $(seq 1 30); do if ["), (
+                "a bare retry loop at statement level will be converted into "
+                "`exit 1` once it exhausts its attempts: " + stripped
+            )
+
+    deploy = deploy_body()
+    assert "wait_for_code()" in deploy
+    assert 'DERP_CODE=$(wait_for_code 200 ' in deploy
+    assert 'STATUS_CODE=$(wait_for_code 302 ' in deploy
+
+
+def test_recovery_steps_enter_the_deployment_directory_before_using_git():
+    """`git reset --hard` in $HOME aborts the rollback and keeps the route live.
+
+    Run 40900676924 removed both containers, then failed with "fatal: not a
+    git repository", so ROLLBACK_FAILED stayed 1, the transaction directory
+    was kept, and the public Portainer route was left answering 502.
+    """
+    checks = (
+        (load_deploy_workflow(), "deploy", "Rollback transaction"),
+        (load_rollback_workflow(), "rollback", "Restore Portainer transaction"),
+    )
+    for workflow, job, prefix in checks:
+        step = next(
+            step
+            for step in workflow["jobs"][job]["steps"]
+            if step.get("name", "").startswith(prefix)
+        )
+        script = step["with"]["script"]
+        assert 'cd "$DEPLOY_PATH"' in script, (
+            f"{prefix}: must cd into the checkout before running git"
+        )
+        assert script.index('cd "$DEPLOY_PATH"') < script.index("git reset --hard")
+
+
+def test_stage_reports_the_failing_line_without_tracing_credentials():
+    """Diagnostics must identify the line but never echo OAuth/admin secrets."""
+    body = deploy_body()
+
+    assert "trap 'status=$?; echo \"::error::Portainer stage failed at line ${LINENO} (exit ${status})\" >&2' ERR" in body
+    assert not any(line.strip() == "set -x" for line in body.splitlines()), (
+        "xtrace would print OAuth client credentials and the generated admin "
+        "password into the GitHub Actions log"
     )
 
 
