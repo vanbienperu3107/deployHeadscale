@@ -1017,11 +1017,45 @@ def test_stage_reports_the_failing_line_without_tracing_credentials():
     """Diagnostics must identify the line but never echo OAuth/admin secrets."""
     body = deploy_body()
 
-    assert "trap 'status=$?; echo \"::error::Portainer stage failed at line ${LINENO} (exit ${status})\" >&2' ERR" in body
+    # ${LINENO} la VO DUNG o day: drone-ssh viet lai script truoc khi chay, nen
+    # so dong lech so voi file trong repo. Run 40949091264 bao "line 82" trong
+    # khi dong 82 la mot COMMENT -- da khien hai lan sua nham vi tri.
+    code_lines = [
+        line for line in body.splitlines() if not line.strip().startswith("#")
+    ]
+    assert not any("${LINENO}" in line for line in code_lines), (
+        "line numbers do not survive drone-ssh's script rewriting; report "
+        "$BASH_COMMAND instead"
+    )
+    assert "trap 'report_failed_command \"$?\" \"$BASH_COMMAND\"' ERR" in body
+    assert "report_failed_command()" in body
     assert not any(line.strip() == "set -x" for line in body.splitlines()), (
         "xtrace would print OAuth client credentials and the generated admin "
         "password into the GitHub Actions log"
     )
+
+
+def test_failure_report_redacts_expanded_secrets_literally():
+    """$BASH_COMMAND is already expanded, so a failing printf would leak.
+
+    The stage writes secrets with printf. If that line fails, $BASH_COMMAND
+    contains the real values. Redaction must therefore run before printing,
+    and must match literally: secrets can contain regex metacharacters that
+    sed would misinterpret and silently fail to mask.
+    """
+    body = deploy_body()
+    reporter = next(line for line in body.splitlines() if "report_failed_command()" in line)
+
+    assert "python3 -c" in reporter, "sed would treat secret metacharacters as regex"
+    assert ".replace(v," in reporter, "redaction must be a literal replacement"
+    for name in (
+        "PORTAINER_OAUTH_CLIENT_SECRET",
+        "PORTAINER_OAUTH_COOKIE_SECRET",
+        "PORTAINER_ADMIN_PASSWORD",
+        "PORTAINER_OAUTH_CLIENT_ID",
+    ):
+        assert name in reporter, f"{name} must be redacted from the failure report"
+    assert "[:200]" in reporter, "truncate so a long command cannot flood the log"
 
 
 def test_portainer_admin_account_is_created_at_first_start():
