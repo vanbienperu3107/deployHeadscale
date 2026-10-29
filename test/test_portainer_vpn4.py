@@ -914,6 +914,46 @@ def test_redirect_target_is_read_from_the_location_header_not_redirect_url():
     assert "curl -sS -D - -o /dev/null" in deploy
 
 
+def test_no_curl_assignment_relies_on_or_true_under_errexit():
+    """`VAR=$(curl ...) || true` does NOT survive `set -e`.
+
+    `||` binds to the assignment, and an assignment's exit status is the exit
+    status of the command substitution. A transient curl failure therefore
+    kills the step instead of yielding a code the script can inspect.
+
+    This cost two deployments: run 39789977764 (rollback marked failed) and
+    run 40898209064, where the DERP probe fired 1.2s after nginx had been
+    recreated, curl could not connect yet, and the step died silently before
+    the readiness loop ever ran.
+    """
+    for body in (deploy_body(), rollback_body()):
+        for line in body.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("#"):
+                continue
+            if "=$(curl" not in stripped:
+                continue
+            assert "|| true" not in stripped, (
+                "assignment keeps curl's exit status under set -e; use a "
+                "helper that toggles errexit instead: " + stripped
+            )
+
+
+def test_external_probes_retry_instead_of_failing_on_the_first_attempt():
+    """Edge containers are recreated moments earlier; the first probe can fail."""
+    body = deploy_body()
+
+    assert "probe_code()" in body
+    assert "set +e; curl -sS -o /dev/null -w '%{http_code}'" in body
+    derp_loop = next(
+        line for line in body.splitlines() if "DERP_CODE=$(probe_code" in line
+    )
+    assert "for _ in $(seq 1" in derp_loop, (
+        "the DERP probe must retry: it runs immediately after nginx is "
+        "recreated, when the listener may not be accepting yet"
+    )
+
+
 def test_portainer_admin_account_is_created_at_first_start():
     """An unclaimed Portainer is a takeover window, not a safe default.
 
