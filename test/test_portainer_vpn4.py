@@ -294,7 +294,15 @@ def test_deploy_verifies_public_tls_isolation_and_existing_routes_after_edge_act
     assert "NetworkSettings.Networks" in body
     assert 'test "$PORTAINER_NETWORKS" = "portainer_proxy "' in body
     assert 'test "$GATE_NETWORKS" = "portainer_proxy "' in body
-    assert 'test "$PROXY_MEMBERS" = "caddy-edge portainer portainer-oauth2-proxy "' in body
+    # Docker khong cam ket thu tu map .Containers; pipeline sort cu da tra status
+    # 1 tren vpn4 du danh sach thuc te dung, lam deploy run 40920413033 rollback
+    # oan. Kiem tra theo TAP HOP (count + exact member), khong so chuoi co thu tu.
+    assert 'current_proxy_members() { $SUDO docker network inspect portainer_proxy' in body
+    assert "expected_proxy_members() { printf '%s\\n' caddy-edge portainer portainer-oauth2-proxy" in body
+    assert "LC_ALL=C sort" in body
+    assert "wait_for_proxy_members()" in body
+    assert 'PROXY_MEMBERS=$(wait_for_proxy_members "$EXPECTED_PROXY_MEMBERS")' in body
+    assert 'test "$PROXY_MEMBERS" = "$EXPECTED_PROXY_MEMBERS"' in body
     assert "docker network inspect portainer_proxy" in body
 
 

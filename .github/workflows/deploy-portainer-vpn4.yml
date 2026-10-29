@@ -127,8 +127,12 @@ jobs:
             test "$PORTAINER_NETWORKS" = "portainer_proxy "
             GATE_NETWORKS=$($SUDO docker inspect -f '{{range $name, $_ := .NetworkSettings.Networks}}{{$name}} {{end}}' portainer-oauth2-proxy)
             test "$GATE_NETWORKS" = "portainer_proxy "
-            PROXY_MEMBERS=$($SUDO docker network inspect portainer_proxy --format '{{range .Containers}}{{.Name}} {{end}}' | tr ' ' '\n' | sed '/^$/d; s#^/##' | sort | tr '\n' ' ')
-            test "$PROXY_MEMBERS" = "caddy-edge portainer portainer-oauth2-proxy "
+            expected_proxy_members() { printf '%s\n' caddy-edge portainer portainer-oauth2-proxy | LC_ALL=C sort; }
+            current_proxy_members() { $SUDO docker network inspect portainer_proxy --format '{{range .Containers}}{{.Name}}{{"\n"}}{{end}}' | sed '/^$/d; s#^/##' | LC_ALL=C sort; }
+            wait_for_proxy_members() { EXPECTED="$1"; LAST=; for _ in $(seq 1 15); do LAST=$(current_proxy_members); if [ "$LAST" = "$EXPECTED" ]; then break; fi; sleep 2; done; printf '%s' "$LAST"; }
+            EXPECTED_PROXY_MEMBERS=$(expected_proxy_members)
+            PROXY_MEMBERS=$(wait_for_proxy_members "$EXPECTED_PROXY_MEMBERS")
+            test "$PROXY_MEMBERS" = "$EXPECTED_PROXY_MEMBERS"
             echo "Portainer image: $($SUDO docker image inspect --format '{{index .RepoDigests 0}}' portainer/portainer-ce:lts 2>/dev/null || echo portainer/portainer-ce:lts)"
             snapshot_non_portainer | $SUDO tee "$SNAPSHOT_AFTER" >/dev/null
             if ! $SUDO cmp -s "$SNAPSHOT_BEFORE" "$SNAPSHOT_AFTER"; then $SUDO diff -u "$SNAPSHOT_BEFORE" "$SNAPSHOT_AFTER" || true; exit 1; fi
