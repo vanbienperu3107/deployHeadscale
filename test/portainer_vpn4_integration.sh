@@ -14,6 +14,7 @@ NGINX="portainer-vpn4-test-nginx-${SUFFIX}"
 DERP="portainer-vpn4-test-derp-${SUFFIX}"
 CADDY="portainer-vpn4-test-caddy-${SUFFIX}"
 PORTAINER_STUB="portainer-vpn4-test-backend-${SUFFIX}"
+GATE_STUB="portainer-vpn4-test-gate-${SUFFIX}"
 TMP="$(mktemp -d)"
 PORTAINER_SNI="portainer.hangocthanh.io.vn"
 # This hostname is intentionally NOT listed in the repository's SNI map, so
@@ -25,7 +26,7 @@ DERP_DEFAULT_SNI="vpn4.hangocthanh.io.vn"
 cleanup() {
   status=$?
   echo "==> Cleanup disposable Docker resources"
-  docker rm -f "$NGINX" "$DERP" "$CADDY" "$PORTAINER_STUB" >/dev/null 2>&1 || true
+  docker rm -f "$NGINX" "$DERP" "$CADDY" "$PORTAINER_STUB" "$GATE_STUB" >/dev/null 2>&1 || true
   docker network rm "$NETWORK" >/dev/null 2>&1 || true
   docker network rm "$PROXY_NETWORK" >/dev/null 2>&1 || true
   rm -rf "$TMP"
@@ -42,6 +43,8 @@ fail() {
   docker logs "$CADDY" 2>&1 || true
   echo "--- DERP stub log ---" >&2
   docker logs "$DERP" 2>&1 || true
+  echo "--- SSO gate stub log ---" >&2
+  docker logs "$GATE_STUB" 2>&1 || true
   exit 1
 }
 
@@ -69,13 +72,20 @@ docker compose --project-name portainer-vpn4 -f "$ROOT/portainer-vpn4/docker-com
 import json
 import sys
 
-service = json.load(sys.stdin)["services"]["portainer"]
-ports = service.get("ports", [])
-assert not ports, f"portainer rendered host ports must be empty: {ports!r}"
-networks = service.get("networks")
-names = networks if isinstance(networks, list) else list(networks or {})
-assert names == ["portainer_proxy"], networks
-print("rendered Portainer service has no host port mappings")
+rendered = json.load(sys.stdin)["services"]
+for name in ("portainer", "oauth2-proxy"):
+    service = rendered[name]
+    ports = service.get("ports", [])
+    assert not ports, f"{name} rendered host ports must be empty: {ports!r}"
+    networks = service.get("networks")
+    names = networks if isinstance(networks, list) else list(networks or {})
+    assert names == ["portainer_proxy"], (name, networks)
+
+gate = " ".join(str(part) for part in rendered["oauth2-proxy"]["command"])
+assert "--provider=google" in gate, gate
+assert "--authenticated-emails-file=" in gate, gate
+assert "/var/run/docker.sock" not in str(rendered["oauth2-proxy"].get("volumes", []))
+print("rendered Portainer stack publishes no host port and gates on Google SSO")
 '
 
 echo "==> [3/7] Binary-validate exact repository Nginx and Caddy configs"
@@ -89,6 +99,7 @@ docker run --rm \
 docker run --rm \
   --add-host cliproxy:127.0.0.1 \
   --add-host portainer:127.0.0.1 \
+  --add-host portainer-oauth2-proxy:127.0.0.1 \
   --add-host opencode-server:127.0.0.1 \
   -v "$ROOT/edge-vpn4/Caddyfile:/etc/caddy/Caddyfile:ro" \
   caddy:2.8-alpine caddy validate --adapter caddyfile --config /etc/caddy/Caddyfile
@@ -115,6 +126,28 @@ cat > "$TMP/portainer.Caddyfile" <<'EOF'
 }
 EOF
 
+# Stub cua oauth2-proxy: /oauth2/auth tra 202 khi co cookie `testauth=1`, con
+# lai 401 — dung giao uoc ma Caddy forward_auth dung o production. Khong goi
+# Google de test chay duoc tren CI va cho ket qua xac dinh.
+cat > "$TMP/gate.Caddyfile" <<'EOF'
+{
+	admin off
+}
+
+:4180 {
+	@authed header_regexp Cookie testauth=1
+	handle /oauth2/auth {
+		respond @authed 202
+		respond 401
+	}
+	handle /oauth2/* {
+		respond "SSO LOGIN PAGE" 200
+	}
+}
+EOF
+
+# MIRROR cau truc that cua site portainer trong edge-vpn4/Caddyfile: handle
+# /oauth2/* truoc, roi route{} co forward_auth dung truoc reverse_proxy.
 cat > "$TMP/caddy-edge.Caddyfile" <<'EOF'
 {
 	admin off
@@ -123,7 +156,25 @@ cat > "$TMP/caddy-edge.Caddyfile" <<'EOF'
 
 https://portainer.hangocthanh.io.vn:8447 {
 	tls internal
-	reverse_proxy portainer:9000
+
+	handle /oauth2/* {
+		reverse_proxy portainer-oauth2-proxy:4180
+	}
+
+	handle {
+		route {
+			forward_auth portainer-oauth2-proxy:4180 {
+				uri /oauth2/auth
+				copy_headers X-Auth-Request-Email X-Auth-Request-User
+				@unauth status 401
+				handle_response @unauth {
+					redir * /oauth2/start?rd={http.request.uri}
+				}
+			}
+
+			reverse_proxy portainer:9000
+		}
+	}
 }
 EOF
 
@@ -140,6 +191,11 @@ docker run -d --name "$PORTAINER_STUB" --network "$PROXY_NETWORK" --network-alia
   --tmpfs /config:rw,noexec,nosuid,size=16m \
   -v "$TMP/portainer.Caddyfile:/etc/caddy/Caddyfile:ro" \
   caddy:2.8-alpine >/dev/null
+docker run -d --name "$GATE_STUB" --network "$PROXY_NETWORK" --network-alias portainer-oauth2-proxy \
+  --tmpfs /data:rw,noexec,nosuid,size=16m \
+  --tmpfs /config:rw,noexec,nosuid,size=16m \
+  -v "$TMP/gate.Caddyfile:/etc/caddy/Caddyfile:ro" \
+  caddy:2.8-alpine >/dev/null
 docker run -d --name "$CADDY" --network "$NETWORK" --network-alias caddy-edge \
   --tmpfs /data:rw,noexec,nosuid,size=16m \
   --tmpfs /config:rw,noexec,nosuid,size=16m \
@@ -147,7 +203,7 @@ docker run -d --name "$CADDY" --network "$NETWORK" --network-alias caddy-edge \
   caddy:2.8-alpine >/dev/null
 docker network connect "$PROXY_NETWORK" "$CADDY"
 PROXY_MEMBERS="$(docker network inspect "$PROXY_NETWORK" --format '{{range .Containers}}{{.Name}} {{end}}' | tr ' ' '\n' | sed '/^$/d; s#^/##' | sort | tr '\n' ' ')"
-EXPECTED_PROXY_MEMBERS="$(printf '%s\n%s\n' "$CADDY" "$PORTAINER_STUB" | sort | tr '\n' ' ')"
+EXPECTED_PROXY_MEMBERS="$(printf '%s\n%s\n%s\n' "$CADDY" "$PORTAINER_STUB" "$GATE_STUB" | sort | tr '\n' ' ')"
 [ "$PROXY_MEMBERS" = "$EXPECTED_PROXY_MEMBERS" ] || fail "private proxy test network members differ: ${PROXY_MEMBERS:-<empty>}"
 
 echo "==> [5/7] Start exact repository Nginx with a random loopback-only port"
@@ -163,23 +219,53 @@ echo "  local test endpoint: 127.0.0.1:$HOST_PORT (not a production address)"
 request() {
   local sni="$1"
   local path="$2"
+  shift 2
   curl --noproxy '*' --silent --show-error --insecure --max-time 5 \
     --resolve "$sni:$HOST_PORT:127.0.0.1" \
+    "$@" \
     "https://$sni:$HOST_PORT$path"
 }
 
-echo "==> [6/7] Exact Portainer SNI must reach the Portainer-compatible backend"
+status_of() {
+  local sni="$1"
+  local path="$2"
+  shift 2
+  curl --noproxy '*' --silent --show-error --insecure --max-time 5 \
+    --resolve "$sni:$HOST_PORT:127.0.0.1" \
+    -o /dev/null -w '%{http_code}' "$@" \
+    "https://$sni:$HOST_PORT$path"
+}
+
+echo "==> [6/7] Portainer must be unreachable without a session, reachable with one"
 ready=0
 for _ in $(seq 1 20); do
-  actual="$(request "$PORTAINER_SNI" /api/status 2>/dev/null || true)"
-  if [ "$actual" = "PORTAINER STUB" ]; then
+  authed="$(request "$PORTAINER_SNI" /api/status -H 'Cookie: testauth=1' 2>/dev/null || true)"
+  if [ "$authed" = "PORTAINER STUB" ]; then
     ready=1
     break
   fi
   sleep 1
 done
-[ "$ready" = 1 ] || fail "exact Portainer SNI did not reach the private Portainer-compatible backend (got ${actual:-<empty>})"
-echo "  $PORTAINER_SNI -> $actual"
+[ "$ready" = 1 ] || fail "an authenticated request did not reach the private Portainer backend (got ${authed:-<empty>})"
+echo "  authenticated: $PORTAINER_SNI -> $authed"
+
+# Bang chung cho lo hong 2026-10-21: request KHONG co phien phai bi chan o cong,
+# khong duoc cham toi Portainer.
+anon_body="$(request "$PORTAINER_SNI" /api/status 2>/dev/null || true)"
+case "$anon_body" in
+  *"PORTAINER STUB"*) fail "unauthenticated request reached Portainer -- the SSO gate is not enforcing" ;;
+esac
+anon_code="$(status_of "$PORTAINER_SNI" /api/status 2>/dev/null || true)"
+[ "$anon_code" = "302" ] || fail "unauthenticated request returned $anon_code, expected a 302 redirect to the gate"
+anon_target="$(curl --noproxy '*' --silent --insecure --max-time 5 \
+  --resolve "$PORTAINER_SNI:$HOST_PORT:127.0.0.1" \
+  -o /dev/null -w '%{redirect_url}' \
+  "https://$PORTAINER_SNI:$HOST_PORT/api/status" 2>/dev/null || true)"
+case "$anon_target" in
+  */oauth2/start*) ;;
+  *) fail "unauthenticated request was not redirected to the login gate: ${anon_target:-<empty>}" ;;
+esac
+echo "  anonymous: $PORTAINER_SNI -> $anon_code $anon_target"
 
 echo "==> [7/7] Default SNI must stay on the DERP stub, never Portainer"
 derp_ready=0

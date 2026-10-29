@@ -27,3 +27,7 @@ __pycache__/
 
 # Local CodeGraph index (derived from source, never commit).
 .codegraph/
+
+# Secret do workflow deploy ghi tren host (oauth2.env, admin-password).
+# KHONG duoc commit: chung la credential that cua control plane Docker.
+portainer-vpn4/secrets/

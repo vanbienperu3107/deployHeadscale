@@ -1,0 +1,9 @@
+# Ai duoc vao trang quan tri Docker cua vpn4 (oauth2-proxy --authenticated-emails-file).
+#
+# Portainer giu /var/run/docker.sock => quyen gan nhu root tren host. Danh sach
+# nay la ranh gioi cuoi cung: moi tai khoan Google khong co o day bi tu choi
+# NGAY TAI COng, truoc khi cham vao Portainer.
+#
+# KHONG dung chung voi oauth2-proxy/emails.txt cua stack vpn2 (/stats, /derp-status):
+# hai dich vu do chi doc so lieu, con day la control plane cua Docker.
+hangocthanh3107@gmail.com

@@ -42,7 +42,7 @@ jobs:
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_KEY }}
           port: ${{ secrets.SSH_PORT || '22' }}
-          envs: DEPLOY_PATH,DEPLOY_REF
+          envs: DEPLOY_PATH,DEPLOY_REF,PORTAINER_OAUTH_CLIENT_ID,PORTAINER_OAUTH_CLIENT_SECRET,PORTAINER_OAUTH_COOKIE_SECRET,PORTAINER_ADMIN_PASSWORD
           script_stop: false
           command_timeout: 20m
           script: |
@@ -67,76 +67,103 @@ jobs:
             $SUDO docker network inspect edge >/dev/null 2>&1 || $SUDO docker network create edge
             $SUDO docker network inspect portainer_proxy >/dev/null 2>&1 || $SUDO docker network create portainer_proxy
             $SUDO docker run --rm -v "$DEPLOY_PATH/edge-vpn4/nginx.conf:/etc/nginx/nginx.conf:ro" nginx:1.27-alpine nginx -t
-            $SUDO docker run --rm --add-host cliproxy:127.0.0.1 --add-host portainer:127.0.0.1 --add-host opencode-server:127.0.0.1 -v "$DEPLOY_PATH/edge-vpn4/Caddyfile:/etc/caddy/Caddyfile:ro" caddy:2.8-alpine caddy validate --adapter caddyfile --config /etc/caddy/Caddyfile
+            $SUDO docker run --rm --add-host cliproxy:127.0.0.1 --add-host portainer:127.0.0.1 --add-host portainer-oauth2-proxy:127.0.0.1 --add-host opencode-server:127.0.0.1 -v "$DEPLOY_PATH/edge-vpn4/Caddyfile:/etc/caddy/Caddyfile:ro" caddy:2.8-alpine caddy validate --adapter caddyfile --config /etc/caddy/Caddyfile
+            test -n "$PORTAINER_OAUTH_CLIENT_ID" && test -n "$PORTAINER_OAUTH_CLIENT_SECRET" && test -n "$PORTAINER_OAUTH_COOKIE_SECRET" && test -n "$PORTAINER_ADMIN_PASSWORD"
+            umask 077
+            mkdir -p "$DEPLOY_PATH/portainer-vpn4/secrets"
+            printf 'OAUTH2_PROXY_CLIENT_ID=%s\n' "$PORTAINER_OAUTH_CLIENT_ID" > "$DEPLOY_PATH/portainer-vpn4/secrets/oauth2.env"
+            printf 'OAUTH2_PROXY_CLIENT_SECRET=%s\n' "$PORTAINER_OAUTH_CLIENT_SECRET" >> "$DEPLOY_PATH/portainer-vpn4/secrets/oauth2.env"
+            printf 'OAUTH2_PROXY_COOKIE_SECRET=%s\n' "$PORTAINER_OAUTH_COOKIE_SECRET" >> "$DEPLOY_PATH/portainer-vpn4/secrets/oauth2.env"
+            printf '%s' "$PORTAINER_ADMIN_PASSWORD" > "$DEPLOY_PATH/portainer-vpn4/secrets/admin-password"
+            chmod 600 "$DEPLOY_PATH/portainer-vpn4/secrets/oauth2.env" "$DEPLOY_PATH/portainer-vpn4/secrets/admin-password"
             $SUDO docker compose --project-name portainer-vpn4 -f "$DEPLOY_PATH/portainer-vpn4/docker-compose.yml" config --quiet
             SNAPSHOT_BEFORE="$TRANSACTION_DIR/non-portainer.before"
             SNAPSHOT_AFTER="$TRANSACTION_DIR/non-portainer.after"
-            snapshot_non_portainer() { $SUDO docker ps --format '{{.Names}}' | while IFS= read -r container; do test "$container" = "portainer" && continue; $SUDO docker inspect -f '{{.Name}}|{{.RestartCount}}|{{.State.StartedAt}}' "$container"; done | sed 's#^/##' | sort; }
+            snapshot_unrelated_workloads() { $SUDO docker ps --format '{{.Names}}' | while IFS= read -r container; do case "$container" in portainer|portainer-oauth2-proxy|caddy-edge|edge-nginx) continue ;; esac; $SUDO docker inspect -f '{{.Name}}|{{.RestartCount}}|{{.State.StartedAt}}' "$container"; done | sed 's#^/##' | sort; }
+            snapshot_non_portainer() { snapshot_unrelated_workloads; }
             snapshot_non_portainer | $SUDO tee "$SNAPSHOT_BEFORE" >/dev/null
-            $SUDO docker compose --project-name portainer-vpn4 -f "$DEPLOY_PATH/portainer-vpn4/docker-compose.yml" pull portainer
+            $SUDO docker compose --project-name portainer-vpn4 -f "$DEPLOY_PATH/portainer-vpn4/docker-compose.yml" pull
             PORTAINER_STARTED=0
             EDGE_CHANGED=0
             PRE_PROXY_MEMBERS=$($SUDO docker network inspect portainer_proxy --format '{{range .Containers}}{{.Name}} {{end}}' | tr ' ' '\n' | sed '/^$/d; s#^/##' | sort | tr '\n' ' ')
             case "$PRE_PROXY_MEMBERS" in
-              ""|"caddy-edge "|"caddy-edge portainer ") ;;
+              ""|"caddy-edge "|"caddy-edge portainer "|"caddy-edge portainer portainer-oauth2-proxy "|"caddy-edge portainer-oauth2-proxy ") ;;
               *) echo "::error::portainer_proxy has an untrusted existing member"; exit 1 ;;
             esac
             $SUDO touch "$TRANSACTION_DIR/portainer-attempted"
-            $SUDO docker compose --project-name portainer-vpn4 -f "$DEPLOY_PATH/portainer-vpn4/docker-compose.yml" up -d --remove-orphans portainer
+            $SUDO docker compose --project-name portainer-vpn4 -f "$DEPLOY_PATH/portainer-vpn4/docker-compose.yml" up -d --remove-orphans
             PORTAINER_STARTED=1
             PORTAINER_RUNNING=0
             for _ in $(seq 1 30); do if [ "$($SUDO docker inspect -f '{{.State.Running}}' portainer 2>/dev/null || true)" = "true" ]; then PORTAINER_RUNNING=1; break; fi; sleep 2; done
             test "$PORTAINER_RUNNING" = "1"
+            GATE_RUNNING=0
+            for _ in $(seq 1 30); do if [ "$($SUDO docker inspect -f '{{.State.Running}}' portainer-oauth2-proxy 2>/dev/null || true)" = "true" ]; then GATE_RUNNING=1; break; fi; sleep 2; done
+            test "$GATE_RUNNING" = "1"
             $SUDO touch "$TRANSACTION_DIR/caddy-change-attempted"
             $SUDO docker compose -f "$DEPLOY_PATH/edge-vpn4/docker-compose.yml" up -d --force-recreate --no-deps caddy-edge
             $SUDO touch "$TRANSACTION_DIR/nginx-change-attempted"
             $SUDO docker compose -f "$DEPLOY_PATH/edge-vpn4/docker-compose.yml" up -d --force-recreate --no-deps nginx
             DERP_CODE=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 https://vpn4.hangocthanh.io.vn/derp/probe || true)
             test "$DERP_CODE" = "200"
-            STATUS_BODY=$(mktemp)
             STATUS_CODE=000
-            for _ in $(seq 1 30); do STATUS_CODE=$(curl -sS -o "$STATUS_BODY" -w '%{http_code}' --max-time 20 https://portainer.hangocthanh.io.vn/api/status || true); if [ "$STATUS_CODE" = "200" ] && test -s "$STATUS_BODY"; then break; fi; sleep 5; done
-            test "$STATUS_CODE" = "200"
-            test -s "$STATUS_BODY"
+            for _ in $(seq 1 30); do STATUS_CODE=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 https://portainer.hangocthanh.io.vn/api/status || true); if [ "$STATUS_CODE" = "302" ]; then break; fi; sleep 5; done
+            test "$STATUS_CODE" = "302"
+            LOGIN_LOCATION=$(curl -sS -o /dev/null -w '%{redirect_url}' --max-time 20 https://portainer.hangocthanh.io.vn/api/status || true)
+            case "$LOGIN_LOCATION" in
+              */oauth2/start*) ;;
+              *) echo "::error::unauthenticated traffic was not redirected to the SSO gate"; exit 1 ;;
+            esac
             LISTENERS="$TRANSACTION_DIR/listeners"
             $SUDO ss -ltn | $SUDO tee "$LISTENERS" >/dev/null
             if $SUDO grep -Eq ':(8000|9000|9443)\b' "$LISTENERS"; then exit 1; fi
             test "$($SUDO docker inspect -f '{{json .HostConfig.PortBindings}}' portainer)" = "null"
+            test "$($SUDO docker inspect -f '{{json .HostConfig.PortBindings}}' portainer-oauth2-proxy)" = "null"
             PORTAINER_NETWORKS=$($SUDO docker inspect -f '{{range $name, $_ := .NetworkSettings.Networks}}{{$name}} {{end}}' portainer)
             test "$PORTAINER_NETWORKS" = "portainer_proxy "
+            GATE_NETWORKS=$($SUDO docker inspect -f '{{range $name, $_ := .NetworkSettings.Networks}}{{$name}} {{end}}' portainer-oauth2-proxy)
+            test "$GATE_NETWORKS" = "portainer_proxy "
             PROXY_MEMBERS=$($SUDO docker network inspect portainer_proxy --format '{{range .Containers}}{{.Name}} {{end}}' | tr ' ' '\n' | sed '/^$/d; s#^/##' | sort | tr '\n' ' ')
-            test "$PROXY_MEMBERS" = "caddy-edge portainer "
+            test "$PROXY_MEMBERS" = "caddy-edge portainer portainer-oauth2-proxy "
             echo "Portainer image: $($SUDO docker image inspect --format '{{index .RepoDigests 0}}' portainer/portainer-ce:lts 2>/dev/null || echo portainer/portainer-ce:lts)"
             snapshot_non_portainer | $SUDO tee "$SNAPSHOT_AFTER" >/dev/null
             if ! $SUDO cmp -s "$SNAPSHOT_BEFORE" "$SNAPSHOT_AFTER"; then $SUDO diff -u "$SNAPSHOT_BEFORE" "$SNAPSHOT_AFTER" || true; exit 1; fi
         env:
           DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
           DEPLOY_REF: ${{ github.ref_name }}
+          PORTAINER_OAUTH_CLIENT_ID: ${{ secrets.PORTAINER_OAUTH_CLIENT_ID }}
+          PORTAINER_OAUTH_CLIENT_SECRET: ${{ secrets.PORTAINER_OAUTH_CLIENT_SECRET }}
+          PORTAINER_OAUTH_COOKIE_SECRET: ${{ secrets.PORTAINER_OAUTH_COOKIE_SECRET }}
+          PORTAINER_ADMIN_PASSWORD: ${{ secrets.PORTAINER_ADMIN_PASSWORD }}
 
       - name: Verify public TLS, authentication boundaries, and DERP externally
         run: |
-          STATUS_BODY=$(mktemp)
-          STATUS_CODE=$(curl -sS -o "$STATUS_BODY" -w '%{http_code}' --max-time 30 https://portainer.hangocthanh.io.vn/api/status || true)
-          if [ "$STATUS_CODE" != "200" ] || ! test -s "$STATUS_BODY"; then
-            echo "::error::Portainer public TLS readiness endpoint failed"
-            exit 1
+          set +e
+          # curl thoat != 0 trong nhieu truong hop hop le (TLS alert, redirect
+          # chain). Tat errexit roi kiem tra tung ma mot cach tuong minh.
+          STATUS_CODE=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 https://portainer.hangocthanh.io.vn/api/status)
+          REDIRECT_TO=$(curl -sS -o /dev/null -w '%{redirect_url}' --max-time 30 https://portainer.hangocthanh.io.vn/api/status)
+          DERP_CODE=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 https://vpn4.hangocthanh.io.vn/derp/probe)
+          CLIPROXY_CODE=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 https://cliproxy.hangocthanh.io.vn/v1/models)
+          OPENCODE_CODE=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 https://opencode.hangocthanh.io.vn/global/health)
+          echo "portainer=$STATUS_CODE derp=$DERP_CODE cliproxy=$CLIPROXY_CODE opencode=$OPENCODE_CODE"
+          FAILED=0
+          # 302 toi /oauth2/start la BANG CHUNG cong SSO dang chan. Neu Portainer
+          # tra 200 truc tiep thi lop bao ve da bien mat -> fail deploy.
+          if [ "$STATUS_CODE" != "302" ]; then
+            echo "::error::Portainer answered $STATUS_CODE without SSO; expected a 302 to the login gate"
+            FAILED=1
           fi
-          DERP_CODE=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 https://vpn4.hangocthanh.io.vn/derp/probe || true)
-          if [ "$DERP_CODE" != "200" ]; then
-            echo "::error::DERP public probe failed"
-            exit 1
-          fi
-          CLIPROXY_CODE=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 https://cliproxy.hangocthanh.io.vn/v1/models || true)
+          case "$REDIRECT_TO" in
+            */oauth2/start*) ;;
+            *) echo "::error::unauthenticated request was not sent to the SSO gate: $REDIRECT_TO"; FAILED=1 ;;
+          esac
+          test "$DERP_CODE" = "200" || { echo "::error::DERP public probe failed: $DERP_CODE"; FAILED=1; }
           case "$CLIPROXY_CODE" in
             401|403) ;;
-            *) echo "::error::CLIProxy authentication route regressed"; exit 1 ;;
+            *) echo "::error::CLIProxy authentication route regressed: $CLIPROXY_CODE"; FAILED=1 ;;
           esac
-          OPENCODE_CODE=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 https://opencode.hangocthanh.io.vn/global/health || true)
-          if [ "$OPENCODE_CODE" != "401" ]; then
-            echo "::error::OpenCode did not enforce unauthenticated HTTP 401"
-            exit 1
-          fi
-          rm -f "$STATUS_BODY"
+          test "$OPENCODE_CODE" = "401" || { echo "::error::OpenCode did not enforce 401: $OPENCODE_CODE"; FAILED=1; }
+          exit "$FAILED"
 
       - name: Collect Portainer failure diagnostics before rollback
         if: failure()
@@ -162,7 +189,11 @@ jobs:
             echo "==> Nginx log (100 lines)"
             $SUDO docker logs --tail 100 edge-nginx
             echo "==> Portainer log (100 lines)"
-            $SUDO docker logs --tail 100 portainer
+            $SUDO docker logs --tail 100 portainer 2>&1 | sed -E '/setup_token=|Paste it into the setup screen/d'
+            echo "==> SSO gate log (60 lines)"
+            $SUDO docker logs --tail 60 portainer-oauth2-proxy 2>&1 | sed -E 's/(client_secret|cookie-secret)=[^ ]*/\1=REDACTED/g'
+        env:
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
 
       - name: Rollback transaction if deployment or external verification failed
         if: failure()
@@ -178,6 +209,7 @@ jobs:
           script: |
             set +e
             SUDO="sudo -n"
+            test -n "$DEPLOY_PATH" || { echo "::error::DEPLOY_PATH is empty; refusing to skip rollback"; exit 1; }
             TRANSACTION_DIR="$DEPLOY_PATH/.portainer-deploy-transaction"
             TRANSACTION_MARKER="$TRANSACTION_DIR/pending"
             ROLLBACK_FAILED=0
@@ -199,6 +231,8 @@ jobs:
             rollback_run git reset --hard "$OLD_SHA"
             test "$ROLLBACK_FAILED" = "0" && $SUDO rm -rf "$TRANSACTION_DIR"
             test "$ROLLBACK_FAILED" = "0" || exit 1
+        env:
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
 
       - name: Commit successful transaction cleanup
         if: success()
@@ -214,6 +248,9 @@ jobs:
           script: |
             set -euo pipefail
             SUDO="sudo -n"
+            test -n "$DEPLOY_PATH"
             TRANSACTION_DIR="$DEPLOY_PATH/.portainer-deploy-transaction"
             test -d "$TRANSACTION_DIR" || exit 0
             $SUDO rm -rf "$TRANSACTION_DIR"
+        env:
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}

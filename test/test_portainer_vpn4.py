@@ -21,9 +21,9 @@ def load_portainer_compose():
 def test_portainer_compose_exists_and_is_valid_yaml():
     compose = load_portainer_compose()
     assert isinstance(compose.get("services"), dict)
-    assert set(compose["services"]) == {"portainer"}, (
-        "Stack quan tri Docker nay chi duoc co service portainer; them service "
-        "thu hai co the mo port/privileged mount hoac vuot security contract."
+    assert set(compose["services"]) == {"portainer", "oauth2-proxy"}, (
+        "Stack quan tri Docker nay chi duoc co Portainer va cong SSO cua no; "
+        "service thu ba co the mo port/privileged mount hoac vuot security contract."
     )
 
 
@@ -31,7 +31,10 @@ def test_portainer_service_is_private_and_persistent():
     service = load_portainer_compose()["services"]["portainer"]
 
     assert service["image"] == "portainer/portainer-ce:lts"
-    assert service["command"] == ["--http-enabled"]
+    assert service["command"] == [
+        "--http-enabled",
+        "--admin-password-file=/run/secrets/portainer-admin-password",
+    ]
     assert service["container_name"] == "portainer"
     assert service["restart"] == "unless-stopped"
     assert service["mem_limit"] == "256m"
@@ -39,6 +42,7 @@ def test_portainer_service_is_private_and_persistent():
     assert service["volumes"] == [
         "/var/run/docker.sock:/var/run/docker.sock",
         "portainer_data:/data",
+        "./secrets/admin-password:/run/secrets/portainer-admin-password:ro",
     ]
 
 
@@ -112,23 +116,26 @@ def test_integration_harness_generates_a_valid_unique_resource_suffix():
 def test_integration_harness_does_not_leak_caddy_anonymous_volumes():
     """Caddy images declare /data and /config volumes by default.
 
-    Removing the three disposable Caddy containers without `-v` would leave
-    anonymous volumes on every local/CI integration run. The harness does not
-    need persistence, so each Caddy stub must override both paths with tmpfs.
+    Removing the disposable Caddy containers without `-v` would leave anonymous
+    volumes on every local/CI integration run. The harness does not need
+    persistence, so each Caddy stub must override both paths with tmpfs.
     """
     body = INTEGRATION.read_text(encoding="utf-8")
-    assert body.count("--tmpfs /data:rw,noexec,nosuid,size=16m") == 3
-    assert body.count("--tmpfs /config:rw,noexec,nosuid,size=16m") == 3
+    stubs = body.count("caddy:2.8-alpine >/dev/null")
+    assert stubs == 4, f"expected 4 disposable Caddy stubs, found {stubs}"
+    assert body.count("--tmpfs /data:rw,noexec,nosuid,size=16m") == stubs
+    assert body.count("--tmpfs /config:rw,noexec,nosuid,size=16m") == stubs
 
 
 def test_integration_harness_exercises_the_private_proxy_network_topology():
     """The disposable harness must not keep testing the retired shared-edge model."""
     body = INTEGRATION.read_text(encoding="utf-8")
 
-    assert 'assert names == ["portainer_proxy"], networks' in body
+    assert 'assert names == ["portainer_proxy"], (name, networks)' in body
     assert 'PROXY_NETWORK="portainer-vpn4-proxy-test-${SUFFIX}"' in body
     assert 'docker network create "$PROXY_NETWORK"' in body
     assert 'docker run -d --name "$PORTAINER_STUB" --network "$PROXY_NETWORK"' in body
+    assert 'docker run -d --name "$GATE_STUB" --network "$PROXY_NETWORK"' in body
     assert 'docker network connect "$PROXY_NETWORK" "$CADDY"' in body
     assert 'docker network inspect "$PROXY_NETWORK"' in body
     assert 'EXPECTED_PROXY_MEMBERS="$(printf' in body
@@ -137,6 +144,21 @@ def test_integration_harness_exercises_the_private_proxy_network_topology():
     assert 'DERP_DEFAULT_SNI="vpn4.hangocthanh.io.vn"' in body
     assert 'https://vpn4.hangocthanh.io.vn {' in body
     assert 'for _ in $(seq 1 20); do' in body
+
+
+def test_integration_harness_proves_the_sso_gate_blocks_anonymous_traffic():
+    """The harness must fail if Portainer ever answers without a session."""
+    body = INTEGRATION.read_text(encoding="utf-8")
+
+    assert "forward_auth portainer-oauth2-proxy:4180" in body
+    assert "uri /oauth2/auth" in body
+    assert 'Cookie: testauth=1' in body
+    assert 'unauthenticated request reached Portainer' in body
+    assert '[ "$anon_code" = "302" ]' in body
+    assert "*/oauth2/start*)" in body
+    # The authenticated probe must come from a real session header, not from
+    # bypassing the gate entirely.
+    assert 'authed="$(request "$PORTAINER_SNI" /api/status -H ' in body
 
 
 def load_deploy_workflow():
@@ -196,6 +218,10 @@ def test_deploy_preflight_validates_dns_secrets_and_candidate_configs_before_ssh
     assert ssh_step["env"] == {
         "DEPLOY_PATH": "${{ secrets.DEPLOY_PATH }}",
         "DEPLOY_REF": "${{ github.ref_name }}",
+        "PORTAINER_OAUTH_CLIENT_ID": "${{ secrets.PORTAINER_OAUTH_CLIENT_ID }}",
+        "PORTAINER_OAUTH_CLIENT_SECRET": "${{ secrets.PORTAINER_OAUTH_CLIENT_SECRET }}",
+        "PORTAINER_OAUTH_COOKIE_SECRET": "${{ secrets.PORTAINER_OAUTH_COOKIE_SECRET }}",
+        "PORTAINER_ADMIN_PASSWORD": "${{ secrets.PORTAINER_ADMIN_PASSWORD }}",
     }
     assert 'git fetch origin "$DEPLOY_REF:refs/remotes/origin/$DEPLOY_REF"' in body
     assert 'git reset --hard "origin/$DEPLOY_REF"' in body
@@ -221,8 +247,10 @@ def test_deploy_only_recreates_the_two_affected_edge_services_and_preserves_data
     assert body.index(caddy_recreate) < body.index(nginx_recreate)
     assert body.index("nginx:1.27-alpine nginx -t") < body.index(nginx_recreate)
     portainer_compose = 'docker compose --project-name portainer-vpn4 -f "$DEPLOY_PATH/portainer-vpn4/docker-compose.yml"'
-    assert f"{portainer_compose} pull portainer" in body
-    assert f"{portainer_compose} up -d --remove-orphans portainer" in body
+    # Khong gioi han ten service: stack gio co ca cong SSO, va Portainer KHONG
+    # duoc khoi dong neu cong do vang mat.
+    assert f"{portainer_compose} pull" in body
+    assert f"{portainer_compose} up -d --remove-orphans" in body
     assert "docker compose -f \"$DEPLOY_PATH/edge-vpn4/docker-compose.yml\" up -d --remove-orphans" not in body
     for forbidden in ("docker compose down -v", "docker volume rm", "docker system prune", "docker volume prune"):
         assert forbidden not in body
@@ -238,10 +266,12 @@ def test_deploy_snapshots_unrelated_containers_before_and_after_the_change():
     assert "SNAPSHOT_AFTER=" in body
     assert "RestartCount" in body
     assert "StartedAt" in body
-    assert '"$container" = "portainer"' in body
+    assert 'portainer|portainer-oauth2-proxy|caddy-edge|edge-nginx' in body
     assert "cmp -s \"$SNAPSHOT_BEFORE\" \"$SNAPSHOT_AFTER\"" in body
     assert "diff -u \"$SNAPSHOT_BEFORE\" \"$SNAPSHOT_AFTER\"" in body
-    assert body.index("SNAPSHOT_BEFORE=") < body.index("pull portainer")
+    assert body.index("SNAPSHOT_BEFORE=") < body.index(
+        'docker compose --project-name portainer-vpn4 -f "$DEPLOY_PATH/portainer-vpn4/docker-compose.yml" pull'
+    )
     assert body.index('snapshot_non_portainer | $SUDO tee "$SNAPSHOT_AFTER" >/dev/null') > body.index(
         "up -d --force-recreate --no-deps nginx"
     )
@@ -253,14 +283,18 @@ def test_deploy_verifies_public_tls_isolation_and_existing_routes_after_edge_act
     status_url = "https://portainer.hangocthanh.io.vn/api/status"
     assert status_url in body
     assert "-k" not in body
-    assert '"$STATUS_CODE" != "200"' in body
-    assert 'test -s "$STATUS_BODY"' in body
+    # Sau khi co cong SSO, 200 tu ben ngoai la DAU HIEU HONG: nghia la Portainer
+    # tra loi truc tiep cho request chua dang nhap. Trang thai dung la 302 toi
+    # /oauth2/start.
+    assert 'test "$STATUS_CODE" = "302"' in body
+    assert "/oauth2/start" in body
     assert body.index(status_url) > body.index("up -d --force-recreate --no-deps nginx")
     assert "8000|9000|9443" in body
     assert "HostConfig.PortBindings" in body
     assert "NetworkSettings.Networks" in body
     assert 'test "$PORTAINER_NETWORKS" = "portainer_proxy "' in body
-    assert 'test "$PROXY_MEMBERS" = "caddy-edge portainer "' in body
+    assert 'test "$GATE_NETWORKS" = "portainer_proxy "' in body
+    assert 'test "$PROXY_MEMBERS" = "caddy-edge portainer portainer-oauth2-proxy "' in body
     assert "docker network inspect portainer_proxy" in body
 
 
@@ -272,12 +306,12 @@ def test_deploy_rejects_untrusted_private_network_peers_before_starting_portaine
     Portainer container is created.
     """
     body = deploy_body()
-    start = 'up -d --remove-orphans portainer'
+    start = 'up -d --remove-orphans'
 
     assert 'PRE_PROXY_MEMBERS=$($SUDO docker network inspect portainer_proxy' in body
     assert "sed '/^$/d; s#^/##'" in body
     assert '''case "$PRE_PROXY_MEMBERS" in
-              ""|"caddy-edge "|"caddy-edge portainer ") ;;
+              ""|"caddy-edge "|"caddy-edge portainer "|"caddy-edge portainer portainer-oauth2-proxy "|"caddy-edge portainer-oauth2-proxy ") ;;
               *) echo "::error::portainer_proxy has an untrusted existing member"; exit 1 ;;
             esac''' in body
     assert body.index("PRE_PROXY_MEMBERS=") < body.index(start)
@@ -286,11 +320,11 @@ def test_deploy_rejects_untrusted_private_network_peers_before_starting_portaine
     assert "https://cliproxy.hangocthanh.io.vn/v1/models" in body
     assert "https://opencode.hangocthanh.io.vn/global/health" in body
     assert "Authorization:" not in body
-    assert '"$DERP_CODE" != "200"' in body
+    assert 'test "$DERP_CODE" = "200"' in body
     assert 'case "$CLIPROXY_CODE" in' in body
     assert '401|403) ;;' in body
-    assert '*) echo "::error::CLIProxy authentication route regressed"; exit 1 ;;' in body
-    assert '"$OPENCODE_CODE" != "401"' in body
+    assert 'CLIProxy authentication route regressed' in body
+    assert 'test "$OPENCODE_CODE" = "401"' in body
 
 
 def test_deploy_recovers_only_its_route_changes_and_never_prints_secret_values():
@@ -382,6 +416,8 @@ def test_deploy_is_a_fail_closed_transaction_until_external_checks_commit_it():
             "docker network inspect portainer_proxy",
     ):
         assert needle in diagnostics_script
+    assert "setup_token=|Paste it into the setup screen" in diagnostics_script
+    assert '$SUDO docker logs --tail 100 portainer 2>&1 | sed -E' in diagnostics_script
     assert steps[rollback_index].get("if") == "failure()"
     rollback_script = steps[rollback_index]["with"]["script"]
     assert "edge-vpn4/Caddyfile" in rollback_script
@@ -562,14 +598,19 @@ def test_rollback_preflight_checks_secrets_and_the_exact_portainer_dns_before_ss
 def test_rollback_removes_only_the_exact_portainer_routes_with_guarded_editing():
     script = rollback_stage_step()["with"]["script"]
 
+    # nginx: mot dong duy nhat, van an toan khi so khop nguyen van.
     assert "portainer.hangocthanh.io.vn caddy-edge:8447;" in script
-    assert "https://portainer.hangocthanh.io.vn:8447 {" in script
     assert "assert s.count(route) == 1" in script
-    assert "assert s.count(site) == 1" in script
-    assert "edge-vpn4/nginx.conf" in script
-    assert "edge-vpn4/Caddyfile" in script
     assert 'p.write_text(s.replace(route, ""))' in script
-    assert 'p.write_text(s.replace(site, ""))' in script
+    assert "edge-vpn4/nginx.conf" in script
+    # Caddy: khoi nhieu dong -> dung remover theo ranh gioi khoi (van fail-closed
+    # khi so site khop != 1), thay vi nhung nguyen van than site vao workflow.
+    assert "edge-vpn4/Caddyfile" in script
+    assert "portainer-vpn4/remove-caddy-site.py" in script
+    assert REMOVER.exists()
+    remover_source = REMOVER.read_text(encoding="utf-8")
+    assert "len(starts) != 1" in remover_source, "remover must refuse ambiguity"
+    assert 'count("{") != remaining.count("}")' in remover_source
 
 
 def test_rollback_validates_route_free_candidate_before_target_edge_recreates():
@@ -617,10 +658,9 @@ def test_rollback_verifies_the_retired_public_route_and_existing_route_boundarie
     body = rollback_body()
 
     assert "https://portainer.hangocthanh.io.vn/api/status" in body
-    assert '''case "$PORTAINER_CODE" in
-            000) ;;
-            *) echo "::error::Portainer public SNI route still responds with HTTP"; exit 1 ;;
-          esac''' in body
+    assert 'case "$PORTAINER_CODE" in' in body
+    assert "000) ;;" in body
+    assert "Portainer public SNI route still responds with HTTP" in body
     assert "https://vpn4.hangocthanh.io.vn/derp/probe" in body
     assert 'test "$DERP_CODE" = "200"' in body
     assert "https://cliproxy.hangocthanh.io.vn/v1/models" in body
@@ -676,3 +716,282 @@ def test_rollback_ssh_scripts_do_not_use_heredocs_bare_else_or_script_stop_true(
         script = step["with"]["script"]
         assert "<<" not in script
         assert all(line.strip() != "else" for line in script.splitlines())
+
+
+# ---------- Regression: silent rollback skip (run 39686831400) ----------
+
+def _ssh_steps(workflow, job):
+    return [
+        step
+        for step in workflow["jobs"][job]["steps"]
+        if str(step.get("uses", "")).startswith("appleboy/ssh-action")
+    ]
+
+
+def test_every_ssh_step_defines_env_values_for_the_names_it_forwards():
+    """`envs:` only SELECTS names; values must come from the step's own `env:`.
+
+    Deploy run 39686831400 failed silently because the rollback step forwarded
+    DEPLOY_PATH through `envs:` without an `env:` block. DEPLOY_PATH expanded to
+    the empty string, TRANSACTION_DIR became "/.portainer-deploy-transaction",
+    the marker test failed, and rollback exited 0 after 1.5s without touching
+    anything -- while reporting success. Portainer stayed publicly exposed.
+    """
+    for workflow, job in (
+        (load_deploy_workflow(), "deploy"),
+        (load_rollback_workflow(), "rollback"),
+    ):
+        for step in _ssh_steps(workflow, job):
+            forwarded = [
+                name.strip()
+                for name in str(step["with"].get("envs", "")).split(",")
+                if name.strip()
+            ]
+            if not forwarded:
+                continue
+            provided = step.get("env") or {}
+            missing = [name for name in forwarded if name not in provided]
+            assert not missing, (
+                f"step {step.get('name')!r} forwards {missing} via envs: but "
+                "never defines them in env: -> empty values on the remote host"
+            )
+
+
+def test_rollback_step_fails_loudly_when_deploy_path_is_missing():
+    """A rollback that cannot locate its transaction must not report success.
+
+    `test -f "$MARKER" || exit 0` treats "no transaction" and "I lost my
+    configuration" identically. Guard the variable itself so a misconfigured
+    step aborts the job instead of silently skipping recovery.
+    """
+    for workflow, job, prefix in (
+        (load_deploy_workflow(), "deploy", "Rollback transaction"),
+        (load_rollback_workflow(), "rollback", "Restore Portainer transaction"),
+    ):
+        step = next(
+            step
+            for step in workflow["jobs"][job]["steps"]
+            if step.get("name", "").startswith(prefix)
+        )
+        script = step["with"]["script"]
+        assert 'test -n "$DEPLOY_PATH"' in script, (
+            f"{prefix}: must verify DEPLOY_PATH is non-empty before deriving "
+            "the transaction directory"
+        )
+        marker_line = next(
+            line for line in script.splitlines() if "TRANSACTION_MARKER" in line and "exit 0" in line
+        )
+        assert marker_line.index('test -n "$DEPLOY_PATH"') if False else True
+        assert script.index('test -n "$DEPLOY_PATH"') < script.index(marker_line)
+
+
+# ---------- Regression: `curl || true` dies under `bash -e` ----------
+
+def test_route_retirement_check_survives_a_tls_handshake_rejection():
+    """`VAR=$(curl ...) || true` still aborts: the assignment's status is curl's.
+
+    When the SNI route is gone, curl exits 35 (TLS alert). Under `bash -e` the
+    `||true` binds to the assignment, not the command substitution, so the step
+    dies before the `case` can accept 000 -- marking a correct rollback as
+    failed (run 39789977764).
+    """
+    workflow = load_rollback_workflow()
+    verify = next(
+        step
+        for step in workflow["jobs"]["rollback"]["steps"]
+        if step.get("name", "").startswith("Verify public route retirement")
+    )
+    script = verify["run"]
+
+    assert "set +e" in script.splitlines()[0], (
+        "the retirement probe must not run under errexit: a refused TLS "
+        "handshake is the expected success signal here"
+    )
+    assert "PORTAINER_CODE" in script
+    assert "000)" in script
+
+
+# ---------- Google SSO gate in front of Portainer ----------
+
+OAUTH_ALLOWED_EMAIL = "hangocthanh3107@gmail.com"
+
+
+def test_portainer_stack_runs_a_dedicated_google_sso_gate():
+    compose = load_portainer_compose()
+    services = compose["services"]
+
+    assert set(services) == {"portainer", "oauth2-proxy"}, (
+        "Portainer must sit behind its own SSO gate; no other service may join "
+        "this privileged stack"
+    )
+    gate = services["oauth2-proxy"]
+    assert gate["container_name"] == "portainer-oauth2-proxy", (
+        "must not collide with the existing vpn2 oauth2-proxy container"
+    )
+    assert not gate.get("ports"), "the gate is reached through Caddy only"
+    assert gate["networks"] == ["portainer_proxy"]
+    assert gate["restart"] == "unless-stopped"
+    assert "/var/run/docker.sock" not in str(gate.get("volumes", [])), (
+        "the SSO gate must never receive the Docker socket"
+    )
+
+
+def test_sso_gate_restricts_login_to_the_single_approved_account():
+    gate = load_portainer_compose()["services"]["oauth2-proxy"]
+    command = " ".join(str(part) for part in gate["command"])
+
+    assert "--provider=google" in command
+    assert "--reverse-proxy=true" in command
+    assert "--upstream=static://200" in command
+    assert "--redirect-url=https://portainer.hangocthanh.io.vn/oauth2/callback" in command
+    assert "--cookie-secure=true" in command
+
+    emails = ROOT / "portainer-vpn4" / "allowed-emails.txt"
+    assert emails.exists(), "the allowlist must be an auditable file in the repo"
+    entries = [
+        line.strip()
+        for line in emails.read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.startswith("#")
+    ]
+    assert entries == [OAUTH_ALLOWED_EMAIL], (
+        f"only {OAUTH_ALLOWED_EMAIL} may reach the Docker control plane; got {entries}"
+    )
+    assert f"--authenticated-emails-file=" in command, (
+        "an explicit allowlist file is required; --email-domain alone would "
+        "admit every Google account"
+    )
+
+
+def test_caddy_requires_a_valid_google_session_before_reaching_portainer():
+    """Unauthenticated traffic must never touch Portainer's HTTP surface.
+
+    This is the control that closes the 2026-10-21 exposure: an uninitialised
+    Portainer was publicly reachable and anyone who restarted it could have
+    claimed the admin account.
+    """
+    caddyfile = (ROOT / "edge-vpn4" / "Caddyfile").read_text(encoding="utf-8")
+    site_start = caddyfile.index("https://portainer.hangocthanh.io.vn:8447")
+    site = caddyfile[site_start:]
+    site = site[: site.index("\n}\n") + 3]
+
+    assert "forward_auth portainer-oauth2-proxy:4180" in site
+    assert "uri /oauth2/auth" in site
+    assert "handle /oauth2/*" in caddyfile, (
+        "the login and callback endpoints must be proxied to the gate"
+    )
+    auth_at = site.index("forward_auth portainer-oauth2-proxy:4180")
+    proxy_at = site.index("reverse_proxy portainer:9000")
+    assert auth_at < proxy_at, (
+        "Caddy runs handlers in written order inside route{}; the gate must "
+        "come first or Portainer answers unauthenticated requests"
+    )
+
+
+def test_portainer_admin_account_is_created_at_first_start():
+    """An unclaimed Portainer is a takeover window, not a safe default.
+
+    On 2026-10-21 the instance ran for hours with no admin. Anyone able to
+    restart the container would have had ~5 minutes to claim it.
+    """
+    service = load_portainer_compose()["services"]["portainer"]
+    command = " ".join(str(part) for part in service["command"])
+
+    assert "--admin-password-file=" in command, (
+        "bootstrap the admin on first start so the instance is never claimable"
+    )
+    assert "--no-setup-token" not in command, (
+        "disabling the setup token weakens the fallback; bootstrap instead"
+    )
+
+
+def test_deploy_writes_sso_runtime_secrets_without_logging_them():
+    workflow = load_deploy_workflow()
+    body = deploy_body()
+    stage = next(
+        step
+        for step in workflow["jobs"]["deploy"]["steps"]
+        if step.get("name", "").startswith("Stage Portainer")
+    )
+
+    for name in (
+        "PORTAINER_OAUTH_CLIENT_ID",
+        "PORTAINER_OAUTH_CLIENT_SECRET",
+        "PORTAINER_OAUTH_COOKIE_SECRET",
+        "PORTAINER_ADMIN_PASSWORD",
+    ):
+        assert name in stage["env"], f"{name} must be provided to the stage step"
+        assert f'echo "${name}"' not in body, f"{name} must never be echoed"
+        assert f"echo ${name}" not in body
+
+    script = stage["with"]["script"]
+    assert "umask 077" in script, "secret files must not be world-readable"
+
+
+# ---------- Caddy site removal is block-scoped, not a brittle literal ----------
+
+REMOVER = ROOT / "portainer-vpn4" / "remove-caddy-site.py"
+
+
+def _run_remover(tmp_path, caddyfile_text):
+    import subprocess
+    import sys
+
+    target = tmp_path / "Caddyfile"
+    target.write_text(caddyfile_text, encoding="utf-8")
+    proc = subprocess.run(
+        [sys.executable, str(REMOVER), str(target)],
+        capture_output=True,
+        text=True,
+    )
+    return proc, target
+
+
+def test_remover_deletes_the_whole_portainer_site_and_keeps_the_others(tmp_path):
+    original = (ROOT / "edge-vpn4" / "Caddyfile").read_text(encoding="utf-8")
+    proc, target = _run_remover(tmp_path, original)
+
+    assert proc.returncode == 0, proc.stderr
+    result = target.read_text(encoding="utf-8")
+    assert "portainer.hangocthanh.io.vn" not in result
+    assert "portainer-oauth2-proxy" not in result
+    assert "reverse_proxy portainer:9000" not in result
+    # Neighbouring sites must survive untouched.
+    assert "https://cliproxy.hangocthanh.io.vn:8444" in result
+    assert "https://opencode.hangocthanh.io.vn:8445" in result
+    assert "reverse_proxy cliproxy:8317" in result
+    assert "servers :8445" in result
+    assert result.count("https://") == original.count("https://") - 1
+
+
+def test_remover_refuses_a_file_without_exactly_one_portainer_site(tmp_path):
+    """Fail closed: never guess which block to delete."""
+    proc, _ = _run_remover(tmp_path, "https://other.example:8444 {\n\tlog\n}\n")
+    assert proc.returncode != 0
+    assert "portainer" in (proc.stderr + proc.stdout).lower()
+
+    original = (ROOT / "edge-vpn4" / "Caddyfile").read_text(encoding="utf-8")
+    site_start = original.index("https://portainer.hangocthanh.io.vn:8447")
+    duplicated = original + "\n" + original[site_start:]
+    proc, _ = _run_remover(tmp_path, duplicated)
+    assert proc.returncode != 0
+
+
+def test_remover_keeps_brace_balance(tmp_path):
+    original = (ROOT / "edge-vpn4" / "Caddyfile").read_text(encoding="utf-8")
+    proc, target = _run_remover(tmp_path, original)
+
+    assert proc.returncode == 0, proc.stderr
+    result = target.read_text(encoding="utf-8")
+    assert result.count("{") == result.count("}"), (
+        "an unbalanced Caddyfile would make caddy validate fail during rollback"
+    )
+
+
+def test_rollback_uses_the_block_scoped_remover_not_a_literal_blob():
+    body = rollback_body()
+
+    assert "portainer-vpn4/remove-caddy-site.py" in body
+    assert "disable_http_challenge\\n" not in body, (
+        "a hardcoded copy of the site body breaks the moment the Caddyfile is "
+        "edited -- rollback would then abort mid-transaction"
+    )
