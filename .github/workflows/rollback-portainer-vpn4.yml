@@ -80,8 +80,8 @@ jobs:
             $SUDO touch "$TRANSACTION_DIR/nginx-change-attempted"
             $SUDO docker compose -f "$DEPLOY_PATH/edge-vpn4/docker-compose.yml" up -d --force-recreate --no-deps nginx
             probe_code() { set +e; curl -sS -o /dev/null -w '%{http_code}' --max-time 20 "$1"; set -e; }
-            DERP_CODE=000
-            for _ in $(seq 1 15); do DERP_CODE=$(probe_code https://vpn4.hangocthanh.io.vn/derp/probe); if [ "$DERP_CODE" = "200" ]; then break; fi; sleep 4; done
+            wait_for_code() { TARGET="$1"; URL="$2"; ATTEMPTS="$3"; DELAY="$4"; LAST=000; for _ in $(seq 1 "$ATTEMPTS"); do LAST=$(probe_code "$URL"); if [ "$LAST" = "$TARGET" ]; then break; fi; sleep "$DELAY"; done; printf '%s' "$LAST"; }
+            DERP_CODE=$(wait_for_code 200 https://vpn4.hangocthanh.io.vn/derp/probe 15 4)
             test "$DERP_CODE" = "200"
             $SUDO touch "$TRANSACTION_DIR/portainer-down-attempted"
             $SUDO docker compose --project-name portainer-vpn4 -f "$DEPLOY_PATH/portainer-vpn4/docker-compose.yml" down
@@ -136,6 +136,7 @@ jobs:
             set +e
             SUDO="sudo -n"
             test -n "$DEPLOY_PATH" || { echo "::error::DEPLOY_PATH is empty; refusing to skip restore"; exit 1; }
+            cd "$DEPLOY_PATH" || { echo "::error::cannot enter DEPLOY_PATH; refusing to continue"; exit 1; }
             TRANSACTION_DIR="$DEPLOY_PATH/.portainer-rollback-transaction"
             TRANSACTION_MARKER="$TRANSACTION_DIR/pending"
             ROLLBACK_FAILED=0

@@ -47,6 +47,10 @@ jobs:
           command_timeout: 20m
           script: |
             set -euo pipefail
+            # KHONG dung `set -x`: script xu ly OAuth client secret, cookie secret
+            # va mat khau admin; trace se in chung vao Actions log. ERR trap chi
+            # in so dong + exit status, du de xac dinh loi ma khong lo credential.
+            trap 'status=$?; echo "::error::Portainer stage failed at line ${LINENO} (exit ${status})" >&2' ERR
             SUDO="sudo -n"
             cd "$DEPLOY_PATH"
             TRANSACTION_DIR="$DEPLOY_PATH/.portainer-deploy-transaction"
@@ -104,11 +108,10 @@ jobs:
             $SUDO touch "$TRANSACTION_DIR/nginx-change-attempted"
             $SUDO docker compose -f "$DEPLOY_PATH/edge-vpn4/docker-compose.yml" up -d --force-recreate --no-deps nginx
             probe_code() { set +e; curl -sS -o /dev/null -w '%{http_code}' --max-time 20 "$1"; set -e; }
-            DERP_CODE=000
-            for _ in $(seq 1 15); do DERP_CODE=$(probe_code https://vpn4.hangocthanh.io.vn/derp/probe); if [ "$DERP_CODE" = "200" ]; then break; fi; sleep 4; done
+            wait_for_code() { TARGET="$1"; URL="$2"; ATTEMPTS="$3"; DELAY="$4"; LAST=000; for _ in $(seq 1 "$ATTEMPTS"); do LAST=$(probe_code "$URL"); if [ "$LAST" = "$TARGET" ]; then break; fi; sleep "$DELAY"; done; printf '%s' "$LAST"; }
+            DERP_CODE=$(wait_for_code 200 https://vpn4.hangocthanh.io.vn/derp/probe 15 4)
             test "$DERP_CODE" = "200"
-            STATUS_CODE=000
-            for _ in $(seq 1 30); do STATUS_CODE=$(probe_code https://portainer.hangocthanh.io.vn/api/status); if [ "$STATUS_CODE" = "302" ]; then break; fi; sleep 5; done
+            STATUS_CODE=$(wait_for_code 302 https://portainer.hangocthanh.io.vn/api/status 30 5)
             test "$STATUS_CODE" = "302"
             LOGIN_LOCATION=$(set +e; curl -sS -D - -o /dev/null --max-time 20 https://portainer.hangocthanh.io.vn/api/status | tr -d '\r' | sed -n 's/^[Ll]ocation: //p')
             case "$LOGIN_LOCATION" in
@@ -215,6 +218,7 @@ jobs:
             set +e
             SUDO="sudo -n"
             test -n "$DEPLOY_PATH" || { echo "::error::DEPLOY_PATH is empty; refusing to skip rollback"; exit 1; }
+            cd "$DEPLOY_PATH" || { echo "::error::cannot enter DEPLOY_PATH; refusing to continue"; exit 1; }
             TRANSACTION_DIR="$DEPLOY_PATH/.portainer-deploy-transaction"
             TRANSACTION_MARKER="$TRANSACTION_DIR/pending"
             ROLLBACK_FAILED=0
