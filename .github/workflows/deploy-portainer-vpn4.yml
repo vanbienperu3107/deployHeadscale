@@ -103,12 +103,14 @@ jobs:
             $SUDO docker compose -f "$DEPLOY_PATH/edge-vpn4/docker-compose.yml" up -d --force-recreate --no-deps caddy-edge
             $SUDO touch "$TRANSACTION_DIR/nginx-change-attempted"
             $SUDO docker compose -f "$DEPLOY_PATH/edge-vpn4/docker-compose.yml" up -d --force-recreate --no-deps nginx
-            DERP_CODE=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 https://vpn4.hangocthanh.io.vn/derp/probe || true)
+            probe_code() { set +e; curl -sS -o /dev/null -w '%{http_code}' --max-time 20 "$1"; set -e; }
+            DERP_CODE=000
+            for _ in $(seq 1 15); do DERP_CODE=$(probe_code https://vpn4.hangocthanh.io.vn/derp/probe); if [ "$DERP_CODE" = "200" ]; then break; fi; sleep 4; done
             test "$DERP_CODE" = "200"
             STATUS_CODE=000
-            for _ in $(seq 1 30); do STATUS_CODE=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 https://portainer.hangocthanh.io.vn/api/status || true); if [ "$STATUS_CODE" = "302" ]; then break; fi; sleep 5; done
+            for _ in $(seq 1 30); do STATUS_CODE=$(probe_code https://portainer.hangocthanh.io.vn/api/status); if [ "$STATUS_CODE" = "302" ]; then break; fi; sleep 5; done
             test "$STATUS_CODE" = "302"
-            LOGIN_LOCATION=$(curl -sS -D - -o /dev/null --max-time 20 https://portainer.hangocthanh.io.vn/api/status | tr -d '\r' | sed -n 's/^[Ll]ocation: //p')
+            LOGIN_LOCATION=$(set +e; curl -sS -D - -o /dev/null --max-time 20 https://portainer.hangocthanh.io.vn/api/status | tr -d '\r' | sed -n 's/^[Ll]ocation: //p')
             case "$LOGIN_LOCATION" in
               */oauth2/start*) ;;
               *) echo "::error::unauthenticated traffic was not redirected to the SSO gate (Location=${LOGIN_LOCATION:-<empty>})"; exit 1 ;;
