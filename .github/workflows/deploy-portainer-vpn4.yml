@@ -50,7 +50,17 @@ jobs:
             # KHONG dung `set -x`: script xu ly OAuth client secret, cookie secret
             # va mat khau admin; trace se in chung vao Actions log. ERR trap chi
             # in so dong + exit status, du de xac dinh loi ma khong lo credential.
-            trap 'status=$?; echo "::error::Portainer stage failed at line ${LINENO} (exit ${status})" >&2' ERR
+            # KHONG dung ${LINENO}: drone-ssh viet lai script truoc khi chay nen so
+            # dong khong khop voi file trong repo (run 40949091264 bao "line 82" —
+            # mot dong COMMENT). $BASH_COMMAND la lenh THAT dang chay.
+            #
+            # $BASH_COMMAND da duoc EXPAND, nen neu lenh loi la printf ghi secret
+            # thi gia tri that se lot vao log. Loc qua sed truoc khi in, va chi
+            # giu 200 ky tu dau.
+            # Loc bang Python voi so khop LITERAL: secret co the chua ky tu dac
+            # biet cua regex (sed se hieu sai va bo sot).
+            report_failed_command() { FAILED_STATUS="$1" FAILED_COMMAND="$2" python3 -c 'import os; cmd=os.environ["FAILED_COMMAND"]; [cmd := cmd.replace(v, "REDACTED") for v in (os.environ.get(n) or "" for n in ("PORTAINER_OAUTH_CLIENT_SECRET", "PORTAINER_OAUTH_COOKIE_SECRET", "PORTAINER_ADMIN_PASSWORD", "PORTAINER_OAUTH_CLIENT_ID")) if v]; print("::error::Portainer stage failed (exit " + os.environ["FAILED_STATUS"] + ") at: " + cmd[:200])' >&2; }
+            trap 'report_failed_command "$?" "$BASH_COMMAND"' ERR
             SUDO="sudo -n"
             cd "$DEPLOY_PATH"
             TRANSACTION_DIR="$DEPLOY_PATH/.portainer-deploy-transaction"
