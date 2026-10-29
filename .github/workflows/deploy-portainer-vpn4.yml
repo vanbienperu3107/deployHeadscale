@@ -108,10 +108,10 @@ jobs:
             STATUS_CODE=000
             for _ in $(seq 1 30); do STATUS_CODE=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 https://portainer.hangocthanh.io.vn/api/status || true); if [ "$STATUS_CODE" = "302" ]; then break; fi; sleep 5; done
             test "$STATUS_CODE" = "302"
-            LOGIN_LOCATION=$(curl -sS -o /dev/null -w '%{redirect_url}' --max-time 20 https://portainer.hangocthanh.io.vn/api/status || true)
+            LOGIN_LOCATION=$(curl -sS -D - -o /dev/null --max-time 20 https://portainer.hangocthanh.io.vn/api/status | tr -d '\r' | sed -n 's/^[Ll]ocation: //p')
             case "$LOGIN_LOCATION" in
               */oauth2/start*) ;;
-              *) echo "::error::unauthenticated traffic was not redirected to the SSO gate"; exit 1 ;;
+              *) echo "::error::unauthenticated traffic was not redirected to the SSO gate (Location=${LOGIN_LOCATION:-<empty>})"; exit 1 ;;
             esac
             LISTENERS="$TRANSACTION_DIR/listeners"
             $SUDO ss -ltn | $SUDO tee "$LISTENERS" >/dev/null
@@ -141,7 +141,10 @@ jobs:
           # curl thoat != 0 trong nhieu truong hop hop le (TLS alert, redirect
           # chain). Tat errexit roi kiem tra tung ma mot cach tuong minh.
           STATUS_CODE=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 https://portainer.hangocthanh.io.vn/api/status)
-          REDIRECT_TO=$(curl -sS -o /dev/null -w '%{redirect_url}' --max-time 30 https://portainer.hangocthanh.io.vn/api/status)
+          # Caddy tra Location TUONG DOI ("/oauth2/start?rd=..."). curl chi dien
+          # %{redirect_url} khi no THUC SU di theo redirect (-L); khong co -L thi
+          # bien do RONG -> kiem tra se bao sai (run 40895576406). Doc thang header.
+          REDIRECT_TO=$(curl -sS -D - -o /dev/null --max-time 30 https://portainer.hangocthanh.io.vn/api/status | tr -d '\r' | sed -n 's/^[Ll]ocation: //p')
           DERP_CODE=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 https://vpn4.hangocthanh.io.vn/derp/probe)
           CLIPROXY_CODE=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 https://cliproxy.hangocthanh.io.vn/v1/models)
           OPENCODE_CODE=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 https://opencode.hangocthanh.io.vn/global/health)
