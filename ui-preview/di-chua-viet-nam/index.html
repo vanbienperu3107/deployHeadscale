@@ -34,9 +34,10 @@
     <p class="eyebrow">Tải mã nguồn · Bản Ubuntu / Docker</p>
     <h1 id="title">☸ Đi chùa Việt Nam</h1>
     <p class="lede">Game đi chùa 3D chạy trên web: tạo nhân vật Phật tử, viếng Chùa Trấn Quốc, thắp hương, vái Phật, tham quan và nhận giấy chứng nhận. Gói này đã có sẵn <code>Dockerfile</code> và <code>compose.yaml</code> để chạy trên Ubuntu 24.04.</p>
+    <p class="note"><b>Bản mới nhất:</b> bao gồm mã nguồn hiện tại cùng tài liệu thiết kế và implementation plan cho gói nâng cấp texture PBR/âm thanh. Texture và ambience mới <b>chưa được tích hợp</b> trong archive này.</p>
     <div class="actions">
-      <a class="button" href="./di-chua-viet-nam.tar.gz" download>Tải .tar.gz (Ubuntu)</a>
-      <a class="button secondary" href="./di-chua-viet-nam.zip" download>Tải .zip (Windows)</a>
+      <a class="button" href="./di-chua-viet-nam-planning.tar.gz" download>Tải code + tài liệu .tar.gz (Ubuntu)</a>
+      <a class="button secondary" href="./di-chua-viet-nam-planning.zip" download>Tải code + tài liệu .zip (Windows)</a>
       <a class="button secondary" href="./SHA256SUMS.txt" download>SHA256SUMS.txt</a>
     </div>
   </section>
@@ -55,8 +56,8 @@ sudo apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin d
 sudo usermod -aG docker $USER   # đăng xuất rồi đăng nhập lại</code></pre>
     <p><b>2. Tải và giải nén mã nguồn:</b></p>
 <pre><code>cd ~
-curl -fLO <span id="tgz-url">https://view.hangocthanh.io.vn/…/di-chua-viet-nam/di-chua-viet-nam.tar.gz</span>
-tar -xzf di-chua-viet-nam.tar.gz
+curl -fLO <span id="tgz-url">https://view.hangocthanh.io.vn/…/di-chua-viet-nam/di-chua-viet-nam-planning.tar.gz</span>
+tar -xzf di-chua-viet-nam-planning.tar.gz
 cd di-chua-online</code></pre>
     <p><b>3. Build và chạy:</b></p>
 <pre><code>docker compose up -d --build
@@ -78,15 +79,15 @@ npm start       # mở http://localhost:3000</code></pre>
   <section class="card">
     <h2>Kiểm tra tính toàn vẹn</h2>
     <table>
-      <tr><td>di-chua-viet-nam.tar.gz</td><td><code>58405346d457eedf480e5b80565470b5b7ca6319e64701dbfd928b756c26e264</code></td></tr>
-      <tr><td>di-chua-viet-nam.zip</td><td><code>9da87fe49c95005573be4d48d32d5847bbaa8dcd6c8b935bd8d9e394c81c8851</code></td></tr>
+      <tr><td>di-chua-viet-nam-planning.tar.gz</td><td><code>b0af5cc84eb628455fb65dfcdefa3aa59c3adb4fe90edcda2a44b685e19eb32a</code></td></tr>
+      <tr><td>di-chua-viet-nam-planning.zip</td><td><code>48a06ba4d3b49d4bdd4c5837eeaeeb3f206c178b20377842db5f23a27900653e</code></td></tr>
     </table>
 <pre><code>sha256sum -c SHA256SUMS.txt</code></pre>
   </section>
 </main>
 <script>
   // Đường dẫn preview do workflow sinh ngẫu nhiên lúc deploy -> điền URL thật vào lệnh curl.
-  document.getElementById('tgz-url').textContent = new URL('di-chua-viet-nam.tar.gz', location.href).href;
+  document.getElementById('tgz-url').textContent = new URL('di-chua-viet-nam-planning.tar.gz', location.href).href;
 </script>
 </body>
 </html>
