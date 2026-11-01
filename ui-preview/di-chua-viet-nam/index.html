@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Đi chùa Việt Nam – Tải mã nguồn</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>☸</text></svg>">
+  <style>
+    :root { --bg: #f6efe2; --ink: #3b2a1e; --card: #fffaf1; --line: #e3d4bb; --accent: #9a6248; --accent-d: #7a4a34; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font: 16px/1.6 "Segoe UI", Roboto, "Noto Sans", system-ui, sans-serif; background: radial-gradient(circle at 20% 0%, #fff7e8, var(--bg)); color: var(--ink); }
+    main { width: min(880px, calc(100% - 32px)); margin: 0 auto; padding: 48px 0; }
+    .card { background: var(--card); border: 1px solid var(--line); border-radius: 20px; padding: clamp(22px, 5vw, 44px); box-shadow: 0 20px 60px #7a4a341c; margin-bottom: 24px; }
+    .eyebrow { margin: 0 0 8px; color: #8a6a4a; font-size: 13px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+    h1 { margin: 0; font-size: clamp(32px, 6vw, 54px); line-height: 1.05; color: var(--accent-d); }
+    h2 { color: var(--accent-d); margin-top: 0; }
+    .lede { margin: 18px 0 0; font-size: 18px; color: #5a4636; }
+    .actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 28px; }
+    a.button { display: inline-flex; align-items: center; min-height: 48px; padding: 12px 18px; border-radius: 12px; background: var(--accent); color: #fff; text-decoration: none; font-weight: 700; }
+    a.button:hover { background: var(--accent-d); }
+    a.secondary { background: transparent; color: var(--accent-d); border: 1px solid #c9a98a; }
+    pre { background: #2b211a; color: #f6e8cf; padding: 14px 16px; border-radius: 12px; overflow-x: auto; font-size: 14px; line-height: 1.5; }
+    code { font-family: ui-monospace, Consolas, monospace; }
+    p code, li code, td code { padding: 1px 6px; border-radius: 6px; background: #efe2cc; }
+    table { width: 100%; border-collapse: collapse; font-size: 15px; }
+    td { border-top: 1px solid var(--line); padding: 8px 6px; vertical-align: top; word-break: break-all; }
+    td:first-child { white-space: nowrap; word-break: normal; font-weight: 600; }
+    .note { border-left: 4px solid #c9a043; padding: 4px 14px; color: #6a5340; }
+  </style>
+</head>
+<body>
+<main>
+  <section class="card" aria-labelledby="title">
+    <p class="eyebrow">Tải mã nguồn · Bản Ubuntu / Docker</p>
+    <h1 id="title">☸ Đi chùa Việt Nam</h1>
+    <p class="lede">Game đi chùa 3D chạy trên web: tạo nhân vật Phật tử, viếng Chùa Trấn Quốc, thắp hương, vái Phật, tham quan và nhận giấy chứng nhận. Gói này đã có sẵn <code>Dockerfile</code> và <code>compose.yaml</code> để chạy trên Ubuntu 24.04.</p>
+    <div class="actions">
+      <a class="button" href="./di-chua-viet-nam.tar.gz" download>Tải .tar.gz (Ubuntu)</a>
+      <a class="button secondary" href="./di-chua-viet-nam.zip" download>Tải .zip (Windows)</a>
+      <a class="button secondary" href="./SHA256SUMS.txt" download>SHA256SUMS.txt</a>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Chạy trên Ubuntu 24.04 bằng Docker</h2>
+    <p><b>1. Cài Docker</b> (bỏ qua nếu đã có):</p>
+<pre><code>sudo apt update
+sudo apt install -y ca-certificates curl
+sudo install -m 0755 -d /etc/apt/keyrings
+sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+sudo chmod a+r /etc/apt/keyrings/docker.asc
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release &amp;&amp; echo $VERSION_CODENAME) stable" | sudo tee /etc/apt/sources.list.d/docker.list &gt; /dev/null
+sudo apt update
+sudo apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+sudo usermod -aG docker $USER   # đăng xuất rồi đăng nhập lại</code></pre>
+    <p><b>2. Tải và giải nén mã nguồn:</b></p>
+<pre><code>cd ~
+curl -fLO <span id="tgz-url">https://view.hangocthanh.io.vn/…/di-chua-viet-nam/di-chua-viet-nam.tar.gz</span>
+tar -xzf di-chua-viet-nam.tar.gz
+cd di-chua-online</code></pre>
+    <p><b>3. Build và chạy:</b></p>
+<pre><code>docker compose up -d --build
+docker compose ps                    # chờ STATUS = healthy
+curl http://localhost:3000/healthz   # {"ok":true}</code></pre>
+    <p><b>4. Mở trình duyệt:</b> <code>http://IP_SERVER:3000</code> (mở cổng 3000 trên firewall/cloud nếu cần).</p>
+    <p class="note">Dữ liệu tài khoản lưu trong Docker volume <code>di-chua-data</code>; <code>docker compose down</code> vẫn giữ dữ liệu, chỉ <code>docker compose down -v</code> mới xoá.</p>
+  </section>
+
+  <section class="card">
+    <h2>Chạy trên Windows (không cần Docker)</h2>
+<pre><code>cd di-chua-online
+npm install
+npm test        # # pass 12, # fail 0
+npm start       # mở http://localhost:3000</code></pre>
+    <p>Cần Node.js 22 LTS từ <a href="https://nodejs.org">nodejs.org</a>.</p>
+  </section>
+
+  <section class="card">
+    <h2>Kiểm tra tính toàn vẹn</h2>
+    <table>
+      <tr><td>di-chua-viet-nam.tar.gz</td><td><code>58405346d457eedf480e5b80565470b5b7ca6319e64701dbfd928b756c26e264</code></td></tr>
+      <tr><td>di-chua-viet-nam.zip</td><td><code>9da87fe49c95005573be4d48d32d5847bbaa8dcd6c8b935bd8d9e394c81c8851</code></td></tr>
+    </table>
+<pre><code>sha256sum -c SHA256SUMS.txt</code></pre>
+  </section>
+</main>
+<script>
+  // Đường dẫn preview do workflow sinh ngẫu nhiên lúc deploy -> điền URL thật vào lệnh curl.
+  document.getElementById('tgz-url').textContent = new URL('di-chua-viet-nam.tar.gz', location.href).href;
+</script>
+</body>
+</html>
