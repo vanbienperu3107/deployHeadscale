@@ -81,26 +81,26 @@
   <div class="shell">
     <header>
       <div>
-        <p class="kicker">Architecture review / native CLIProxyAPI plugin</p>
+        <p class="kicker">Approved design / implementation plan ready for review</p>
         <h1>CPA Bundle Router</h1>
-        <p class="lede">Ba alias duy nhất, chính sách tier theo chất lượng và failover an toàn, nhưng vẫn để CLIProxyAPI giữ toàn bộ OAuth, credential selection và upstream transport.</p>
+        <p class="lede">Kế hoạch thực thi gồm 12 deliverable kiểm chứng độc lập: ABI native, routing core, safety, storage, dashboard, vận hành và evidence release. OAuth, credential selection và upstream transport vẫn thuộc CLIProxyAPI.</p>
       </div>
-      <div class="status"><strong>Review artifact</strong><br>Design v1<br>Host target: CPA v8<br>Plugin ID: <code>bundle-router</code></div>
+      <div class="status"><strong>Review artifact</strong><br>Implementation plan v1<br>12 task deliverables<br>Plugin ID: <code>bundle-router</code></div>
     </header>
     <main>
       <nav aria-label="Mục lục thiết kế">
-        <a href="#boundary">Execution boundary</a>
-        <a href="#selection">Selection policy</a>
-        <a href="#safety">Safety invariants</a>
-        <a href="#state">State & observability</a>
+        <a href="#foundation">Foundation & ABI</a>
+        <a href="#routing">Routing core</a>
+        <a href="#execution">Execution safety</a>
+        <a href="#operations">Operations</a>
         <a href="#gates">Verification gates</a>
-        <a href="#review">Review file</a>
+        <a href="#review">Review files</a>
       </nav>
       <article>
-        <section id="boundary">
-          <p class="label">01 / execution boundary</p>
-          <h2>Plugin chọn model. Host thực thi model.</h2>
-          <p>Router chỉ bắt ba alias <code>chat</code>, <code>research</code>, <code>code</code> và route về executor của chính plugin. Executor chọn physical target, sau đó gọi callback của host để giữ nguyên provider authentication, refresh token, schema translation và transport policy.</p>
+        <section id="foundation">
+          <p class="label">01 / task sequence</p>
+          <h2>Foundation trước, ABI có evidence sau.</h2>
+          <p>Task 1 dựng Go project, deterministic clock và mock host. Task 2 đóng gói native C ABI, schema negotiation và ba alias. Native load không được coi là pass khi local thiếu compiler: CI/staging phải cung cấp evidence riêng.</p>
           <div class="diagram" role="img" aria-label="Luồng request từ client qua CLIProxyAPI, plugin bundle router, host execution và physical model">
             <span>Client request: chat | research | code</span>
             <span class="indent-1">↓</span>
@@ -117,54 +117,54 @@
           </div>
         </section>
 
-        <section id="selection">
-          <p class="label">02 / deterministic policy</p>
-          <h2>Ưu tiên chất lượng, cân bằng có kiểm soát.</h2>
+        <section id="routing">
+          <p class="label">02 / tasks 3-6</p>
+          <h2>Routing core xây theo thứ tự phụ thuộc.</h2>
           <ol class="flow">
-            <li><strong>Classify request.</strong> Đọc protocol, stream, tools, structured output, reasoning, context estimate và trusted session ID khi cấu hình cho phép.</li>
-            <li><strong>Honor valid affinity.</strong> Chỉ dùng binding còn hạn, còn tồn tại trong config revision và còn đạt capability.</li>
-            <li><strong>Enter highest eligible tier.</strong> Quality là policy do admin khai báo, không phải suy luận từ tên model.</li>
-            <li><strong>Select smoothly by weight.</strong> Smooth weighted round robin hoạt động trong tier, không starve healthy target.</li>
-            <li><strong>Fail over without recursion.</strong> Thử model cùng tier trước; chỉ hạ tier khi không còn candidate phù hợp.</li>
+            <li><strong>Validated policy + capability registry.</strong> Reject config sai, không suy capability từ tên model, unknown không đáp ứng strict requirement.</li>
+            <li><strong>Weighted tier selection.</strong> Smooth weighted round robin trong tier cao nhất còn eligible; không retry cùng candidate.</li>
+            <li><strong>Bounded affinity.</strong> LRU TTL dùng session hash, không lưu prompt, invalidate theo config revision.</li>
+            <li><strong>Health and recovery.</strong> Classify failure, cooldown target-level, half-open probe và recovery xác định được bằng mock clock.</li>
           </ol>
         </section>
 
-        <section id="safety">
-          <p class="label">03 / non-negotiable invariants</p>
-          <h2>Những điều router không được làm.</h2>
+        <section id="execution">
+          <p class="label">03 / tasks 7-10</p>
+          <h2>Execution an toàn rồi mới đến persistence và dashboard.</h2>
           <div class="invariants">
-            <div class="invariant"><b>Không OAuth thứ hai</b><span>Provider authentication, refresh và credential scheduling thuộc CLIProxyAPI.</span></div>
-            <div class="invariant"><b>Không suy capability từ tên model</b><span>Unknown không thỏa strict requirement; provenance được lưu rõ.</span></div>
-            <div class="invariant"><b>Không nối hai stream</b><span>Fallback chỉ trước payload đầu tiên. Partial output là terminal.</span></div>
-            <div class="invariant"><b>Không lưu prompt</b><span>Affinity chỉ lưu hash session, target, expiry và config revision.</span></div>
-            <div class="invariant"><b>Không dashboard public</b><span>UI/API dùng management routes authenticated; không dùng resource route công khai.</span></div>
-            <div class="invariant"><b>Không claim Internet access</b><span>Bundle <code>research</code> không tự cấp web search hay MCP tools.</span></div>
+            <div class="invariant"><b>Non-stream failover</b><span>429/503 thử candidate cùng tier trước, hạ tier sau khi exhaust; 401 credential-specific không cooldown target.</span></div>
+            <div class="invariant"><b>Stream safety</b><span>Retry chỉ trước payload đầu tiên. Partial output là terminal, cancellation đóng host stream.</span></div>
+            <div class="invariant"><b>SQLite & metrics</b><span>Usage aggregate phân biệt bundle/model; SQLite failure không block inference.</span></div>
+            <div class="invariant"><b>Authenticated management</b><span>Validate/apply/rollback revision qua management route, dashboard escape dữ liệu untrusted.</span></div>
+            <div class="invariant"><b>No credential surface</b><span>Browser, log, DB và metrics không mang OAuth, secret, prompt hay session raw value.</span></div>
+            <div class="invariant"><b>Direct host regression</b><span>Plugin disabled hoặc direct physical model vẫn giữ routing chuẩn của CLIProxyAPI.</span></div>
           </div>
         </section>
 
-        <section id="state">
-          <p class="label">04 / state & operations</p>
-          <h2>Fast path ở memory, history ở SQLite.</h2>
-          <p>Affinity LRU, cooldown và weighted scheduling tồn tại trong memory để không đưa SQLite vào request critical path. SQLite WAL lưu config revisions, capability registry/provenance, usage aggregate và health summaries. Lỗi telemetry phải được ghi nhận nhưng không được chặn inference.</p>
-          <p>Metrics chỉ dùng label cardinality thấp: bundle, target, tier, error class. Không session ID, credential hoặc raw request body trong log, DB hay metric label.</p>
+        <section id="operations">
+          <p class="label">04 / tasks 11-12</p>
+          <h2>Vận hành và release có gate riêng.</h2>
+          <p>Preflight chỉ đọc. Installer mặc định dry-run, backup trước mutation và rollback đúng artifact do nó tạo. Tài liệu ghi systemd, WAL backup/recovery, monitoring, OpenCode schema và ranh giới OAuth.</p>
+          <p>CI chạy format, vet, test, race, dashboard, vulnerability check, native amd64 load và disposable host test. Arm64 chỉ được đánh dấu supported sau native runner + ABI-load proof.</p>
         </section>
 
         <section id="gates">
-          <p class="label">05 / evidence before release</p>
-          <h2>Gate dựa trên test thực thi, không dựa trên lời hứa.</h2>
-          <div class="gate"><b>Gate A</b><p>Repository, source compatibility, attribution và ABI contract documented.</p></div>
-          <div class="gate"><b>Gate B</b><p>Native plugin compile/load, ba alias, tier/weighted/fallback và host execution integration pass.</p></div>
-          <div class="gate"><b>Gate C</b><p>Capability routing, affinity, cooldown, stream safety, dashboard, usage và SQLite restart pass.</p></div>
-          <div class="gate"><b>Gate D</b><p>CI green, checksum artifacts, disposable staging, rollback và deployment documentation verified.</p></div>
-          <p>Local environment hiện thiếu C compiler; native shared-library validation phải chạy GitHub Actions hoặc Ubuntu staging có toolchain. Không được báo PASS cho ABI/arm64 trước evidence đó.</p>
+          <p class="label">05 / acceptance evidence</p>
+          <h2>30 test case map vào từng task, không bỏ qua evidence.</h2>
+          <div class="gate"><b>T01-T06</b><p>Load, aliases, highest tier, weighted distribution và session affinity.</p></div>
+          <div class="gate"><b>T07-T18</b><p>429/503, same-tier priority, cooldown/recovery, capability/context routing, streaming và cancellation.</p></div>
+          <div class="gate"><b>T19-T24</b><p>Reload, race, authenticated management, usage attribution, restart persistence và config diagnostics.</p></div>
+          <div class="gate"><b>T25-T30</b><p>Recursion guard, direct-model regression, protocol evidence, disabled plugin, rollback và secret hygiene.</p></div>
+          <p>Plan buộc mỗi behavior mới phải đi qua RED → GREEN → full suite. Native `.so`, arm64 và staging chỉ PASS sau execution evidence, không vì workflow tồn tại.</p>
         </section>
 
         <section id="review" class="read">
-          <h3>Đọc đặc tả đầy đủ</h3>
-          <p>Bản Markdown là nguồn thiết kế được versioned trong repository. Sau khi bạn duyệt artifact này, bước kế tiếp là implementation plan chi tiết và chọn phương thức triển khai.</p>
+          <h3>Duyệt plan thực thi</h3>
+          <p>Plan là contract để triển khai: 12 task, interface, test RED/GREEN, commands, commit milestones, review focus và final verification. Sau khi bạn duyệt plan, hãy chọn Native hoặc Subagent-driven để bắt đầu code thật.</p>
           <div class="actions">
-            <a class="button" href="./cpa-bundle-router-design.md">Mở design spec</a>
-            <a class="button secondary" href="./cpa-bundle-router-design.md" download>Tải design spec</a>
+            <a class="button" href="./cpa-bundle-router-implementation-plan.md">Mở implementation plan</a>
+            <a class="button secondary" href="./cpa-bundle-router-design.md">Mở design spec</a>
+            <a class="button secondary" href="./cpa-bundle-router-implementation-plan.md" download>Tải plan</a>
           </div>
         </section>
       </article>
