@@ -3,65 +3,156 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Pi thay thế OpenCode — Plan</title>
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'/%3E">
+  <meta name="description" content="CPA Bundle Router design review">
+  <title>CPA Bundle Router | Design Review</title>
   <style>
-    :root { color-scheme: light dark; --bg: #f6f2ea; --ink: #1d2520; --card: #fffaf1; --line: #d7cbb7; --accent: #145f4a; }
+    :root {
+      --paper: #f4f6f8;
+      --ink: #10202d;
+      --muted: #526673;
+      --navy: #082538;
+      --blue: #126d9c;
+      --gold: #e3ad41;
+      --line: #c5d0d8;
+      --panel: #ffffff;
+      --code: #e8eff3;
+    }
     * { box-sizing: border-box; }
-    body { margin: 0; min-height: 100vh; font: 16px/1.55 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: var(--bg); color: var(--ink); }
-    main { width: min(860px, calc(100% - 32px)); margin: 0 auto; padding: 56px 0; }
-    .card { background: var(--card); border: 1px solid var(--line); border-radius: 24px; padding: clamp(24px, 5vw, 48px); box-shadow: 0 24px 70px rgba(56, 41, 20, .12); }
-    .eyebrow { margin: 0 0 12px; color: #6b5b44; font-size: 13px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
-    h1 { margin: 0; max-width: 720px; font-size: clamp(34px, 7vw, 64px); line-height: .98; letter-spacing: -.055em; }
-    .lede { max-width: 690px; margin: 24px 0 0; color: #4c584f; font-size: 18px; }
-    .actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 32px; }
-    a.button { display: inline-flex; align-items: center; justify-content: center; min-height: 48px; padding: 12px 18px; border-radius: 14px; background: var(--accent); color: white; text-decoration: none; font-weight: 750; }
-    a.secondary { background: transparent; color: var(--accent); border: 1px solid #8bb4a4; }
-    dl { display: grid; grid-template-columns: 140px 1fr; gap: 10px 18px; margin: 34px 0 0; padding-top: 24px; border-top: 1px solid var(--line); }
-    dt { color: #6b5b44; font-weight: 750; }
-    dd { margin: 0; }
-    code { padding: 2px 6px; border-radius: 8px; background: #eee3d2; }
-    @media (max-width: 620px) { main { padding: 24px 0; } dl { grid-template-columns: 1fr; } }
+    html { scroll-behavior: smooth; }
+    body { margin: 0; background: var(--paper); color: var(--ink); font: 17px/1.62 Georgia, "Times New Roman", serif; }
+    .topline { height: 9px; background: linear-gradient(90deg, var(--gold) 0 16%, var(--blue) 16% 61%, var(--navy) 61%); }
+    .shell { width: min(1200px, calc(100% - 40px)); margin: 0 auto; }
+    header { display: grid; grid-template-columns: 1.5fr .8fr; gap: 42px; padding: 68px 0 42px; border-bottom: 2px solid var(--navy); }
+    .kicker, .label { margin: 0 0 14px; font: 700 12px/1.2 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; letter-spacing: .08em; color: var(--blue); }
+    h1, h2, h3 { font-family: Arial, Helvetica, sans-serif; letter-spacing: -.045em; }
+    h1 { margin: 0; max-width: 800px; color: var(--navy); font-size: clamp(44px, 7vw, 84px); line-height: .91; }
+    .lede { max-width: 780px; margin: 26px 0 0; color: #263c4a; font-size: 21px; }
+    .status { align-self: end; border-left: 4px solid var(--gold); padding: 8px 0 8px 20px; font: 15px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    .status strong { color: var(--navy); }
+    main { display: grid; grid-template-columns: 210px minmax(0, 1fr); gap: 52px; padding: 44px 0 80px; }
+    nav { position: sticky; top: 18px; height: max-content; border-top: 1px solid var(--line); }
+    nav a { display: block; padding: 11px 0; border-bottom: 1px solid var(--line); color: var(--muted); font: 600 13px/1.3 Arial, Helvetica, sans-serif; text-decoration: none; }
+    nav a:hover, nav a:focus { color: var(--blue); }
+    article { min-width: 0; }
+    section { margin-bottom: 58px; scroll-margin-top: 20px; }
+    h2 { margin: 0 0 18px; color: var(--navy); font-size: clamp(28px, 4vw, 42px); line-height: 1; }
+    h3 { margin: 28px 0 8px; color: #16374b; font-size: 21px; }
+    p { max-width: 790px; margin: 0 0 16px; }
+    .diagram { overflow-x: auto; margin: 24px 0; padding: 26px; color: #dce8ef; background: var(--navy); border-bottom: 5px solid var(--gold); font: 14px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space: pre; }
+    .invariants { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); }
+    .invariant { min-height: 148px; padding: 24px; background: var(--panel); }
+    .invariant b { display: block; margin-bottom: 7px; font: 700 16px/1.2 Arial, Helvetica, sans-serif; color: var(--navy); }
+    .invariant span { color: var(--muted); font-size: 15px; }
+    .flow { list-style: none; padding: 0; margin: 20px 0; counter-reset: step; }
+    .flow li { position: relative; padding: 0 0 25px 57px; min-height: 49px; }
+    .flow li::before { content: counter(step, decimal-leading-zero); counter-increment: step; position: absolute; left: 0; top: 0; color: var(--blue); font: 700 17px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    .flow li:not(:last-child)::after { content: ""; position: absolute; left: 10px; top: 29px; bottom: 5px; width: 1px; background: var(--line); }
+    .flow strong { font-family: Arial, Helvetica, sans-serif; }
+    .gate { display: grid; grid-template-columns: 100px 1fr; gap: 20px; padding: 18px 0; border-top: 1px solid var(--line); }
+    .gate:last-child { border-bottom: 1px solid var(--line); }
+    .gate b { color: var(--blue); font: 800 14px/1.2 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    .gate p { margin: 0; font-size: 16px; }
+    code { padding: 2px 5px; background: var(--code); color: #16374b; font: .85em ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    .read { margin-top: 36px; padding: 25px; background: #fff8e6; border: 1px solid #d4b56b; }
+    .read h3 { margin-top: 0; }
+    .actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 22px; }
+    .button { display: inline-flex; min-height: 48px; align-items: center; padding: 12px 17px; background: var(--navy); color: white; border: 1px solid var(--navy); font: 700 14px/1 Arial, Helvetica, sans-serif; text-decoration: none; }
+    .button.secondary { background: transparent; color: var(--navy); }
+    footer { padding: 24px 0 48px; border-top: 1px solid var(--line); color: var(--muted); font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    @media (max-width: 760px) {
+      .shell { width: min(100% - 28px, 720px); }
+      header, main { display: block; }
+      header { padding: 42px 0 30px; }
+      .status { margin-top: 30px; }
+      nav { position: static; display: flex; overflow-x: auto; gap: 18px; padding: 14px 0; margin-bottom: 34px; }
+      nav a { flex: 0 0 auto; border: 0; padding: 0; }
+      .invariants { grid-template-columns: 1fr; }
+      .diagram { margin-left: -14px; margin-right: -14px; border-left: 0; border-right: 0; }
+    }
+    @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
   </style>
 </head>
 <body>
-  <main>
-    <section class="card" aria-labelledby="dichua" style="margin-bottom:24px">
-      <p class="eyebrow">Mã nguồn tải về · Mới nhất</p>
-      <h2 id="dichua" style="margin:0">☸ Đi chùa Việt Nam – Chùa Trấn Quốc</h2>
-      <p class="lede">Game đi chùa 3D chạy trên web, kèm Dockerfile/compose cho Ubuntu 24.04.</p>
-      <div class="actions">
-        <a class="button" href="./di-chua-viet-nam/">Trang tải và hướng dẫn</a>
-        <a class="button secondary" href="./di-chua-viet-nam/di-chua-viet-nam.tar.gz" download>Tải .tar.gz (Ubuntu)</a>
-        <a class="button secondary" href="./di-chua-viet-nam/di-chua-viet-nam.zip" download>Tải .zip (Windows)</a>
+  <div class="topline"></div>
+  <div class="shell">
+    <header>
+      <div>
+        <p class="kicker">Architecture review / native CLIProxyAPI plugin</p>
+        <h1>CPA Bundle Router</h1>
+        <p class="lede">Ba alias duy nhất, chính sách tier theo chất lượng và failover an toàn, nhưng vẫn để CLIProxyAPI giữ toàn bộ OAuth, credential selection và upstream transport.</p>
       </div>
-    </section>
-    <section class="card" aria-labelledby="title">
-      <p class="eyebrow">Architecture Specification</p>
-      <h1 id="title">AI Coworker Architecture v3.9</h1>
-      <p class="lede">Đặc tả Pi-native bổ sung Execution Classification Plane: deterministic rules trước, AI SDK + Zod chỉ cho ambiguity, LangGraph chỉ chạy khi đã chọn COWORKER; có component diagrams và decision records để nâng cấp sau này.</p>
-      <div class="actions">
-        <a class="button" href="./ai-coworker-v3-9-router/AI_Coworker_Architecture_Plan_v3.9.html">Đọc bản HTML</a>
-        <a class="button secondary" href="./ai-coworker-v3-9-router/AI_Coworker_Architecture_Plan_v3.9.md" download>Tải file .md</a>
-      </div>
-      <dl>
-        <dt>Tên file</dt>
-        <dd><code>AI_Coworker_Architecture_Plan_v3.9.md</code></dd>
-        <dt>Ngày publish</dt>
-        <dd>2026-10-15</dd>
-        <dt>Phạm vi</dt>
-        <dd>Đặc tả kiến trúc v3.9, chưa triển khai runtime production.</dd>
-      </dl>
-    </section>
-    <section class="card" aria-labelledby="older" style="margin-top:24px">
-      <p class="eyebrow">Bản trước</p>
-      <h2 id="older" style="margin:0">Bản trước và implementation plan</h2>
-      <div class="actions">
-        <a class="button secondary" href="./ai-coworker-v3-8-pi/AI_Coworker_Architecture_Plan_v3.8.html">Architecture v3.8</a>
-        <a class="button secondary" href="./pi-replace-opencode/">Mở plan triển khai</a>
-        <a class="button secondary" href="./tavily-key-router-plan.md">Tavily Key Router</a>
-      </div>
-    </section>
-  </main>
+      <div class="status"><strong>Review artifact</strong><br>Design v1<br>Host target: CPA v8<br>Plugin ID: <code>bundle-router</code></div>
+    </header>
+    <main>
+      <nav aria-label="Mục lục thiết kế">
+        <a href="#boundary">Execution boundary</a>
+        <a href="#selection">Selection policy</a>
+        <a href="#safety">Safety invariants</a>
+        <a href="#state">State & observability</a>
+        <a href="#gates">Verification gates</a>
+        <a href="#review">Review file</a>
+      </nav>
+      <article>
+        <section id="boundary">
+          <p class="label">01 / execution boundary</p>
+          <h2>Plugin chọn model. Host thực thi model.</h2>
+          <p>Router chỉ bắt ba alias <code>chat</code>, <code>research</code>, <code>code</code> và route về executor của chính plugin. Executor chọn physical target, sau đó gọi callback của host để giữ nguyên provider authentication, refresh token, schema translation và transport policy.</p>
+          <div class="diagram" role="img" aria-label="Luồng request từ client qua CLIProxyAPI, plugin bundle router, host execution và physical model">Client request
+        </section>
+
+        <section id="selection">
+          <p class="label">02 / deterministic policy</p>
+          <h2>Ưu tiên chất lượng, cân bằng có kiểm soát.</h2>
+          <ol class="flow">
+            <li><strong>Classify request.</strong> Đọc protocol, stream, tools, structured output, reasoning, context estimate và trusted session ID khi cấu hình cho phép.</li>
+            <li><strong>Honor valid affinity.</strong> Chỉ dùng binding còn hạn, còn tồn tại trong config revision và còn đạt capability.</li>
+            <li><strong>Enter highest eligible tier.</strong> Quality là policy do admin khai báo, không phải suy luận từ tên model.</li>
+            <li><strong>Select smoothly by weight.</strong> Smooth weighted round robin hoạt động trong tier, không starve healthy target.</li>
+            <li><strong>Fail over without recursion.</strong> Thử model cùng tier trước; chỉ hạ tier khi không còn candidate phù hợp.</li>
+          </ol>
+        </section>
+
+        <section id="safety">
+          <p class="label">03 / non-negotiable invariants</p>
+          <h2>Những điều router không được làm.</h2>
+          <div class="invariants">
+            <div class="invariant"><b>Không OAuth thứ hai</b><span>Provider authentication, refresh và credential scheduling thuộc CLIProxyAPI.</span></div>
+            <div class="invariant"><b>Không suy capability từ tên model</b><span>Unknown không thỏa strict requirement; provenance được lưu rõ.</span></div>
+            <div class="invariant"><b>Không nối hai stream</b><span>Fallback chỉ trước payload đầu tiên. Partial output là terminal.</span></div>
+            <div class="invariant"><b>Không lưu prompt</b><span>Affinity chỉ lưu hash session, target, expiry và config revision.</span></div>
+            <div class="invariant"><b>Không dashboard public</b><span>UI/API dùng management routes authenticated; không dùng resource route công khai.</span></div>
+            <div class="invariant"><b>Không claim Internet access</b><span>Bundle <code>research</code> không tự cấp web search hay MCP tools.</span></div>
+          </div>
+        </section>
+
+        <section id="state">
+          <p class="label">04 / state & operations</p>
+          <h2>Fast path ở memory, history ở SQLite.</h2>
+          <p>Affinity LRU, cooldown và weighted scheduling tồn tại trong memory để không đưa SQLite vào request critical path. SQLite WAL lưu config revisions, capability registry/provenance, usage aggregate và health summaries. Lỗi telemetry phải được ghi nhận nhưng không được chặn inference.</p>
+          <p>Metrics chỉ dùng label cardinality thấp: bundle, target, tier, error class. Không session ID, credential hoặc raw request body trong log, DB hay metric label.</p>
+        </section>
+
+        <section id="gates">
+          <p class="label">05 / evidence before release</p>
+          <h2>Gate dựa trên test thực thi, không dựa trên lời hứa.</h2>
+          <div class="gate"><b>Gate A</b><p>Repository, source compatibility, attribution và ABI contract documented.</p></div>
+          <div class="gate"><b>Gate B</b><p>Native plugin compile/load, ba alias, tier/weighted/fallback và host execution integration pass.</p></div>
+          <div class="gate"><b>Gate C</b><p>Capability routing, affinity, cooldown, stream safety, dashboard, usage và SQLite restart pass.</p></div>
+          <div class="gate"><b>Gate D</b><p>CI green, checksum artifacts, disposable staging, rollback và deployment documentation verified.</p></div>
+          <p>Local environment hiện thiếu C compiler; native shared-library validation phải chạy GitHub Actions hoặc Ubuntu staging có toolchain. Không được báo PASS cho ABI/arm64 trước evidence đó.</p>
+        </section>
+
+        <section id="review" class="read">
+          <h3>Đọc đặc tả đầy đủ</h3>
+          <p>Bản Markdown là nguồn thiết kế được versioned trong repository. Sau khi bạn duyệt artifact này, bước kế tiếp là implementation plan chi tiết và chọn phương thức triển khai.</p>
+          <div class="actions">
+            <a class="button" href="./cpa-bundle-router-design.md">Mở design spec</a>
+            <a class="button secondary" href="./cpa-bundle-router-design.md" download>Tải design spec</a>
+          </div>
+        </section>
+      </article>
+    </main>
+    <footer>CPA Bundle Router design review · 2026-11-02 · Public preview is a review artifact, not a deployment endpoint.</footer>
+  </div>
 </body>
 </html>
