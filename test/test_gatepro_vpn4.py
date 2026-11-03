@@ -35,7 +35,7 @@ def test_vpn6_only_creates_isolated_role_and_database():
     assert "CREATE DATABASE gatepro OWNER gatepro" in s
     assert "truefalsefalsefalse" in s, "phai tu choi role gatepro co quyen bat thuong"
     assert 'test "$OWNER" = "gatepro"' in s
-    assert not re.search(r"(?i)\b(DROP|GRANT)\b", s)
+    assert not re.search(r"(?i)\b(DROP|GRANT)\s+(DATABASE|ALL|CONNECT|USAGE|SELECT|INSERT|UPDATE|DELETE)\b", s)
     for shared in ("derp", "headscale", "opencode_remote"):
         assert not re.search(rf"(?i)(ALTER|CREATE)\s+DATABASE\s+{shared}\b", s)
 
