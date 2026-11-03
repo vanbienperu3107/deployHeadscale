@@ -60,21 +60,24 @@ jobs:
             test "$DB" = "0" && $P -c "CREATE DATABASE gatepro OWNER gatepro"
             OWNER=$($P -c "SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname='gatepro'")
             test "$OWNER" = "gatepro" || { echo "::error::database gatepro thuoc owner $OWNER"; exit 1; }
-            $P -c "REVOKE CONNECT, TEMP ON DATABASE gatepro FROM PUBLIC"
-            echo "role+db gatepro OK (owner=$OWNER)"
+            # pg_hba phan quyen theo ROLE, khong REVOKE PUBLIC hay sua grant cua workload dang chay:
+            # gatepro chi duoc login database gatepro; bat ky database khac deu reject.
+            HBA=$($P -c "SHOW hba_file")
+            $SUDO docker exec -i derp-postgres sh -c "grep -Fqx 'host gatepro gatepro 0.0.0.0/0 scram-sha-256' '$HBA' || sed -i '1i host all gatepro 0.0.0.0/0 reject\nhost gatepro gatepro 0.0.0.0/0 scram-sha-256' '$HBA'"
+            $P -c "SELECT pg_reload_conf()" | grep -qx t
+            echo "role+db gatepro OK (owner=$OWNER; hba isolated)"
             # Positive: gatepro vao duoc DB rieng (qua TCP, dung mat khau)
             $SUDO docker exec -i -e PGPASSWORD="$GATEPRO_DB_PASSWORD" derp-postgres psql -h 127.0.0.1 -U gatepro -d gatepro -tAc "SELECT 'gatepro-login-ok'"
-            # Negative: KHONG vao duoc cac DB khac
+            # Negative: bat ky database khac phai bi pg_hba reject; thanh cong la fail deploy.
             DENIED=0
             for d in $($P -c "SELECT datname FROM pg_database WHERE datallowconn AND datname NOT IN ('gatepro','template1','postgres')"); do
               if $SUDO docker exec -i -e PGPASSWORD="$GATEPRO_DB_PASSWORD" derp-postgres psql -h 127.0.0.1 -U gatepro -d "$d" -tAc "SELECT 1" >/dev/null 2>&1; then
-                echo "::warning::gatepro ket noi duoc DB khac ($d) - kiem quyen schema"
-                $SUDO docker exec -i -e PGPASSWORD="$GATEPRO_DB_PASSWORD" derp-postgres psql -h 127.0.0.1 -U gatepro -d "$d" -tAc "SELECT count(*) FROM information_schema.table_privileges WHERE grantee IN ('gatepro','PUBLIC') AND table_schema NOT IN ('pg_catalog','information_schema')"
-              else
-                DENIED=$((DENIED+1))
+                echo "::error::gatepro khong duoc phep ket noi $d"
+                exit 1
               fi
+              DENIED=$((DENIED+1))
             done
-            echo "so DB khac tu choi gatepro: $DENIED"
+            echo "so DB khac da bi tu choi gatepro: $DENIED"
             echo "PG_CONTAINER_IP=$($SUDO docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}' derp-postgres)"
         env:
           GATEPRO_DB_PASSWORD: ${{ secrets.GATEPRO_DB_PASSWORD }}
