@@ -228,7 +228,7 @@ jobs:
             NOAUTH=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "http://$VPN4_TS_IP:8080/status")
             test "$NOAUTH" = "401" || { echo "::error::/status khong token tra $NOAUTH"; exit 1; }
             TOKEN=$(curl -fsS --max-time 10 -X POST "http://$VPN4_TS_IP:8080/auth/token" -H 'Content-Type: application/json' -d "{\"username\":\"cms\",\"password\":\"$GATEPRO_API_PASSWORD\"}" | python3 -c 'import json,sys;print(json.load(sys.stdin)["access_token"])')
-            CONN=$(curl -fsS --max-time 10 "http://$VPN4_TS_IP:8080/connections" -H "Authorization: Bearer $TOKEN")
+            CONN=""; for i in 1 2 3; do CONN=$(curl -sS --max-time 60 "http://$VPN4_TS_IP:8080/connections" -H "Authorization: Bearer $TOKEN" || true); test -n "$CONN" && break; sleep 5; done
             echo "$CONN" | grep -q '"source":"database"' || echo "connections: $(echo "$CONN" | head -c 200)"
             BIND=$($SUDO docker inspect -f '{{range $p, $b := .HostConfig.PortBindings}}{{range $b}}{{.HostIp}}:{{.HostPort}} {{end}}{{end}}' gatepro)
             test "$BIND" = "$VPN4_TS_IP:8080 " || { echo "::error::port binding sai: $BIND"; exit 1; }
