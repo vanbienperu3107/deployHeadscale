@@ -1,8 +1,18 @@
-name: Verify GatePro login and OTP (vpn4, no firewall mutation)
+name: Verify GatePro full flow (vpn4 API)
 
-# Chi login + email OTP + status. KHONG goi nodes/CR/connections, KHONG mo/dong firewall.
+# status -> login/OTP -> search -> CR. Mo/dong firewall CHI khi nhap input `node`
+# va open_firewall=true; mo xong se dong lai ngay (khong de policy ton tai).
 on:
   workflow_dispatch:
+    inputs:
+      node:
+        description: "Node code/IP de tra CR (va mo/dong firewall neu bat). Trong = bo qua."
+        required: false
+        default: ""
+      open_firewall:
+        description: "Mo firewall cho node roi dong lai ngay"
+        type: boolean
+        default: false
 
 concurrency:
   group: deploy-vpn4-host
@@ -12,28 +22,43 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     steps:
-      - name: vpn4 - login GatePro va kiem tra session OTP
+      - name: vpn4 - full flow qua API GatePro
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.SSH_HOST_VPN4 }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_KEY }}
           port: ${{ secrets.SSH_PORT || '22' }}
+          envs: GATEPRO_API_PASSWORD,NODE,OPEN_FW
           script_stop: false
-          command_timeout: 10m
+          command_timeout: 15m
           script: |
-            set -eu
-            if [ "$(id -u)" -ne 0 ]; then SUDO="sudo -n"; else SUDO=""; fi
-            ROOT=/srv/gatepro
-            test -f "$ROOT/docker-compose.yml" || { echo "::error::GatePro compose chua duoc deploy"; exit 1; }
-            cd "$ROOT"
-            DC="$SUDO docker compose --project-name gatepro-vpn4 -f $ROOT/docker-compose.yml"
-            # Lock theo service logic: login doc mailbox OTP va chi luu session ma hoa trong DB.
-            # Khong co command firewall trong workflow nay.
-            $DC run --rm --no-deps -T --entrypoint gatepro gatepro login
-            STATUS=$($DC run --rm --no-deps -T --entrypoint gatepro gatepro --json status)
-            printf '%s\n' "$STATUS" | grep -q '"otp_verified": true' || {
-              echo "::error::session chua otp_verified"
-              exit 1
-            }
-            printf '%s\n' "$STATUS" | grep -v -iE 'session_id|password|token'
+            set -u
+            API=http://100.64.0.4:8080
+            redact() { sed -E 's/("(session_id|sessionId|token|access_token|password[a-z_]*|otp_token|passwordAuth)"[[:space:]]*:[[:space:]]*)"[^"]*"/\1"***"/g' | head -c 3000; echo; }
+            call() { M=$1; P=$2; D=${3:-}; 
+              if [ -n "$D" ]; then R=$(curl -sS --max-time 400 -X "$M" "$API$P" -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d "$D" -w '\nHTTP=%{http_code}');
+              else R=$(curl -sS --max-time 400 -X "$M" "$API$P" -H "Authorization: Bearer $TOKEN" -w '\nHTTP=%{http_code}'); fi
+              echo "---- $M $P"; printf '%s\n' "$R" | redact; }
+            TOKEN=$(curl -fsS -X POST "$API/auth/token" -H 'Content-Type: application/json' \
+              -d "{\"username\":\"cms\",\"password\":\"$GATEPRO_API_PASSWORD\"}" | python3 -c 'import json,sys;print(json.load(sys.stdin)["access_token"])') \
+              || { echo "::error::khong lay duoc token API"; exit 1; }
+            echo "== 1. status truoc login"; call GET /status
+            echo "== 2. login + OTP (doc mailbox, toi da vai phut)"; call POST /login '{}'
+            echo "== 3. status sau login"; call GET /status
+            S=$(curl -sS "$API/status" -H "Authorization: Bearer $TOKEN")
+            printf '%s' "$S" | grep -q '"otp_verified": *true' || { echo "::error::session chua otp_verified"; echo "== log API"; sudo -n docker logs --tail 60 gatepro 2>&1 | redact; exit 1; }
+            echo "== 4. search node"; call GET "/nodes?q=${NODE}"
+            if [ -n "$NODE" ]; then
+              echo "== 5. CR cua $NODE"; call GET "/nodes/$NODE/crs"
+              if [ "$OPEN_FW" = "true" ]; then
+                echo "== 6. mo firewall $NODE"; call POST /connections "{\"nodes\":[\"$NODE\"]}"
+                call GET /connections
+                echo "== 7. dong firewall $NODE"; call DELETE "/connections/$NODE"
+              fi
+            fi
+            echo "FULL FLOW OK"
+        env:
+          GATEPRO_API_PASSWORD: ${{ secrets.GATEPRO_API_PASSWORD }}
+          NODE: ${{ inputs.node }}
+          OPEN_FW: ${{ inputs.open_firewall }}
