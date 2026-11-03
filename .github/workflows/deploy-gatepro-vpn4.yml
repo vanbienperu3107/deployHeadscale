@@ -4,7 +4,7 @@ name: Deploy GatePro (vpn4 API, vpn6 database, tailnet-only)
 # - CHI chay bang tay. Dung chung lock deploy-vpn4-host.
 # - API chi bind IP tailnet cua vpn4 (khong Caddy/nginx/DNS/UFW).
 # - Schema do chinh image tao bang `gatepro db init` (khong viet SQL bang).
-# - Monitor KHONG bat o lan dau (chua co tai khoan GatePro/mail).
+# - Monitor tu gia han firewall: bat khi da co user GatePro (secrets) - da test ensure-open PASS.
 # - vpn4 ket noi DB qua duong ham SSH rieng (khuon cliproxy-pg-tunnel), vi
 #   derp-postgres chi nghe trong mang docker cua vpn6.
 on:
@@ -171,7 +171,7 @@ jobs:
               '    restart: unless-stopped' \
               '    depends_on: [gatepro-pg-tunnel]' \
               '    entrypoint: ["gatepro-api"]' \
-              '    command: ["serve"]' \
+              '    command: ["serve", "--with-monitor"]' \
                "    ports: [\"$VPN4_TS_IP:8080:8080\"]" \
                '    mem_limit: 256m' \
                '    environment:' \
@@ -238,6 +238,9 @@ jobs:
             snapshot_unrelated_workloads > after.snap
             cmp -s before.snap after.snap || { diff before.snap after.snap || true; echo "::error::workload khac bi thay doi"; exit 1; }
             echo "workload khac khong doi"
+            sleep 3
+            $SUDO docker logs gatepro 2>&1 | grep -q '\[monitor\] started' || { echo "::error::monitor khong khoi dong"; exit 1; }
+            echo "monitor started"
             $DC ps
             rm -f deploy_key
         env:

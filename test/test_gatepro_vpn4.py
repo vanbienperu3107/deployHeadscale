@@ -43,7 +43,8 @@ def test_vpn6_only_creates_isolated_role_and_database():
 def test_schema_only_from_image_and_no_monitor():
     s = script_for("SSH_HOST_VPN4")["with"]["script"]
     assert "gatepro db init" in s
-    assert "--with-monitor" not in s
+    assert '"serve", "--with-monitor"' in s
+    assert "[monitor\\\\] started" in s or "monitor started" in s
     assert "CREATE TABLE" not in s
 
 
