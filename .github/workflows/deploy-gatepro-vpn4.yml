@@ -210,6 +210,11 @@ jobs:
             if [ -n "${GATEPRO_USERNAME:-}" ] && [ -n "${GATEPRO_PASSWORD:-}" ] && [ -n "${GATEPRO_MAIL_PASSWORD:-}" ]; then
               printf '%s\n%s\n' "$GATEPRO_PASSWORD" "$GATEPRO_MAIL_PASSWORD" | $GP db user-set "$GATEPRO_USERNAME" \
                 --password --mail-username "${GATEPRO_MAIL_USERNAME:-$GATEPRO_USERNAME}" --mail-password --otp-source email --enable
+              # Chi user tu secret la active: dat GATEPRO_USER va tat cac user khac.
+              $GP db config-set GATEPRO_USER "$GATEPRO_USERNAME" >/dev/null
+              for u in $($GP --json db user-list 2>/dev/null | python3 -c 'import json,sys; print(" ".join(x["username"] for x in json.load(sys.stdin) if x["enabled"]))' 2>/dev/null); do
+                test "$u" = "$GATEPRO_USERNAME" || $GP db user-set "$u" --disable >/dev/null
+              done
             fi
             $GP db config-show 2>&1 | grep -v -i -E 'password|secret' || true
             $GP db user-list || true
