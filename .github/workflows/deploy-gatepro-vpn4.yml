@@ -1,0 +1,213 @@
+name: Deploy GatePro (vpn4 API, vpn6 database, tailnet-only)
+
+# GatePro API + MCP tren vpn4, DB rieng `gatepro` tren derp-postgres (vpn6).
+# - CHI chay bang tay. Dung chung lock deploy-vpn4-host.
+# - API chi bind IP tailnet cua vpn4 (khong Caddy/nginx/DNS/UFW).
+# - Schema do chinh image tao bang `gatepro db init` (khong viet SQL bang).
+# - Monitor KHONG bat o lan dau (chua co tai khoan GatePro/mail).
+# - vpn4 ket noi DB qua duong ham SSH rieng (khuon cliproxy-pg-tunnel), vi
+#   derp-postgres chi nghe trong mang docker cua vpn6.
+on:
+  workflow_dispatch:
+    inputs:
+      gatepro_ref:
+        description: "Commit gatepro-client can deploy"
+        required: true
+        default: "075d520da1ed8da625e2a91ffcfc3e6f929b92c9"
+
+concurrency:
+  group: deploy-vpn4-host
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Kiem tra secrets (khong in gia tri)
+        env:
+          A: ${{ secrets.SSH_HOST_VPN4 }}
+          B: ${{ secrets.SSH_HOST_VPN6 }}
+          C: ${{ secrets.SSH_KEY }}
+          D: ${{ secrets.GATEPRO_DB_PASSWORD }}
+          E: ${{ secrets.GATEPRO_DB_SECRET_KEY }}
+          F: ${{ secrets.GATEPRO_API_PASSWORD }}
+          G: ${{ secrets.GATEPRO_DEPLOY_KEY }}
+          DBPW: ${{ secrets.GATEPRO_DB_PASSWORD }}
+        run: |
+          for v in A B C D E F G; do eval "x=\${$v}"; test -n "$x" || { echo "::error::thieu secret ($v)"; exit 1; }; done
+          printf '%s' "$DBPW" | grep -Eq '^[A-Za-z0-9]{24,}$' || { echo "::error::GATEPRO_DB_PASSWORD phai la [A-Za-z0-9]{24,}"; exit 1; }
+
+      - name: vpn6 - tao role/database gatepro (khong dung DB khac)
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SSH_HOST_VPN6 }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT || '22' }}
+          envs: GATEPRO_DB_PASSWORD
+          script_stop: false
+          command_timeout: 5m
+          script: |
+            set -eu
+            if [ "$(id -u)" -ne 0 ]; then SUDO="sudo -n"; else SUDO=""; fi
+            P="$SUDO docker exec -i derp-postgres psql -v ON_ERROR_STOP=1 -U derp -d postgres -tA"
+            ROLE=$($P -c "SELECT count(*) FROM pg_roles WHERE rolname='gatepro'")
+            test "$ROLE" = "0" && $P -c "CREATE ROLE gatepro LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE"
+            ATTR=$($P -c "SELECT rolcanlogin::text||rolsuper::text||rolcreatedb::text||rolcreaterole::text FROM pg_roles WHERE rolname='gatepro'")
+            test "$ATTR" = "truefalsefalsefalse" || { echo "::error::role gatepro co thuoc tinh bat thuong: $ATTR"; exit 1; }
+            $SUDO docker exec -i -e PW="$GATEPRO_DB_PASSWORD" derp-postgres sh -c 'psql -v ON_ERROR_STOP=1 -U derp -d postgres -q -c "ALTER ROLE gatepro PASSWORD '"'"'$PW'"'"'"' >/dev/null
+            DB=$($P -c "SELECT count(*) FROM pg_database WHERE datname='gatepro'")
+            test "$DB" = "0" && $P -c "CREATE DATABASE gatepro OWNER gatepro"
+            OWNER=$($P -c "SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname='gatepro'")
+            test "$OWNER" = "gatepro" || { echo "::error::database gatepro thuoc owner $OWNER"; exit 1; }
+            $P -c "REVOKE CONNECT, TEMP ON DATABASE gatepro FROM PUBLIC"
+            echo "role+db gatepro OK (owner=$OWNER)"
+            # Positive: gatepro vao duoc DB rieng (qua TCP, dung mat khau)
+            $SUDO docker exec -i -e PGPASSWORD="$GATEPRO_DB_PASSWORD" derp-postgres psql -h 127.0.0.1 -U gatepro -d gatepro -tAc "SELECT 'gatepro-login-ok'"
+            # Negative: KHONG vao duoc cac DB khac
+            DENIED=0
+            for d in $($P -c "SELECT datname FROM pg_database WHERE datallowconn AND datname NOT IN ('gatepro','template1','postgres')"); do
+              if $SUDO docker exec -i -e PGPASSWORD="$GATEPRO_DB_PASSWORD" derp-postgres psql -h 127.0.0.1 -U gatepro -d "$d" -tAc "SELECT 1" >/dev/null 2>&1; then
+                echo "::warning::gatepro ket noi duoc DB khac ($d) - kiem quyen schema"
+                $SUDO docker exec -i -e PGPASSWORD="$GATEPRO_DB_PASSWORD" derp-postgres psql -h 127.0.0.1 -U gatepro -d "$d" -tAc "SELECT count(*) FROM information_schema.table_privileges WHERE grantee IN ('gatepro','PUBLIC') AND table_schema NOT IN ('pg_catalog','information_schema')"
+              else
+                DENIED=$((DENIED+1))
+              fi
+            done
+            echo "so DB khac tu choi gatepro: $DENIED"
+            echo "PG_CONTAINER_IP=$($SUDO docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}' derp-postgres)"
+        env:
+          GATEPRO_DB_PASSWORD: ${{ secrets.GATEPRO_DB_PASSWORD }}
+
+      - name: vpn4 - build + init schema + chay API (tailnet only)
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SSH_HOST_VPN4 }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT || '22' }}
+          envs: GATEPRO_DB_PASSWORD,GATEPRO_DB_SECRET_KEY,GATEPRO_API_PASSWORD,GATEPRO_DEPLOY_KEY,GATEPRO_REF
+          script_stop: false
+          command_timeout: 25m
+          script: |
+            set -eu
+            if [ "$(id -u)" -ne 0 ]; then SUDO="sudo -n"; else SUDO=""; fi
+            ROOT=/srv/gatepro
+            SRC=$ROOT/src
+            $SUDO mkdir -p "$ROOT"
+            $SUDO chown "$(id -u):$(id -g)" "$ROOT"
+            chmod 700 "$ROOT"
+            cd "$ROOT"
+            umask 077
+
+            echo "==> snapshot workload khac"
+            snapshot_unrelated_workloads() { $SUDO docker ps --format '{{.Names}}' | grep -v '^gatepro' | sort | while read -r c; do $SUDO docker inspect -f '{{.Name}}|{{.RestartCount}}|{{.State.StartedAt}}' "$c"; done; }
+            snapshot_unrelated_workloads > before.snap
+
+            echo "==> IP tailnet"
+            VPN4_TS_IP=$(tailscale ip -4 2>/dev/null | head -1 || true)
+            test -n "$VPN4_TS_IP" || VPN4_TS_IP=$($SUDO tailscale ip -4 | head -1)
+            case "$VPN4_TS_IP" in 100.*) ;; *) echo "::error::khong lay duoc IP tailnet vpn4"; exit 1 ;; esac
+            echo "vpn4 tailnet: $VPN4_TS_IP"
+            EGRESS_IP=$(curl -s4 --max-time 10 https://api.ipify.org || true)
+            echo "vpn4 egress: $EGRESS_IP"
+
+            echo "==> lay source (deploy key read-only)"
+            printf '%s\n' "$GATEPRO_DEPLOY_KEY" > deploy_key
+            chmod 600 deploy_key
+            export GIT_SSH_COMMAND="ssh -i $ROOT/deploy_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
+            test -d "$SRC/.git" || git clone -q git@github.com:vanbienperu3107/gatepro-client.git "$SRC"
+            git -C "$SRC" fetch -q origin
+            git -C "$SRC" checkout -q --detach "$GATEPRO_REF"
+            HEAD=$(git -C "$SRC" rev-parse HEAD)
+            test "$HEAD" = "$(git -C "$SRC" rev-parse "$GATEPRO_REF^{commit}")"
+            echo "source HEAD=$HEAD"
+
+            echo "==> build image"
+            $SUDO docker build -q -t "gatepro-client:$(printf %.7s "$HEAD")" -t gatepro-client:latest "$SRC"
+
+            echo "==> duong ham DB (khoa pgtunnel cua stack opencode)"
+            mkdir -p keys
+            test -s keys/pg_tunnel_key || $SUDO cp /opt/opencode/keys/pg_tunnel_key keys/pg_tunnel_key
+            test -s keys/known_hosts || $SUDO cp /opt/opencode/keys/known_hosts keys/known_hosts
+            $SUDO chown "$(id -u):$(id -g)" keys/pg_tunnel_key keys/known_hosts
+            chmod 600 keys/pg_tunnel_key; chmod 644 keys/known_hosts
+
+            echo "==> db.env + compose"
+            printf 'GATEPRO_DB_DSN=postgresql://gatepro:%s@gatepro-pg-tunnel:5432/gatepro?sslmode=disable\nGATEPRO_DB_SECRET_KEY=%s\n' "$GATEPRO_DB_PASSWORD" "$GATEPRO_DB_SECRET_KEY" > db.env
+            $SUDO chown 10001 db.env
+            $SUDO chmod 600 db.env
+            printf '%s\n' \
+              'name: gatepro-vpn4' \
+              'services:' \
+              '  gatepro-pg-tunnel:' \
+              '    image: ghcr.io/vanbienperu3107/pg-tunnel:3bfbbdbacd678b599b04fff2d45ac7cfd164f94c' \
+              '    container_name: gatepro-pg-tunnel' \
+              '    restart: unless-stopped' \
+              '    command: autossh -M 0 -N -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -o ExitOnForwardFailure=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=/keys/known_hosts -o HostKeyAlias=45.119.87.220 -i /keys/pg_tunnel_key -L 0.0.0.0:5432:172.21.0.2:5432 pgtunnel@100.64.0.7' \
+              '    volumes: ["./keys:/keys:ro"]' \
+              '    mem_limit: 64m' \
+              '  gatepro:' \
+              '    image: gatepro-client:latest' \
+              '    container_name: gatepro' \
+              '    restart: unless-stopped' \
+              '    depends_on: [gatepro-pg-tunnel]' \
+              '    entrypoint: ["gatepro-api"]' \
+              '    command: ["serve"]' \
+              "    ports: [\"$VPN4_TS_IP:8080:8080\"]" \
+              '    mem_limit: 256m' \
+              '    volumes:' \
+              '      - ./db.env:/etc/gatepro/db.env:ro' \
+              '      - gatepro-config:/home/app/.config/gatepro' \
+              'volumes:' \
+              '  gatepro-config:' > docker-compose.yml
+            DC="$SUDO docker compose --project-name gatepro-vpn4 -f $ROOT/docker-compose.yml"
+            $DC config -q
+
+            cleanup_gatepro_failure() {
+              echo "::error::deploy GatePro that bai -> go project gatepro-vpn4 (giu volume + DB)"
+              $DC logs --tail 60 2>&1 | grep -v -i password || true
+              $DC down || true
+            }
+            trap 'rc=$?; test $rc -eq 0 || cleanup_gatepro_failure' EXIT
+
+            $DC up -d gatepro-pg-tunnel
+            sleep 5
+            for i in 1 2 3 4 5 6; do $DC run --rm --no-deps -T --entrypoint gatepro gatepro db init && break; sleep 5; done
+            $DC run --rm --no-deps -T --entrypoint gatepro gatepro db init
+            echo "schema init x2 OK"
+            # Cau hinh khoi dau (BASE_URL theo docs/DEPLOY.md; identity = egress that, KHONG phai tailnet)
+            GP="$DC run --rm --no-deps -T --entrypoint gatepro gatepro"
+            $GP db config-set GATEPRO_BASE_URL http://10.121.184.48:8033/BusinessProcessServer >/dev/null || true
+            test -n "$EGRESS_IP" && $GP db config-set GATEPRO_IP_CLIENT "$EGRESS_IP" >/dev/null
+            test -n "$EGRESS_IP" && $GP db config-set GATEPRO_HOST_ADDRESS "$EGRESS_IP" >/dev/null
+            $GP db config-set GATEPRO_HOST_NAME vpn4 >/dev/null
+            $GP db config-show 2>&1 | grep -v -i -E 'password|secret' || true
+            printf '%s\n' "$GATEPRO_API_PASSWORD" | $DC run --rm --no-deps -T gatepro set-account cms
+            $DC up -d --remove-orphans
+
+            echo "==> verify"
+            OK=0
+            for i in $(seq 1 30); do C=$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 "http://$VPN4_TS_IP:8080/healthz" || true); test "$C" = "200" && { OK=1; break; }; sleep 2; done
+            test "$OK" = "1" || { echo "::error::healthz khong 200"; exit 1; }
+            NOAUTH=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "http://$VPN4_TS_IP:8080/status")
+            test "$NOAUTH" = "401" || { echo "::error::/status khong token tra $NOAUTH"; exit 1; }
+            TOKEN=$(curl -fsS --max-time 10 -X POST "http://$VPN4_TS_IP:8080/auth/token" -H 'Content-Type: application/json' -d "{\"username\":\"cms\",\"password\":\"$GATEPRO_API_PASSWORD\"}" | python3 -c 'import json,sys;print(json.load(sys.stdin)["access_token"])')
+            CONN=$(curl -fsS --max-time 10 "http://$VPN4_TS_IP:8080/connections" -H "Authorization: Bearer $TOKEN")
+            echo "$CONN" | grep -q '"source":"database"' || echo "connections: $(echo "$CONN" | head -c 200)"
+            BIND=$($SUDO docker inspect -f '{{range $p, $b := .HostConfig.PortBindings}}{{range $b}}{{.HostIp}}:{{.HostPort}} {{end}}{{end}}' gatepro)
+            test "$BIND" = "$VPN4_TS_IP:8080 " || { echo "::error::port binding sai: $BIND"; exit 1; }
+            LISTEN=$($SUDO ss -ltnH 'sport = :8080' | awk '{print $4}' | sort -u | tr '\n' ' ')
+            test "$LISTEN" = "$VPN4_TS_IP:8080 " || { echo "::error::listener 8080 sai: $LISTEN"; exit 1; }
+            echo "healthz=200 status_noauth=$NOAUTH bind=$BIND listen=$LISTEN"
+            snapshot_unrelated_workloads > after.snap
+            cmp -s before.snap after.snap || { diff before.snap after.snap || true; echo "::error::workload khac bi thay doi"; exit 1; }
+            echo "workload khac khong doi"
+            $DC ps
+            rm -f deploy_key
+        env:
+          GATEPRO_DB_PASSWORD: ${{ secrets.GATEPRO_DB_PASSWORD }}
+          GATEPRO_DB_SECRET_KEY: ${{ secrets.GATEPRO_DB_SECRET_KEY }}
+          GATEPRO_API_PASSWORD: ${{ secrets.GATEPRO_API_PASSWORD }}
+          GATEPRO_DEPLOY_KEY: ${{ secrets.GATEPRO_DEPLOY_KEY }}
+          GATEPRO_REF: ${{ inputs.gatepro_ref }}
