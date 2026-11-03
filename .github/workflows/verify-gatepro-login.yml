@@ -91,10 +91,17 @@ jobs:
             else
               LIST=$(printf '%s' "$NODE" | tr ',' ' ')
             fi
-            FAILED=""; OKS=""
+            FAILED=""; OKS=""; SKIPPED=""
             for NODE in $LIST; do
             echo "################ $NODE"
             echo "== 4. CR cua $NODE"; call GET "/nodes/$NODE/crs"
+            # Chi xu ly node co dong FIREWALL 20-65535 VA co it nhat mot CR dung duoc.
+            CRS=$(curl -sS --max-time 400 "$API/nodes/$NODE/crs" -H "Authorization: Bearer $TOKEN")
+            ELIG=$(CRS_JSON="$CRS" python3 -c 'import json,os
+            d=json.loads(os.environ["CRS_JSON"])
+            ok=d.get("protocol")=="FIREWALL" and d.get("port")=="20-65535" and len(d.get("crs") or [])>0
+            print("yes" if ok else "no:port=%s,protocol=%s,crs=%d"%(d.get("port"),d.get("protocol"),len(d.get("crs") or [])))' 2>/dev/null || echo "no:parse")
+            if [ "$ELIG" != "yes" ]; then echo "BO QUA $NODE ($ELIG)"; SKIPPED="$SKIPPED $NODE"; continue; fi
             [ "$OPEN_FW" = "true" ] || continue
 
             BEFORE=$(node_state); echo "== 5. trang thai truoc: $BEFORE"
@@ -118,6 +125,7 @@ jobs:
             for r in json.load(sys.stdin).get("connections",[]): print("%-14s %-6s het_han=%s gia_han=%s loi=%s"%(r["node_code"],r["status"],r["expires_at"][:19],r["renew_count"],r["last_error"]))'
             echo "OK:    ${OKS:- (khong co)}"
             echo "LOI:   ${FAILED:- (khong co)}"
+            echo "BO QUA (khong co CR/FIREWALL 20-65535): ${SKIPPED:- (khong co)}"
             [ -z "$OKS" ] && [ -n "$FAILED" ] && { echo "::error::khong node nao mo duoc"; exit 1; }
             echo "FULL FLOW OK"
         env:
