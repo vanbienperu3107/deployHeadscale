@@ -106,7 +106,9 @@ jobs:
 
             echo "==> IP tailnet"
             VPN4_TS_IP=$(tailscale ip -4 2>/dev/null | head -1 || true)
-            test -n "$VPN4_TS_IP" || VPN4_TS_IP=$($SUDO tailscale ip -4 | head -1)
+            test -n "$VPN4_TS_IP" || VPN4_TS_IP=$($SUDO tailscale ip -4 2>/dev/null | head -1 || true)
+            # vpn4 hien chay Tailscale trong sidecar ts-vpn4, khong phai binary native.
+            test -n "$VPN4_TS_IP" || VPN4_TS_IP=$($SUDO docker exec ts-vpn4 tailscale ip -4 2>/dev/null | head -1 || true)
             case "$VPN4_TS_IP" in 100.*) ;; *) echo "::error::khong lay duoc IP tailnet vpn4"; exit 1 ;; esac
             echo "vpn4 tailnet: $VPN4_TS_IP"
             EGRESS_IP=$(curl -s4 --max-time 10 https://api.ipify.org || true)
