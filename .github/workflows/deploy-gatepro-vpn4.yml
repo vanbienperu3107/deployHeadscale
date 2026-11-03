@@ -98,7 +98,6 @@ jobs:
             $SUDO chown "$(id -u):$(id -g)" "$ROOT"
             chmod 700 "$ROOT"
             cd "$ROOT"
-            umask 077
 
             echo "==> snapshot workload khac"
             snapshot_unrelated_workloads() { $SUDO docker ps --format '{{.Names}}' | grep -v '^gatepro' | sort | while read -r c; do $SUDO docker inspect -f '{{.Name}}|{{.RestartCount}}|{{.State.StartedAt}}' "$c"; done; }
@@ -128,6 +127,9 @@ jobs:
             test "$HEAD" = "$(git -C "$SRC" rev-parse "$GATEPRO_REF^{commit}")"
             echo "source HEAD=$HEAD"
 
+            # Thu muc source clone co the ke thua umask restrictive cua deploy truoc;
+            # image chay uid 10001 nen tat ca source phai world-readable, khong co secret o day.
+            chmod -R a+rX "$SRC"
             echo "==> build image"
             $SUDO docker build -q -t "gatepro-client:$(printf %.7s "$HEAD")" -t gatepro-client:latest "$SRC"
 
@@ -139,6 +141,7 @@ jobs:
             chmod 600 keys/pg_tunnel_key; chmod 644 keys/known_hosts
 
             echo "==> db.env + compose"
+            umask 077
             # Fernet key duoc tao tren vpn4 de khong qua SSH/GitHub env (tranh mat padding).
             FERNET_KEY=$($SUDO docker run --rm gatepro-client:latest db gen-key)
             printf 'GATEPRO_DB_DSN=postgresql://gatepro:%s@gatepro-pg-tunnel:5432/gatepro?sslmode=disable\nGATEPRO_DB_SECRET_KEY=%s\n' "$GATEPRO_DB_PASSWORD" "$FERNET_KEY" > db.env
