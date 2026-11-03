@@ -91,7 +91,7 @@ jobs:
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_KEY }}
           port: ${{ secrets.SSH_PORT || '22' }}
-          envs: GATEPRO_DB_PASSWORD,GATEPRO_DB_SECRET_KEY_HEX,GATEPRO_API_PASSWORD,GATEPRO_DEPLOY_KEY,GATEPRO_REF
+          envs: GATEPRO_DB_PASSWORD,GATEPRO_DB_SECRET_KEY_HEX,GATEPRO_API_PASSWORD,GATEPRO_DEPLOY_KEY,GATEPRO_REF,GATEPRO_USERNAME,GATEPRO_PASSWORD,GATEPRO_MAIL_USERNAME,GATEPRO_MAIL_PASSWORD,GATEPRO_IP_CLIENT,GATEPRO_HOST_NAME
           script_stop: false
           command_timeout: 25m
           script: |
@@ -202,7 +202,17 @@ jobs:
             # ITOPS-THANHHN5) nguoi dung da cau hinh trong DB.
             CUR=$($GP db config-show 2>/dev/null || true)
             printf '%s' "$CUR" | grep -q '^GATEPRO_BASE_URL ' || $GP db config-set GATEPRO_BASE_URL http://10.121.184.48:8033/BusinessProcessServer >/dev/null
+            # Identity + tai khoan GatePro tu GitHub Secrets (neu co). Mat khau di qua stdin,
+            # duoc ma hoa bang Fernet key hien tai; khong in ra log.
+            test -n "${GATEPRO_IP_CLIENT:-}" && $GP db config-set GATEPRO_IP_CLIENT "$GATEPRO_IP_CLIENT" >/dev/null
+            test -n "${GATEPRO_IP_CLIENT:-}" && $GP db config-set GATEPRO_HOST_ADDRESS "$GATEPRO_IP_CLIENT" >/dev/null
+            test -n "${GATEPRO_HOST_NAME:-}" && $GP db config-set GATEPRO_HOST_NAME "$GATEPRO_HOST_NAME" >/dev/null
+            if [ -n "${GATEPRO_USERNAME:-}" ] && [ -n "${GATEPRO_PASSWORD:-}" ] && [ -n "${GATEPRO_MAIL_PASSWORD:-}" ]; then
+              printf '%s\n%s\n' "$GATEPRO_PASSWORD" "$GATEPRO_MAIL_PASSWORD" | $GP db user-set "$GATEPRO_USERNAME" \
+                --password --mail-username "${GATEPRO_MAIL_USERNAME:-$GATEPRO_USERNAME}" --mail-password --otp-source email --enable
+            fi
             $GP db config-show 2>&1 | grep -v -i -E 'password|secret' || true
+            $GP db user-list || true
             printf '%s\n' "$GATEPRO_API_PASSWORD" | $DC run --rm --no-deps -T gatepro set-account cms --scopes status:read,nodes:read,connections:read,connections:open,connections:close,config:read,config:write,users:read,users:write,audit:read,mcp:access
             $DC up -d --remove-orphans
 
@@ -229,5 +239,11 @@ jobs:
           GATEPRO_DB_PASSWORD: ${{ secrets.GATEPRO_DB_PASSWORD }}
           GATEPRO_DB_SECRET_KEY_HEX: ${{ secrets.GATEPRO_DB_SECRET_KEY_HEX }}
           GATEPRO_API_PASSWORD: ${{ secrets.GATEPRO_API_PASSWORD }}
+          GATEPRO_USERNAME: ${{ secrets.GATEPRO_USERNAME }}
+          GATEPRO_PASSWORD: ${{ secrets.GATEPRO_PASSWORD }}
+          GATEPRO_MAIL_USERNAME: ${{ secrets.GATEPRO_MAIL_USERNAME }}
+          GATEPRO_MAIL_PASSWORD: ${{ secrets.GATEPRO_MAIL_PASSWORD }}
+          GATEPRO_IP_CLIENT: ${{ vars.GATEPRO_IP_CLIENT }}
+          GATEPRO_HOST_NAME: ${{ vars.GATEPRO_HOST_NAME }}
           GATEPRO_DEPLOY_KEY: ${{ secrets.GATEPRO_DEPLOY_KEY }}
           GATEPRO_REF: ${{ inputs.gatepro_ref }}
