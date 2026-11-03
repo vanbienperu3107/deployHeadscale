@@ -24,6 +24,10 @@ jobs:
             set -u
             if [ "$(id -u)" -ne 0 ]; then SUDO="sudo -n"; else SUDO=""; fi
             TARGET=10.121.184.48
+            echo '== Tailscale daemon/socket inventory =='
+            $SUDO ls -la /var/run/tailscale /run/tailscale 2>&1 || true
+            $SUDO find /var/run /run -maxdepth 3 -type s -name '*tailscale*.sock' -print 2>/dev/null || true
+            $SUDO docker ps -a --format '{{.Names}} {{.Image}}' | grep -i tailscale || true
             echo '== Tailscale preferences va subnet route =='
             $SUDO tailscale debug prefs 2>&1 || true
             $SUDO tailscale status 2>&1 | grep -E 'itop-thanhnh5|100\.64\.0\.21|10\.121' || true
