@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       node:
-        description: "Node code/IP. Trong = chi login + search."
+        description: "Node code/IP, nhieu node cach nhau dau phay, hoac ALL. Trong = chi login + search."
         required: false
         default: ""
       open_firewall:
@@ -37,7 +37,7 @@ jobs:
           port: ${{ secrets.SSH_PORT || '22' }}
           envs: GATEPRO_API_PASSWORD,NODE,OPEN_FW,CLOSE_AFTER
           script_stop: false
-          command_timeout: 15m
+          command_timeout: 40m
           script: |
             set -u
             API=http://100.64.0.4:8080
@@ -50,7 +50,7 @@ jobs:
             node_state() { curl -sS "$API/connections" -H "Authorization: Bearer $TOKEN" | python3 -c '
             import json,sys; n=sys.argv[1]; rows=[r for r in json.load(sys.stdin).get("connections",[]) if r.get("node_code")==n]
             print(rows[0]["status"] if rows else "none")' "$NODE"; }
-            ok_or_die() { printf '%s' "$OUT" | grep -q '"ok": *true' || { echo "::error::$1"; exit 1; }; }
+            ok_or_die() { printf '%s' "$OUT" | grep -q '"ok": *true' || { echo "::error::$NODE: $1"; exit 1; }; }
             TOKEN=$(curl -fsS -X POST "$API/auth/token" -H 'Content-Type: application/json' \
               -d "{\"username\":\"cms\",\"password\":\"$GATEPRO_API_PASSWORD\"}" | python3 -c 'import json,sys;print(json.load(sys.stdin)["access_token"])') \
               || { echo "::error::khong lay duoc token API"; exit 1; }
@@ -85,8 +85,16 @@ jobs:
             print("TONG: %d node, %d dang open"%(len(seen),sum(1 for r in c if r.get("status")=="open")))
             '
             [ -n "$NODE" ] || { echo "FULL FLOW OK"; exit 0; }
+            if [ "$NODE" = "ALL" ]; then
+              LIST=$(NODES_JSON="$N" python3 -c 'import json,os;print(" ".join(sorted({i["exchangeCode"] for i in json.loads(os.environ["NODES_JSON"]).get("items",[])})))')
+            else
+              LIST=$(printf '%s' "$NODE" | tr ',' ' ')
+            fi
+            FAIL=0
+            for NODE in $LIST; do
+            echo "################ $NODE"
             echo "== 4. CR cua $NODE"; call GET "/nodes/$NODE/crs"
-            [ "$OPEN_FW" = "true" ] || { echo "FULL FLOW OK"; exit 0; }
+            [ "$OPEN_FW" = "true" ] || continue
 
             BEFORE=$(node_state); echo "== 5. trang thai truoc: $BEFORE"
             if [ "$BEFORE" = "open" ]; then
@@ -101,7 +109,13 @@ jobs:
             if [ "$CLOSE_AFTER" = "true" ]; then
               echo "== 8. dong lai sau test"; call DELETE "/connections/$NODE"; ok_or_die "dong sau test that bai"
             fi
-            echo "ENSURE-OPEN OK (truoc=$BEFORE sau=$AFTER)"
+            echo "ENSURE-OPEN OK $NODE (truoc=$BEFORE sau=$AFTER)"
+            done
+            echo "== tong ket"
+            curl -sS "$API/connections" -H "Authorization: Bearer $TOKEN" | python3 -c '
+            import json,sys
+            for r in json.load(sys.stdin).get("connections",[]): print("%-14s %-6s het_han=%s gia_han=%s loi=%s"%(r["node_code"],r["status"],r["expires_at"][:19],r["renew_count"],r["last_error"]))'
+            echo "FULL FLOW OK"
         env:
           GATEPRO_API_PASSWORD: ${{ secrets.GATEPRO_API_PASSWORD }}
           NODE: ${{ inputs.node }}

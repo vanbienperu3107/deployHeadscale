@@ -47,3 +47,9 @@ jobs:
             echo
             echo '== log GatePro (chi network/config, redact) =='
             $SUDO docker logs --tail 100 gatepro 2>&1 | grep -iE 'timeout|network|connect|config|route|identity|error' | grep -v -iE 'password|token|session_id' || true
+            echo '== container gatepro =='
+            $SUDO docker ps -a --filter name=gatepro --format '{{.Names}} | {{.Status}} | restarts={{.RunningFor}}'
+            $SUDO docker inspect -f 'state={{.State.Status}} restarts={{.RestartCount}} started={{.State.StartedAt}} oom={{.State.OOMKilled}} exit={{.State.ExitCode}}' gatepro 2>&1 || true
+            $SUDO docker stats --no-stream --format '{{.Name}} mem={{.MemUsage}} cpu={{.CPUPerc}}' gatepro gatepro-pg-tunnel 2>&1 || true
+            echo '== log gatepro 120 dong cuoi (redact) =='
+            $SUDO docker logs --tail 120 gatepro 2>&1 | grep -v -iE 'password|token|session_id' || true
