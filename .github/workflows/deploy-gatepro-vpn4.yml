@@ -160,9 +160,10 @@ jobs:
               '    container_name: gatepro-pg-tunnel' \
               '    restart: unless-stopped' \
               '    command: autossh -M 0 -N -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -o ExitOnForwardFailure=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=/keys/known_hosts -o HostKeyAlias=45.119.87.220 -i /keys/pg_tunnel_key -L 0.0.0.0:5432:172.21.0.2:5432 pgtunnel@100.64.0.7' \
-              '    volumes: ["./keys:/keys:ro"]' \
-              '    mem_limit: 64m' \
-              '  gatepro:' \
+               '    volumes: ["./keys:/keys:ro"]' \
+               "    ports: [\"$VPN4_TS_IP:5433:5432\"]" \
+               '    mem_limit: 64m' \
+               '  gatepro:' \
               '    image: gatepro-client:latest' \
               '    container_name: gatepro' \
               '    restart: unless-stopped' \
