@@ -66,9 +66,10 @@ jobs:
             printf '%s' "$S" | grep -q '"otp_verified": *true' || { echo "::error::session chua otp_verified"; exit 1; }
             echo "session OK: $(printf '%s' "$S" | python3 -c 'import json,sys;d=json.load(sys.stdin);print(d["username"], int(d["seconds_remaining"]),"s")')"
 
-            echo "== 3. search node"; call GET "/nodes?q=${NODE}"
+            Q="$NODE"; case "$NODE" in ALL|*,*) Q="";; esac
+            echo "== 3. search node"; call GET "/nodes?q=${Q}"
             echo "== 3b. bang tong hop node (GatePro) + trang thai firewall (DB)"
-            N=$(curl -sS --max-time 400 "$API/nodes?q=${NODE}" -H "Authorization: Bearer $TOKEN")
+            N=$(curl -sS --max-time 400 "$API/nodes?q=${Q}" -H "Authorization: Bearer $TOKEN")
             C=$(curl -sS --max-time 120 "$API/connections?all=true" -H "Authorization: Bearer $TOKEN")
             NODES_JSON="$N" CONN_JSON="$C" python3 -c '
             import json,os
