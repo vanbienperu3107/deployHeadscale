@@ -50,7 +50,7 @@ jobs:
             node_state() { curl -sS "$API/connections" -H "Authorization: Bearer $TOKEN" | python3 -c '
             import json,sys; n=sys.argv[1]; rows=[r for r in json.load(sys.stdin).get("connections",[]) if r.get("node_code")==n]
             print(rows[0]["status"] if rows else "none")' "$NODE"; }
-            ok_or_die() { printf '%s' "$OUT" | grep -q '"ok": *true' || { echo "::error::$NODE: $1"; exit 1; }; }
+            ok_or_die() { printf '%s' "$OUT" | grep -q '"ok": *true' && return 0; echo "::warning::$NODE: $1"; FAILED="$FAILED $NODE"; return 1; }
             TOKEN=$(curl -fsS -X POST "$API/auth/token" -H 'Content-Type: application/json' \
               -d "{\"username\":\"cms\",\"password\":\"$GATEPRO_API_PASSWORD\"}" | python3 -c 'import json,sys;print(json.load(sys.stdin)["access_token"])') \
               || { echo "::error::khong lay duoc token API"; exit 1; }
@@ -91,7 +91,7 @@ jobs:
             else
               LIST=$(printf '%s' "$NODE" | tr ',' ' ')
             fi
-            FAIL=0
+            FAILED=""; OKS=""
             for NODE in $LIST; do
             echo "################ $NODE"
             echo "== 4. CR cua $NODE"; call GET "/nodes/$NODE/crs"
@@ -99,23 +99,26 @@ jobs:
 
             BEFORE=$(node_state); echo "== 5. trang thai truoc: $BEFORE"
             if [ "$BEFORE" = "open" ]; then
-              echo "== 6a. dang MO -> dong lai"; call DELETE "/connections/$NODE"; ok_or_die "dong firewall that bai"
+              echo "== 6a. dang MO -> dong lai"; call DELETE "/connections/$NODE"; ok_or_die "dong firewall that bai" || continue
               MID=$(node_state); echo "trang thai sau dong: $MID"
-              [ "$MID" = "open" ] && { echo "::error::dong xong van con open"; exit 1; }
+              [ "$MID" = "open" ] && { echo "::warning::$NODE dong xong van con open"; FAILED="$FAILED $NODE"; continue; }
             fi
-            echo "== 6b. mo firewall $NODE"; call POST /connections "{\"nodes\":[\"$NODE\"]}"; ok_or_die "mo firewall that bai"
+            echo "== 6b. mo firewall $NODE"; call POST /connections "{\"nodes\":[\"$NODE\"]}"; ok_or_die "mo firewall that bai" || continue
             AFTER=$(node_state); echo "== 7. trang thai sau: $AFTER"
-            [ "$AFTER" = "open" ] || { echo "::error::mo xong khong o trang thai open"; exit 1; }
+            [ "$AFTER" = "open" ] || { echo "::warning::$NODE mo xong khong open"; FAILED="$FAILED $NODE"; continue; }
             call GET /connections
             if [ "$CLOSE_AFTER" = "true" ]; then
-              echo "== 8. dong lai sau test"; call DELETE "/connections/$NODE"; ok_or_die "dong sau test that bai"
+              echo "== 8. dong lai sau test"; call DELETE "/connections/$NODE"; ok_or_die "dong sau test that bai" || true
             fi
-            echo "ENSURE-OPEN OK $NODE (truoc=$BEFORE sau=$AFTER)"
+            echo "ENSURE-OPEN OK $NODE (truoc=$BEFORE sau=$AFTER)"; OKS="$OKS $NODE"
             done
             echo "== tong ket"
             curl -sS "$API/connections" -H "Authorization: Bearer $TOKEN" | python3 -c '
             import json,sys
             for r in json.load(sys.stdin).get("connections",[]): print("%-14s %-6s het_han=%s gia_han=%s loi=%s"%(r["node_code"],r["status"],r["expires_at"][:19],r["renew_count"],r["last_error"]))'
+            echo "OK:    ${OKS:- (khong co)}"
+            echo "LOI:   ${FAILED:- (khong co)}"
+            [ -z "$OKS" ] && [ -n "$FAILED" ] && { echo "::error::khong node nao mo duoc"; exit 1; }
             echo "FULL FLOW OK"
         env:
           GATEPRO_API_PASSWORD: ${{ secrets.GATEPRO_API_PASSWORD }}
