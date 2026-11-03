@@ -201,7 +201,7 @@ jobs:
             test -n "$EGRESS_IP" && $GP db config-set GATEPRO_HOST_ADDRESS "$EGRESS_IP" >/dev/null
             $GP db config-set GATEPRO_HOST_NAME vpn4 >/dev/null
             $GP db config-show 2>&1 | grep -v -i -E 'password|secret' || true
-            printf '%s\n' "$GATEPRO_API_PASSWORD" | $DC run --rm --no-deps -T gatepro set-account cms
+            printf '%s\n' "$GATEPRO_API_PASSWORD" | $DC run --rm --no-deps -T gatepro set-account cms --scopes status:read,nodes:read,connections:read,connections:open,connections:close,config:read,config:write,users:read,users:write,audit:read,mcp:access
             $DC up -d --remove-orphans
 
             echo "==> verify"
