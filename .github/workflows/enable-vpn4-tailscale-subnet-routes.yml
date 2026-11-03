@@ -1,0 +1,36 @@
+name: Enable accepted Tailscale subnet routes on vpn4
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-vpn4-host
+  cancel-in-progress: false
+
+jobs:
+  enable:
+    runs-on: ubuntu-latest
+    steps:
+      - name: vpn4 - accept subnet routes via temporary CLI container
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SSH_HOST_VPN4 }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT || '22' }}
+          script_stop: false
+          command_timeout: 5m
+          script: |
+            set -eu
+            if [ "$(id -u)" -ne 0 ]; then SUDO="sudo -n"; else SUDO=""; fi
+            SOCK=/var/run/tailscale/tailscaled.sock
+            test -S "$SOCK" || { echo "::error::tailscaled socket khong ton tai"; exit 1; }
+            # CLI container chi dung socket cua daemon host, khong tao node/daemon moi.
+            $SUDO docker run --rm --network host -v "$SOCK:$SOCK" --entrypoint tailscale tailscale/tailscale:v1.98.9 \
+              --socket="$SOCK" set --accept-routes=true
+            echo '== routes sau accept-routes =='
+            ip route show 10.121.0.0/16
+            ROUTE=$(ip route get 10.121.184.48)
+            printf '%s\n' "$ROUTE"
+            printf '%s' "$ROUTE" | grep -q 'dev tailscale0' || { echo "::error::10.121.184.48 chua qua tailscale0"; exit 1; }
+            for port in 8033 9099; do timeout 15 bash -c "</dev/tcp/10.121.184.48/$port" >/dev/null 2>&1 && echo "tcp $port OK" || { echo "::error::tcp $port khong ket noi duoc"; exit 1; }; done
