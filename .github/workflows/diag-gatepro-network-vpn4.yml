@@ -1,0 +1,41 @@
+name: Diagnose GatePro network from vpn4 (read-only)
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-vpn4-host
+  cancel-in-progress: false
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - name: vpn4 - route, source IP, TCP and GatePro config
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SSH_HOST_VPN4 }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT || '22' }}
+          script_stop: false
+          command_timeout: 5m
+          script: |
+            set -u
+            if [ "$(id -u)" -ne 0 ]; then SUDO="sudo -n"; else SUDO=""; fi
+            TARGET=10.121.184.48
+            echo '== route kernel toi GatePro =='
+            ip route get "$TARGET" 2>&1 || true
+            echo '== interfaces IPv4 =='
+            ip -4 -o addr show 2>&1 || true
+            echo '== TCP reachability tu host (khong GUI credential) =='
+            for port in 8033 9099; do timeout 12 bash -c "</dev/tcp/$TARGET/$port" >/dev/null 2>&1 && echo "tcp $TARGET:$port OK" || echo "tcp $TARGET:$port TIMEOUT_OR_REFUSED"; done
+            echo '== GatePro config da luu (da redact) =='
+            cd /srv/gatepro 2>/dev/null || exit 0
+            DC="$SUDO docker compose --project-name gatepro-vpn4 -f /srv/gatepro/docker-compose.yml"
+            $DC run --rm --no-deps -T --entrypoint gatepro gatepro db config-show 2>&1 | grep -v -iE 'password|secret|token' || true
+            echo '== status API (khong co credential) =='
+            curl -sS --max-time 8 http://100.64.0.4:8080/healthz || true
+            echo
+            echo '== log GatePro (chi network/config, redact) =='
+            $SUDO docker logs --tail 100 gatepro 2>&1 | grep -iE 'timeout|network|connect|config|route|identity|error' | grep -v -iE 'password|token|session_id' || true
