@@ -164,9 +164,11 @@ jobs:
               '    depends_on: [gatepro-pg-tunnel]' \
               '    entrypoint: ["gatepro-api"]' \
               '    command: ["serve"]' \
-              "    ports: [\"$VPN4_TS_IP:8080:8080\"]" \
-              '    mem_limit: 256m' \
-              '    volumes:' \
+               "    ports: [\"$VPN4_TS_IP:8080:8080\"]" \
+               '    mem_limit: 256m' \
+               '    environment:' \
+               '      GATEPRO_ALLOW_INSECURE_HTTP: "1"' \
+               '    volumes:' \
               '      - ./db.env:/etc/gatepro/db.env:ro' \
               '      - gatepro-config:/home/app/.config/gatepro' \
               'volumes:' \
