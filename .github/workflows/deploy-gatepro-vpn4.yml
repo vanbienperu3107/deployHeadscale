@@ -148,7 +148,9 @@ jobs:
             echo "==> db.env + compose"
             umask 077
             # Fernet key duoc tao tren vpn4 de khong qua SSH/GitHub env (tranh mat padding).
-            FERNET_KEY=$($SUDO docker run --rm gatepro-client:latest db gen-key)
+            # GIU key cu neu da co: doi key = mat kha nang giai ma password GatePro/mail da luu.
+            FERNET_KEY=$($SUDO sed -n 's/^GATEPRO_DB_SECRET_KEY=//p' db.env 2>/dev/null | head -1 || true)
+            test -n "$FERNET_KEY" || FERNET_KEY=$($SUDO docker run --rm gatepro-client:latest db gen-key)
             printf 'GATEPRO_DB_DSN=postgresql://gatepro:%s@gatepro-pg-tunnel:5432/gatepro?sslmode=disable\nGATEPRO_DB_SECRET_KEY=%s\n' "$GATEPRO_DB_PASSWORD" "$FERNET_KEY" > db.env
             $SUDO chown 10001 db.env
             $SUDO chmod 600 db.env
@@ -196,10 +198,10 @@ jobs:
             echo "schema init x2 OK"
             # Cau hinh khoi dau (BASE_URL theo docs/DEPLOY.md; identity = egress that, KHONG phai tailnet)
             GP="$DC run --rm --no-deps -T --entrypoint gatepro gatepro"
-            $GP db config-set GATEPRO_BASE_URL http://10.121.184.48:8033/BusinessProcessServer >/dev/null || true
-            test -n "$EGRESS_IP" && $GP db config-set GATEPRO_IP_CLIENT "$EGRESS_IP" >/dev/null
-            test -n "$EGRESS_IP" && $GP db config-set GATEPRO_HOST_ADDRESS "$EGRESS_IP" >/dev/null
-            $GP db config-set GATEPRO_HOST_NAME vpn4 >/dev/null
+            # Chi dat gia tri mac dinh khi CHUA co: khong ghi de identity (10.121.124.155 /
+            # ITOPS-THANHHN5) nguoi dung da cau hinh trong DB.
+            CUR=$($GP db config-show 2>/dev/null || true)
+            printf '%s' "$CUR" | grep -q '^GATEPRO_BASE_URL ' || $GP db config-set GATEPRO_BASE_URL http://10.121.184.48:8033/BusinessProcessServer >/dev/null
             $GP db config-show 2>&1 | grep -v -i -E 'password|secret' || true
             printf '%s\n' "$GATEPRO_API_PASSWORD" | $DC run --rm --no-deps -T gatepro set-account cms --scopes status:read,nodes:read,connections:read,connections:open,connections:close,config:read,config:write,users:read,users:write,audit:read,mcp:access
             $DC up -d --remove-orphans
