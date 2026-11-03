@@ -63,7 +63,9 @@ jobs:
             # pg_hba phan quyen theo ROLE, khong REVOKE PUBLIC hay sua grant cua workload dang chay:
             # gatepro chi duoc login database gatepro; bat ky database khac deu reject.
             HBA=$($P -c "SHOW hba_file")
-            $SUDO docker exec -i derp-postgres sh -c "grep -Fqx 'host gatepro gatepro 0.0.0.0/0 scram-sha-256' '$HBA' || sed -i '1i host all gatepro 0.0.0.0/0 reject\nhost gatepro gatepro 0.0.0.0/0 scram-sha-256' '$HBA'"
+            # Xoa cap rule cu (co the da bi chen sai thu tu o run truoc), roi chen
+            # rule allow CU THE truoc reject tong quat; pg_hba doc tu tren xuong.
+            $SUDO docker exec -i derp-postgres sh -c "sed -i '\|^host gatepro gatepro 0.0.0.0/0 scram-sha-256$|d;\|^host all gatepro 0.0.0.0/0 reject$|d' '$HBA'; sed -i '1i host gatepro gatepro 0.0.0.0/0 scram-sha-256\nhost all gatepro 0.0.0.0/0 reject' '$HBA'"
             $P -c "SELECT pg_reload_conf()" | grep -qx t
             echo "role+db gatepro OK (owner=$OWNER; hba isolated)"
             # Positive: gatepro vao duoc DB rieng (qua TCP, dung mat khau)
