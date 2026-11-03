@@ -52,6 +52,7 @@ def test_api_binds_only_tailnet_and_is_verified():
     assert "VPN4_TS_IP=$(tailscale ip -4" in s
     assert "docker exec ts-vpn4 tailscale ip -4" in s
     assert '$VPN4_TS_IP:8080:8080' in s
+    assert '$VPN4_TS_IP:5433:5432' in s
     assert not re.search(r'["\[ ](0\.0\.0\.0:)?8080:8080', s.replace("$VPN4_TS_IP:8080:8080", ""))
     assert 'test "$BIND" = "$VPN4_TS_IP:8080 "' in s
     assert 'test "$LISTEN" = "$VPN4_TS_IP:8080 "' in s
