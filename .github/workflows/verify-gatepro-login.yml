@@ -1,16 +1,22 @@
 name: Verify GatePro full flow (vpn4 API)
 
-# status -> login/OTP -> search -> CR. Mo/dong firewall CHI khi nhap input `node`
-# va open_firewall=true; mo xong se dong lai ngay (khong de policy ton tai).
+# status -> login/OTP (chi khi session het han) -> search -> CR -> ensure-open:
+#   node dang MO  -> dong lai roi mo lai
+#   node dang DONG -> mo luon
+# close_after=true: dong lai sau khi test (khong de policy ton tai).
 on:
   workflow_dispatch:
     inputs:
       node:
-        description: "Node code/IP de tra CR (va mo/dong firewall neu bat). Trong = bo qua."
+        description: "Node code/IP. Trong = chi login + search."
         required: false
         default: ""
       open_firewall:
-        description: "Mo firewall cho node roi dong lai ngay"
+        description: "Ensure-open firewall cho node"
+        type: boolean
+        default: false
+      close_after:
+        description: "Dong firewall sau khi test"
         type: boolean
         default: false
 
@@ -29,36 +35,58 @@ jobs:
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_KEY }}
           port: ${{ secrets.SSH_PORT || '22' }}
-          envs: GATEPRO_API_PASSWORD,NODE,OPEN_FW
+          envs: GATEPRO_API_PASSWORD,NODE,OPEN_FW,CLOSE_AFTER
           script_stop: false
           command_timeout: 15m
           script: |
             set -u
             API=http://100.64.0.4:8080
-            redact() { sed -E 's/("(session_id|sessionId|token|access_token|password[a-z_]*|otp_token|passwordAuth)"[[:space:]]*:[[:space:]]*)"[^"]*"/\1"***"/g' | head -c 3000; echo; }
-            call() { M=$1; P=$2; D=${3:-}; 
-              if [ -n "$D" ]; then R=$(curl -sS --max-time 400 -X "$M" "$API$P" -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d "$D" -w '\nHTTP=%{http_code}');
-              else R=$(curl -sS --max-time 400 -X "$M" "$API$P" -H "Authorization: Bearer $TOKEN" -w '\nHTTP=%{http_code}'); fi
-              echo "---- $M $P"; printf '%s\n' "$R" | redact; }
+            redact() { sed -E 's/("(session_id|sessionId|token|access_token|password[a-z_]*|otp_token|passwordAuth)"[[:space:]]*:[[:space:]]*)"[^"]*"/\1"***"/g' | head -c 2500; echo; }
+            call() { M=$1; P=$2; D=${3:-}
+              if [ -n "$D" ]; then OUT=$(curl -sS --max-time 400 -X "$M" "$API$P" -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d "$D" -w '\nHTTP=%{http_code}')
+              else OUT=$(curl -sS --max-time 400 -X "$M" "$API$P" -H "Authorization: Bearer $TOKEN" -w '\nHTTP=%{http_code}'); fi
+              echo "---- $M $P"; printf '%s\n' "$OUT" | redact; }
+            # trang thai node trong gatepro_connection: open | closed | none
+            node_state() { curl -sS "$API/connections" -H "Authorization: Bearer $TOKEN" | python3 -c '
+            import json,sys; n=sys.argv[1]; rows=[r for r in json.load(sys.stdin).get("connections",[]) if r.get("node_code")==n]
+            print(rows[0]["status"] if rows else "none")' "$NODE"; }
+            ok_or_die() { printf '%s' "$OUT" | grep -q '"ok": *true' || { echo "::error::$1"; exit 1; }; }
             TOKEN=$(curl -fsS -X POST "$API/auth/token" -H 'Content-Type: application/json' \
               -d "{\"username\":\"cms\",\"password\":\"$GATEPRO_API_PASSWORD\"}" | python3 -c 'import json,sys;print(json.load(sys.stdin)["access_token"])') \
               || { echo "::error::khong lay duoc token API"; exit 1; }
-            echo "== 1. status truoc login"; call GET /status
-            echo "== 2. login + OTP (doc mailbox, toi da vai phut)"; call POST /login '{}'
-            echo "== 3. status sau login"; call GET /status
+
+            echo "== 1. session"
             S=$(curl -sS "$API/status" -H "Authorization: Bearer $TOKEN")
-            printf '%s' "$S" | grep -q '"otp_verified": *true' || { echo "::error::session chua otp_verified"; echo "== log API"; sudo -n docker logs --tail 60 gatepro 2>&1 | redact; exit 1; }
-            echo "== 4. search node"; call GET "/nodes?q=${NODE}"
-            if [ -n "$NODE" ]; then
-              echo "== 5. CR cua $NODE"; call GET "/nodes/$NODE/crs"
-              if [ "$OPEN_FW" = "true" ]; then
-                echo "== 6. mo firewall $NODE"; call POST /connections "{\"nodes\":[\"$NODE\"]}"
-                call GET /connections
-                echo "== 7. dong firewall $NODE"; call DELETE "/connections/$NODE"
-              fi
+            if printf '%s' "$S" | grep -q '"usable": *true' && printf '%s' "$S" | grep -q '"otp_verified": *true'; then
+              echo "session con hieu luc -> KHONG login lai (khong gui OTP)"
+            else
+              echo "== 2. login + OTP"; call POST /login '{}'
             fi
-            echo "FULL FLOW OK"
+            S=$(curl -sS "$API/status" -H "Authorization: Bearer $TOKEN")
+            printf '%s' "$S" | grep -q '"otp_verified": *true' || { echo "::error::session chua otp_verified"; exit 1; }
+            echo "session OK: $(printf '%s' "$S" | python3 -c 'import json,sys;d=json.load(sys.stdin);print(d["username"], int(d["seconds_remaining"]),"s")')"
+
+            echo "== 3. search node"; call GET "/nodes?q=${NODE}"
+            [ -n "$NODE" ] || { echo "FULL FLOW OK"; exit 0; }
+            echo "== 4. CR cua $NODE"; call GET "/nodes/$NODE/crs"
+            [ "$OPEN_FW" = "true" ] || { echo "FULL FLOW OK"; exit 0; }
+
+            BEFORE=$(node_state); echo "== 5. trang thai truoc: $BEFORE"
+            if [ "$BEFORE" = "open" ]; then
+              echo "== 6a. dang MO -> dong lai"; call DELETE "/connections/$NODE"; ok_or_die "dong firewall that bai"
+              MID=$(node_state); echo "trang thai sau dong: $MID"
+              [ "$MID" = "open" ] && { echo "::error::dong xong van con open"; exit 1; }
+            fi
+            echo "== 6b. mo firewall $NODE"; call POST /connections "{\"nodes\":[\"$NODE\"]}"; ok_or_die "mo firewall that bai"
+            AFTER=$(node_state); echo "== 7. trang thai sau: $AFTER"
+            [ "$AFTER" = "open" ] || { echo "::error::mo xong khong o trang thai open"; exit 1; }
+            call GET /connections
+            if [ "$CLOSE_AFTER" = "true" ]; then
+              echo "== 8. dong lai sau test"; call DELETE "/connections/$NODE"; ok_or_die "dong sau test that bai"
+            fi
+            echo "ENSURE-OPEN OK (truoc=$BEFORE sau=$AFTER)"
         env:
           GATEPRO_API_PASSWORD: ${{ secrets.GATEPRO_API_PASSWORD }}
           NODE: ${{ inputs.node }}
           OPEN_FW: ${{ inputs.open_firewall }}
+          CLOSE_AFTER: ${{ inputs.close_after }}
