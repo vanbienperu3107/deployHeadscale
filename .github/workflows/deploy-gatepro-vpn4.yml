@@ -86,7 +86,7 @@ jobs:
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_KEY }}
           port: ${{ secrets.SSH_PORT || '22' }}
-          envs: GATEPRO_DB_PASSWORD,GATEPRO_DB_SECRET_KEY,GATEPRO_API_PASSWORD,GATEPRO_DEPLOY_KEY,GATEPRO_REF
+          envs: GATEPRO_DB_PASSWORD,GATEPRO_DB_SECRET_KEY_HEX,GATEPRO_API_PASSWORD,GATEPRO_DEPLOY_KEY,GATEPRO_REF
           script_stop: false
           command_timeout: 25m
           script: |
@@ -139,7 +139,9 @@ jobs:
             chmod 600 keys/pg_tunnel_key; chmod 644 keys/known_hosts
 
             echo "==> db.env + compose"
-            printf 'GATEPRO_DB_DSN=postgresql://gatepro:%s@gatepro-pg-tunnel:5432/gatepro?sslmode=disable\nGATEPRO_DB_SECRET_KEY=%s\n' "$GATEPRO_DB_PASSWORD" "$GATEPRO_DB_SECRET_KEY" > db.env
+            # Fernet key duoc tao tren vpn4 de khong qua SSH/GitHub env (tranh mat padding).
+            FERNET_KEY=$($SUDO docker run --rm gatepro-client:latest db gen-key)
+            printf 'GATEPRO_DB_DSN=postgresql://gatepro:%s@gatepro-pg-tunnel:5432/gatepro?sslmode=disable\nGATEPRO_DB_SECRET_KEY=%s\n' "$GATEPRO_DB_PASSWORD" "$FERNET_KEY" > db.env
             $SUDO chown 10001 db.env
             $SUDO chmod 600 db.env
             printf '%s\n' \
@@ -212,7 +214,7 @@ jobs:
             rm -f deploy_key
         env:
           GATEPRO_DB_PASSWORD: ${{ secrets.GATEPRO_DB_PASSWORD }}
-          GATEPRO_DB_SECRET_KEY: ${{ secrets.GATEPRO_DB_SECRET_KEY }}
+          GATEPRO_DB_SECRET_KEY_HEX: ${{ secrets.GATEPRO_DB_SECRET_KEY_HEX }}
           GATEPRO_API_PASSWORD: ${{ secrets.GATEPRO_API_PASSWORD }}
           GATEPRO_DEPLOY_KEY: ${{ secrets.GATEPRO_DEPLOY_KEY }}
           GATEPRO_REF: ${{ inputs.gatepro_ref }}
