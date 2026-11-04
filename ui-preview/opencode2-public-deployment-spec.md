@@ -1,20 +1,22 @@
-# OpenCode v2 Public Deployment
+# OpenCode v2: Public, Persistent, Tailnet-Aware
 
 Ngày: 2026-11-04
 
 ## Mục tiêu
 
-Vận hành OpenCode v2 độc lập tại `https://opencode2.hangocthanh.io.vn`. Người dùng truy cập qua Internet sau HTTP Basic Auth; instance gọi CLIProxy hiện có, có Internet thật cho Git và package registry, nhưng không được cấp Docker socket, SSH key, host filesystem, source hay secret của hạ tầng hiện hữu.
+Vận hành OpenCode v2 độc lập tại `https://opencode2.hangocthanh.io.vn`. Người dùng vào qua HTTP Basic Auth; instance gọi CLIProxy, dùng Internet thật cho Git/package registries và SSH mọi node Tailnet. Nó không có Docker socket, host filesystem, privileged mode, capability của application container, source hay SSH key hạ tầng hiện hữu.
 
-## Quyết định đã chốt
+## Quyết định đã xác nhận
 
 - Public repo độc lập: `vanbienperu3107/opencode2-deploy`.
 - Image pin: `ghcr.io/anomalyco/opencode:2.0.32`.
-- Basic Auth bắt buộc trên toàn bộ OpenCode API và pairing flow.
+- Basic Auth bắt buộc cho API và pairing flow.
 - CLIProxy OpenAI-compatible: `https://cliproxy.hangocthanh.io.vn/v1`.
-- Persistent volumes riêng cho `/workspace/projects` và `/home/opencode`.
-- Workspace lúc tạo trống và không chia sẻ với hạ tầng hiện hữu.
-- Container có outbound Internet, không có privileged mode/capability/Docker socket/host bind mount.
+- Volumes persistent riêng cho `/workspace/projects`, `/home/opencode` và state Tailscale.
+- Workspace trống, tách hoàn toàn khỏi hạ tầng hiện hữu.
+- OpenCode tự chạy mọi action/tool không hỏi lại bằng permission wildcard `allow`.
+- Headscale ACL giữ `allow all`: node `opencode2` có thể kết nối mọi node Tailnet.
+- SSH chỉ dùng key Ed25519/user `opencode` riêng, không-root/không-sudo; không dùng lại key deploy/hạ tầng.
 
 ## Kiến trúc
 
@@ -23,58 +25,94 @@ Browser
   -> HTTPS/SNI opencode2.hangocthanh.io.vn
   -> edge-nginx :443
   -> Caddy :8447 (TLS-ALPN, PROXY protocol, log riêng)
-  -> opencode2 :4096
-     -> opencode2_workspace : /workspace/projects
-     -> opencode2_state     : /home/opencode
+  -> ts-opencode2 (Headscale/Tailnet identity opencode2)
+  -> opencode2 :4096, chung network namespace với sidecar
+     -> workspace/state volumes
      -> CLIProxy + Internet outbound
+     -> SSH mọi node Tailnet với user opencode
 ```
 
-Port `4096` không publish ra host. Port `443` chỉ thuộc `edge-nginx`; port `80` vẫn dành cho DERP. Nginx giữ TLS passthrough theo SNI, thêm PROXY protocol trước Caddy để log được client IP thật. Caddy giữ `flush_interval -1` cho stream/SSE.
+Port `4096` không publish ra host. `edge-nginx` là process public `443`; `80` vẫn dành cho DERP. Sidecar là service duy nhất có `/dev/net/tun` và `NET_ADMIN`. OpenCode không dùng host network, privileged mode, Docker socket hoặc host bind mount.
 
-## Secrets và provider
+## Secrets, provider và SSH
 
-Chỉ dùng GitHub Secrets và `.env` mode `0600` trên VPS:
+GitHub Secrets và `.env` VPS mode `0600` chứa:
 
 - `OPENCODE_SERVER_USERNAME`
 - `OPENCODE_SERVER_PASSWORD`
 - `CLIPROXY_API_KEY`
+- `TS_AUTHKEY`, chỉ dành cho identity Headscale `opencode2`
+- `OPENCODE_SSH_PRIVATE_KEY`
+- `OPENCODE_SSH_KNOWN_HOSTS`
 
-Workflow fail trước deploy nếu secret rỗng và không in secret vào log. Provider v2 dùng `aisdk:@ai-sdk/openai-compatible`; API key chỉ nội suy từ environment. Model ID được xác nhận qua `GET /v1/models` của CLIProxy ngay trước deploy.
+Workflow phải fail trước deploy nếu secret rỗng và không in giá trị ra log. Provider dùng `aisdk:@ai-sdk/openai-compatible`; model ID xác nhận qua `GET /v1/models` trước deploy.
 
-## Ingress và bảo vệ brute-force
+Private key được tạo thành `/run/secrets/opencode-ssh-key` read-only; `known_hosts` được pin tại `/run/secrets/opencode-known-hosts`. SSH luôn dùng `StrictHostKeyChecking=yes`, không dùng root/public IP/key hạ tầng cũ. User `opencode` trên node được quản trị không thuộc `sudo`, `wheel` hay `docker`.
+
+## Permissions tự động
+
+OpenCode v2 phải dùng schema v2, không phải field `permission`/action `bash` của v1:
+
+```jsonc
+{
+  "permissions": [
+    { "action": "*", "resource": "*", "effect": "allow" }
+  ]
+}
+```
+
+Wildcard cho phép shell, edit, webfetch, websearch, external directory, MCP và plugin tools không prompt. SSH là shell command tự động. Basic Auth mạnh, Tailnet identity/key riêng, known-host pinning, audit và khả năng revoke key/node là các kiểm soát bắt buộc.
+
+## Tailnet và giới hạn thực tế
+
+ACL Headscale hiện `src: ["*"]`, `dst: ["*:*"]` và được giữ nguyên theo yêu cầu. Vì vậy không có allowlist network/port; giới hạn SSH nằm ở user/key/host-key verification. Tailscale state dùng volume `opencode2_tailscale_state`, tách khỏi state OpenCode, không tái dùng socket hoặc state host/service khác.
+
+## Ingress và chống brute-force
 
 DNS cần có: `A opencode2.hangocthanh.io.vn -> 149.104.66.174`.
 
-- Nginx map SNI mới qua listener loopback `8448` đến Caddy `8447` với `proxy_protocol on`.
-- Caddy listener `8447` chỉ tin PROXY protocol từ network `edge`, terminate TLS và proxy `opencode2:4096`.
-- Caddy có JSON access log riêng cho OpenCode v2.
-- fail2ban độc lập: 5 lần `401` trong 10 phút, ban IP 1 giờ ở `DOCKER-USER`.
-- Không dùng listener/access log OpenCode v1: tránh blast radius sang DERP, CLIProxy và `opencode.hangocthanh.io.vn`.
+- Nginx map SNI mới qua loopback `8448` đến Caddy `8447` cùng PROXY protocol.
+- Caddy chỉ tin PROXY protocol từ network `edge`, terminate TLS, proxy `opencode2:4096` và có JSON access log riêng.
+- TLS dùng ALPN; `flush_interval -1` giữ SSE streaming.
+- fail2ban độc lập: 5 phản hồi `401`/10 phút, ban 1 giờ ở `DOCKER-USER`.
+- Không dùng listener/access log OpenCode v1 để giảm blast radius cho DERP, CLIProxy và OpenCode v1.
 
 ## Persistence và rollback
 
-`opencode2_workspace` giữ source clone/artifact. `opencode2_state` giữ SQLite, sessions, config và auth state. Redeploy không xóa volumes. Backup state mã hóa và nhất quán trước update. Rollback image/config giữ volume; nếu database không downgrade được, restore backup state trước update.
+`opencode2_workspace` giữ source/artifact, `opencode2_state` giữ SQLite/session/config/auth và `opencode2_tailscale_state` giữ Tailnet identity. Redeploy không xóa volume. Backup state mã hóa, nhất quán trước update và không vào repository/CI artifact. Image rollback giữ volumes; nếu database không downgrade được thì restore backup state trước update.
+
+## Trình tự deploy
+
+1. Tạo repo public, CI validate Compose/config/schema/secret scan.
+2. Tạo GitHub secrets và DNS A.
+3. Tạo preauth key Headscale riêng; cài user/public key/fingerprints `known_hosts` trên từng node cần quản trị.
+4. Deploy `/opt/opencode2`, giữ OpenCode/Tailscale volumes và network `edge`.
+5. Deploy edge SNI route với force-recreate nginx/Caddy.
+6. Verify; nếu DERP hoặc CLIProxy regression, rollback edge ngay.
 
 ## Kiểm chứng bắt buộc
 
 | ID | Kỳ vọng |
 |---|---|
-| TC-01 | Compose/config validation và secret scan xanh |
-| TC-02 | DNS đúng VPN4 trước khi đụng edge |
+| TC-01 | Compose/config/schema/secret scan pass, image pin 2.0.32 |
+| TC-02 | DNS đúng VPN4 trước thay đổi edge |
 | TC-03 | Health nội bộ `opencode2:4096` healthy |
-| TC-04 | Public health không credential trả `401` |
-| TC-05 | Public health credential đúng trả `200` |
-| TC-06 | CLIProxy completion thực tế trả nội dung UTF-8 không rỗng |
-| TC-07 | DERP `/derp/probe` vẫn `200` sau edge deploy |
-| TC-08 | CLIProxy `/v1/models` vẫn `200` sau edge deploy |
-| TC-09 | Browser pairing OpenCode desktop + mobile: snapshot, screenshot, console không error mới |
-| TC-10 | Project/session còn sau restart/recreate không `-v` |
+| TC-04 | Public health không credential `401`; credential đúng `200` |
+| TC-05 | CLIProxy completion thực trả UTF-8 không rỗng |
+| TC-06 | DERP probe và CLIProxy models vẫn `200` sau edge deploy |
+| TC-07 | Sidecar `opencode2` online, đúng Headscale login server |
+| TC-08 | `ssh opencode@<tailnet-host> true` pass; root/sai fingerprint bị từ chối |
+| TC-09 | `opencode debug config` xác nhận wildcard `action:*`, `resource:*`, `allow` |
+| TC-10 | Browser desktop/mobile pairing: snapshot, screenshot, không lỗi console mới |
+| TC-11 | Project/session/Tailscale state tồn tại sau restart/recreate không `-v` |
+| TC-12 | Thiếu secret làm deploy fail trước service start |
 
-Test fail2ban chỉ chạy khi có IP test an toàn; nếu không có phải ghi `NOT_RUN`, không suy luận PASS.
+Fail2ban test chỉ chạy với IP test an toàn. SSH test chỉ dùng node đã có user/key riêng; không bootstrap bằng key hạ tầng.
 
 ## Rollback
 
-1. Regression DERP/CLIProxy: revert route `opencode2`, force-recreate nginx/Caddy, rồi xác minh DERP và CLIProxy.
-2. Service/config lỗi: recreate `opencode2` về image/config revision trước, giữ volumes.
-3. State migration lỗi: restore encrypted state backup rồi restart service.
-4. Nghi lộ Basic Auth: xoay secret, redeploy và kiểm tra fail2ban logs.
+1. DERP/CLIProxy regression: revert route `opencode2`, force-recreate nginx/Caddy, verify dịch vụ hiện hữu.
+2. Service/config lỗi: recreate `opencode2` revision trước, giữ volumes.
+3. Migration lỗi: restore encrypted state backup, restart service.
+4. Basic Auth lộ: xoay secret, redeploy, kiểm tra fail2ban logs.
+5. SSH key/Tailscale node lộ: revoke auth key, remove `opencode2`, xoá public key ở nodes, xoay SSH key và Basic Auth trước khi tạo lại sidecar.
