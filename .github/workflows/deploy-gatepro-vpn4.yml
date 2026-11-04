@@ -13,7 +13,7 @@ on:
       gatepro_ref:
         description: "Commit gatepro-client can deploy"
         required: true
-        default: "075d520da1ed8da625e2a91ffcfc3e6f929b92c9"
+        default: "326ce1295a7da6c5419bf63bd884115fc8bbb5c6"
 
 concurrency:
   group: deploy-vpn4-host
@@ -212,6 +212,8 @@ jobs:
                 --password --mail-username "${GATEPRO_MAIL_USERNAME:-$GATEPRO_USERNAME}" --mail-password --otp-source email --enable
               # Chi user tu secret la active: dat GATEPRO_USER va tat cac user khac.
               $GP db config-set GATEPRO_USER "$GATEPRO_USERNAME" >/dev/null
+              $GP db config-set GATEPRO_AUTO_OPEN 1 >/dev/null
+              $GP db config-set GATEPRO_AUTO_OPEN_EXCLUDE 'SIO9102AGT40,10.121.13.142' >/dev/null
               for u in $($GP --json db user-list 2>/dev/null | python3 -c 'import json,sys; print(" ".join(x["username"] for x in json.load(sys.stdin) if x["enabled"]))' 2>/dev/null); do
                 test "$u" = "$GATEPRO_USERNAME" || $GP db user-set "$u" --disable >/dev/null
               done
