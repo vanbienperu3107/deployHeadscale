@@ -13,7 +13,7 @@ on:
       gatepro_ref:
         description: "Commit gatepro-client can deploy"
         required: true
-        default: "326ce1295a7da6c5419bf63bd884115fc8bbb5c6"
+        default: "f855af89167b32b203c76680e910dc29c07a592f"
 
 concurrency:
   group: deploy-vpn4-host
