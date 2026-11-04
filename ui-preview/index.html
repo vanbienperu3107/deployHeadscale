@@ -82,18 +82,18 @@
   <div class="shell">
     <header>
       <div>
-        <p class="kicker">Architecture review / isolated public service</p>
-        <h1>OpenCode v2 Public Deployment</h1>
-        <p class="lede">Instance OpenCode v2 riêng tại <code>opencode2.hangocthanh.io.vn</code>, có Basic Auth, CLIProxy, persistent workspace và Internet outbound, nhưng tách hoàn toàn khỏi Docker và source hạ tầng hiện hữu.</p>
+        <p class="kicker">Architecture review / public service with Tailnet operations</p>
+        <h1>OpenCode v2: Public, Persistent, Tailnet-Aware</h1>
+        <p class="lede">Instance riêng tại <code>opencode2.hangocthanh.io.vn</code>: Basic Auth, CLIProxy, persistent workspace, Internet outbound và SSH mọi node Tailnet qua identity/key riêng, không dùng Docker socket hay key hạ tầng cũ.</p>
       </div>
-      <div class="status"><strong>Review artifact</strong><br>Deployment spec<br>Target: VPN4 edge<br>Runtime: <code>OpenCode 2.0.32</code></div>
+      <div class="status"><strong>Review artifact</strong><br>Deployment spec v2<br>Tailnet: allow all<br>Runtime: <code>OpenCode 2.0.32</code></div>
     </header>
     <main>
       <nav aria-label="Mục lục thiết kế">
         <a href="#boundary">Architecture</a>
-        <a href="#selection">Ingress & auth</a>
+        <a href="#selection">Auth & permissions</a>
         <a href="#safety">Isolation</a>
-        <a href="#state">Persistence</a>
+        <a href="#state">State & Tailnet</a>
         <a href="#gates">Verification</a>
         <a href="#review">Review file</a>
       </nav>
@@ -101,7 +101,7 @@
         <section id="boundary">
           <p class="label">01 / architecture</p>
           <h2>Public ingress, private runtime.</h2>
-          <p>OpenCode v2 chạy trong container độc lập, chỉ được Caddy gọi qua Docker network <code>edge</code>. Không có port backend nào publish trực tiếp lên host.</p>
+          <p>OpenCode v2 chạy trong container độc lập, chỉ được Caddy gọi qua Docker network <code>edge</code>. Tailscale sidecar cung cấp Tailnet netns; OpenCode không có Docker socket, host mount hay capability TUN.</p>
           <div class="diagram" role="img" aria-label="Luồng request qua nginx, Caddy và OpenCode v2">
             <span>Browser HTTPS: opencode2.hangocthanh.io.vn</span>
             <span class="indent-1">↓</span>
@@ -109,40 +109,41 @@
             <span class="indent-1">↓</span>
             <span class="indent-2">PROXY protocol + TLS-ALPN + JSON access log</span>
             <span class="indent-1">↓</span>
-            <span>opencode2 :4096 -- persistent workspace/state --> CLIProxy + Internet</span>
+            <span>opencode2 :4096 -- workspace/state --> CLIProxy + Internet + Tailnet SSH</span>
           </div>
         </section>
 
         <section id="selection">
-          <p class="label">02 / ingress and authentication</p>
-          <h2>HTTPS và Basic Auth cho toàn bộ endpoint.</h2>
+          <p class="label">02 / auth and automatic permissions</p>
+          <h2>Basic Auth ở biên, mọi tool tự động ở bên trong.</h2>
           <ol class="flow">
             <li><strong>DNS preflight.</strong> <code>opencode2.hangocthanh.io.vn</code> phải trỏ đúng VPN4 trước khi deploy edge.</li>
             <li><strong>SNI route riêng.</strong> Nginx chuyển domain qua listener loopback, gắn PROXY protocol để Caddy thấy IP thật.</li>
             <li><strong>TLS-ALPN.</strong> Caddy xin certificate qua SNI passthrough; port 80 vẫn dành cho DERP.</li>
             <li><strong>Server authentication.</strong> Mọi API và pairing flow yêu cầu OpenCode HTTP Basic Auth.</li>
+            <li><strong>Permission wildcard.</strong> Rules v2 <code>action: *</code>, <code>resource: *</code>, <code>effect: allow</code> cho mọi shell, edit, network, MCP và plugin tool.</li>
             <li><strong>Rate protection.</strong> fail2ban ban IP sau 5 phản hồi 401 trong 10 phút.</li>
           </ol>
         </section>
 
         <section id="safety">
           <p class="label">03 / isolation invariants</p>
-          <h2>Agent được làm việc, không được chạm hạ tầng.</h2>
+          <h2>Agent được làm việc, không được chạm Docker hoặc host.</h2>
           <div class="invariants">
             <div class="invariant"><b>Không Docker socket</b><span>Không privileged mode, host networking hay Linux capability bổ sung.</span></div>
             <div class="invariant"><b>Không host filesystem</b><span>Chỉ hai named volumes workspace và state được cấp cho container.</span></div>
             <div class="invariant"><b>Không port backend public</b><span>Caddy là đường vào duy nhất; service chỉ nằm trong network edge.</span></div>
             <div class="invariant"><b>Không secret trong Git</b><span>Credential chỉ ở GitHub Secrets và file VPS mode 0600.</span></div>
-            <div class="invariant"><b>Có Internet thật</b><span>Agent clone Git, cài dependency và gọi documentation/provider sau khi người dùng phê duyệt permission.</span></div>
+            <div class="invariant"><b>Có Internet thật</b><span>Agent clone Git, cài dependency, gọi provider và chạy mọi tool không cần prompt.</span></div>
             <div class="invariant"><b>Không ảnh hưởng v1</b><span>OpenCode v2 có Caddy listener, access log và fail2ban jail riêng.</span></div>
           </div>
         </section>
 
         <section id="state">
           <p class="label">04 / persistence and operations</p>
-          <h2>Deploy lại không làm mất workspace hay session.</h2>
+          <h2>Deploy lại không làm mất workspace, session hay Tailnet identity.</h2>
           <p><code>opencode2_workspace</code> giữ repository/artifact người dùng tạo. <code>opencode2_state</code> giữ SQLite database, session, config và auth state. Redeploy chỉ recreate container và không dùng <code>-v</code>.</p>
-          <p>Backup state mã hóa và nhất quán trước update. Image rollback giữ volumes; nếu database không downgrade được thì restore state backup trước update.</p>
+          <p>OpenCode state và Tailscale state dùng volume riêng. Sidecar join Headscale bằng auth key riêng, hostname <code>opencode2</code>. Headscale ACL allow all theo yêu cầu; SSH dùng user/key riêng, known_hosts pinning và không dùng root.</p>
         </section>
 
         <section id="gates">
@@ -152,12 +153,14 @@
           <div class="gate"><b>TC-02</b><p>Health public không credential trả 401; credential đúng trả 200.</p></div>
           <div class="gate"><b>TC-03</b><p>Completion thật qua CLIProxy trả nội dung UTF-8 không rỗng.</p></div>
           <div class="gate"><b>TC-04</b><p>DERP probe và CLIProxy models vẫn 200 sau edge deploy.</p></div>
-          <div class="gate"><b>TC-05</b><p>Playwright desktop/mobile: pairing UI, snapshot, screenshot và console evidence.</p></div>
+          <div class="gate"><b>TC-05</b><p>Tailnet sidecar online; SSH user <code>opencode</code> thành công, root và fingerprint sai bị từ chối.</p></div>
+          <div class="gate"><b>TC-06</b><p>Resolved v2 config chứng minh wildcard permission allow hoạt động không prompt.</p></div>
+          <div class="gate"><b>TC-07</b><p>Playwright desktop/mobile: pairing UI, snapshot, screenshot và console evidence.</p></div>
         </section>
 
         <section id="review" class="read">
           <h3>Đọc đặc tả đầy đủ</h3>
-          <p>Bản Markdown là nguồn đặc tả được versioned. Sau khi bạn duyệt artifact này, bước kế tiếp là implementation plan chi tiết trước khi tạo repo và đụng hạ tầng production.</p>
+          <p>Bản Markdown là nguồn đặc tả được versioned. Nó bao gồm Tailnet allow-all, SSH identity riêng và wildcard permission không prompt. Sau khi bạn duyệt, bước kế tiếp là implementation plan chi tiết trước production.</p>
           <div class="actions">
             <a class="button" href="./opencode2-public-deployment-spec.md">Mở deployment spec</a>
             <a class="button secondary" href="./opencode2-public-deployment-spec.md" download>Tải deployment spec</a>
