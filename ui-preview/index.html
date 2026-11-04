@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="CPA Bundle Router design review">
-  <title>CPA Bundle Router | Design Review</title>
+  <meta name="description" content="OpenCode v2 public deployment specification">
+  <title>OpenCode v2 | Deployment Review</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='%23082538' d='M0 0h16v16H0z'/%3E%3Cpath fill='%23e3ad41' d='M0 0h16v3H0z'/%3E%3Ccircle cx='8' cy='9' r='3' fill='%23fff'/%3E%3C/svg%3E">
   <style>
     :root {
@@ -56,7 +56,7 @@
     .gate:last-child { border-bottom: 1px solid var(--line); }
     .gate b { color: var(--blue); font: 800 14px/1.2 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
     .gate p { margin: 0; font-size: 16px; }
-    code { padding: 2px 5px; background: var(--code); color: #16374b; font: .85em ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    code { padding: 2px 5px; background: var(--code); color: #16374b; font: .85em ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; overflow-wrap: anywhere; }
     .read { margin-top: 36px; padding: 25px; background: #fff8e6; border: 1px solid #d4b56b; }
     .read h3 { margin-top: 0; }
     .actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 22px; }
@@ -68,10 +68,11 @@
       header, main { display: block; }
       header { padding: 42px 0 30px; }
       .status { margin-top: 30px; }
-      nav { position: static; display: flex; overflow-x: auto; gap: 18px; padding: 14px 0; margin-bottom: 34px; }
-      nav a { flex: 0 0 auto; border: 0; padding: 0; }
+      nav { position: static; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 18px; padding: 14px 0; margin-bottom: 34px; }
+      nav a { border: 0; padding: 0; }
       .invariants { grid-template-columns: 1fr; }
       .diagram { margin-left: -14px; margin-right: -14px; border-left: 0; border-right: 0; }
+      .diagram span { min-width: 0; white-space: normal; }
     }
     @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
   </style>
@@ -81,95 +82,90 @@
   <div class="shell">
     <header>
       <div>
-        <p class="kicker">Approved design / implementation plan ready for review</p>
-        <h1>CPA Bundle Router</h1>
-        <p class="lede">Kế hoạch thực thi gồm 12 deliverable kiểm chứng độc lập: ABI native, routing core, safety, storage, dashboard, vận hành và evidence release. OAuth, credential selection và upstream transport vẫn thuộc CLIProxyAPI.</p>
+        <p class="kicker">Architecture review / isolated public service</p>
+        <h1>OpenCode v2 Public Deployment</h1>
+        <p class="lede">Instance OpenCode v2 riêng tại <code>opencode2.hangocthanh.io.vn</code>, có Basic Auth, CLIProxy, persistent workspace và Internet outbound, nhưng tách hoàn toàn khỏi Docker và source hạ tầng hiện hữu.</p>
       </div>
-      <div class="status"><strong>Review artifact</strong><br>Implementation plan v1<br>12 task deliverables<br>Plugin ID: <code>bundle-router</code></div>
+      <div class="status"><strong>Review artifact</strong><br>Deployment spec<br>Target: VPN4 edge<br>Runtime: <code>OpenCode 2.0.32</code></div>
     </header>
     <main>
       <nav aria-label="Mục lục thiết kế">
-        <a href="#foundation">Foundation & ABI</a>
-        <a href="#routing">Routing core</a>
-        <a href="#execution">Execution safety</a>
-        <a href="#operations">Operations</a>
-        <a href="#gates">Verification gates</a>
-        <a href="#review">Review files</a>
+        <a href="#boundary">Architecture</a>
+        <a href="#selection">Ingress & auth</a>
+        <a href="#safety">Isolation</a>
+        <a href="#state">Persistence</a>
+        <a href="#gates">Verification</a>
+        <a href="#review">Review file</a>
       </nav>
       <article>
-        <section id="foundation">
-          <p class="label">01 / task sequence</p>
-          <h2>Foundation trước, ABI có evidence sau.</h2>
-          <p>Task 1 dựng Go project, deterministic clock và mock host. Task 2 đóng gói native C ABI, schema negotiation và ba alias. Native load không được coi là pass khi local thiếu compiler: CI/staging phải cung cấp evidence riêng.</p>
-          <div class="diagram" role="img" aria-label="Luồng request từ client qua CLIProxyAPI, plugin bundle router, host execution và physical model">
-            <span>Client request: chat | research | code</span>
+        <section id="boundary">
+          <p class="label">01 / architecture</p>
+          <h2>Public ingress, private runtime.</h2>
+          <p>OpenCode v2 chạy trong container độc lập, chỉ được Caddy gọi qua Docker network <code>edge</code>. Không có port backend nào publish trực tiếp lên host.</p>
+          <div class="diagram" role="img" aria-label="Luồng request qua nginx, Caddy và OpenCode v2">
+            <span>Browser HTTPS: opencode2.hangocthanh.io.vn</span>
             <span class="indent-1">↓</span>
-            <span>CLIProxyAPI -- model.route --> CPA Bundle Router</span>
-            <span class="indent-1">|- capability filter</span>
-            <span class="indent-1">|- affinity / tier / weight</span>
-            <span class="indent-1">|- retry budget / cooldown</span>
+            <span>edge-nginx :443 -- SNI passthrough --> Caddy :8447</span>
             <span class="indent-1">↓</span>
-            <span class="indent-2">host.model.execute(_stream)</span>
+            <span class="indent-2">PROXY protocol + TLS-ALPN + JSON access log</span>
             <span class="indent-1">↓</span>
-            <span>CPA provider + credential + translation + transport</span>
-            <span class="indent-1">↓</span>
-            <span>configured physical model</span>
+            <span>opencode2 :4096 -- persistent workspace/state --> CLIProxy + Internet</span>
           </div>
         </section>
 
-        <section id="routing">
-          <p class="label">02 / tasks 3-6</p>
-          <h2>Routing core xây theo thứ tự phụ thuộc.</h2>
+        <section id="selection">
+          <p class="label">02 / ingress and authentication</p>
+          <h2>HTTPS và Basic Auth cho toàn bộ endpoint.</h2>
           <ol class="flow">
-            <li><strong>Validated policy + capability registry.</strong> Reject config sai, không suy capability từ tên model, unknown không đáp ứng strict requirement.</li>
-            <li><strong>Weighted tier selection.</strong> Smooth weighted round robin trong tier cao nhất còn eligible; không retry cùng candidate.</li>
-            <li><strong>Bounded affinity.</strong> LRU TTL dùng session hash, không lưu prompt, invalidate theo config revision.</li>
-            <li><strong>Health and recovery.</strong> Classify failure, cooldown target-level, half-open probe và recovery xác định được bằng mock clock.</li>
+            <li><strong>DNS preflight.</strong> <code>opencode2.hangocthanh.io.vn</code> phải trỏ đúng VPN4 trước khi deploy edge.</li>
+            <li><strong>SNI route riêng.</strong> Nginx chuyển domain qua listener loopback, gắn PROXY protocol để Caddy thấy IP thật.</li>
+            <li><strong>TLS-ALPN.</strong> Caddy xin certificate qua SNI passthrough; port 80 vẫn dành cho DERP.</li>
+            <li><strong>Server authentication.</strong> Mọi API và pairing flow yêu cầu OpenCode HTTP Basic Auth.</li>
+            <li><strong>Rate protection.</strong> fail2ban ban IP sau 5 phản hồi 401 trong 10 phút.</li>
           </ol>
         </section>
 
-        <section id="execution">
-          <p class="label">03 / tasks 7-10</p>
-          <h2>Execution an toàn rồi mới đến persistence và dashboard.</h2>
+        <section id="safety">
+          <p class="label">03 / isolation invariants</p>
+          <h2>Agent được làm việc, không được chạm hạ tầng.</h2>
           <div class="invariants">
-            <div class="invariant"><b>Non-stream failover</b><span>429/503 thử candidate cùng tier trước, hạ tier sau khi exhaust; 401 credential-specific không cooldown target.</span></div>
-            <div class="invariant"><b>Stream safety</b><span>Retry chỉ trước payload đầu tiên. Partial output là terminal, cancellation đóng host stream.</span></div>
-            <div class="invariant"><b>SQLite & metrics</b><span>Usage aggregate phân biệt bundle/model; SQLite failure không block inference.</span></div>
-            <div class="invariant"><b>Authenticated management</b><span>Validate/apply/rollback revision qua management route, dashboard escape dữ liệu untrusted.</span></div>
-            <div class="invariant"><b>No credential surface</b><span>Browser, log, DB và metrics không mang OAuth, secret, prompt hay session raw value.</span></div>
-            <div class="invariant"><b>Direct host regression</b><span>Plugin disabled hoặc direct physical model vẫn giữ routing chuẩn của CLIProxyAPI.</span></div>
+            <div class="invariant"><b>Không Docker socket</b><span>Không privileged mode, host networking hay Linux capability bổ sung.</span></div>
+            <div class="invariant"><b>Không host filesystem</b><span>Chỉ hai named volumes workspace và state được cấp cho container.</span></div>
+            <div class="invariant"><b>Không port backend public</b><span>Caddy là đường vào duy nhất; service chỉ nằm trong network edge.</span></div>
+            <div class="invariant"><b>Không secret trong Git</b><span>Credential chỉ ở GitHub Secrets và file VPS mode 0600.</span></div>
+            <div class="invariant"><b>Có Internet thật</b><span>Agent clone Git, cài dependency và gọi documentation/provider sau khi người dùng phê duyệt permission.</span></div>
+            <div class="invariant"><b>Không ảnh hưởng v1</b><span>OpenCode v2 có Caddy listener, access log và fail2ban jail riêng.</span></div>
           </div>
         </section>
 
-        <section id="operations">
-          <p class="label">04 / tasks 11-12</p>
-          <h2>Vận hành và release có gate riêng.</h2>
-          <p>Preflight chỉ đọc. Installer mặc định dry-run, backup trước mutation và rollback đúng artifact do nó tạo. Tài liệu ghi systemd, WAL backup/recovery, monitoring, OpenCode schema và ranh giới OAuth.</p>
-          <p>CI chạy format, vet, test, race, dashboard, vulnerability check, native amd64 load và disposable host test. Arm64 chỉ được đánh dấu supported sau native runner + ABI-load proof.</p>
+        <section id="state">
+          <p class="label">04 / persistence and operations</p>
+          <h2>Deploy lại không làm mất workspace hay session.</h2>
+          <p><code>opencode2_workspace</code> giữ repository/artifact người dùng tạo. <code>opencode2_state</code> giữ SQLite database, session, config và auth state. Redeploy chỉ recreate container và không dùng <code>-v</code>.</p>
+          <p>Backup state mã hóa và nhất quán trước update. Image rollback giữ volumes; nếu database không downgrade được thì restore state backup trước update.</p>
         </section>
 
         <section id="gates">
-          <p class="label">05 / acceptance evidence</p>
-          <h2>30 test case map vào từng task, không bỏ qua evidence.</h2>
-          <div class="gate"><b>T01-T06</b><p>Load, aliases, highest tier, weighted distribution và session affinity.</p></div>
-          <div class="gate"><b>T07-T18</b><p>429/503, same-tier priority, cooldown/recovery, capability/context routing, streaming và cancellation.</p></div>
-          <div class="gate"><b>T19-T24</b><p>Reload, race, authenticated management, usage attribution, restart persistence và config diagnostics.</p></div>
-          <div class="gate"><b>T25-T30</b><p>Recursion guard, direct-model regression, protocol evidence, disabled plugin, rollback và secret hygiene.</p></div>
-          <p>Plan buộc mỗi behavior mới phải đi qua RED → GREEN → full suite. Native `.so`, arm64 và staging chỉ PASS sau execution evidence, không vì workflow tồn tại.</p>
+          <p class="label">05 / evidence before release</p>
+          <h2>Không báo hoàn tất khi thiếu evidence production.</h2>
+          <div class="gate"><b>TC-01</b><p>Compose/config validation và secret scan xanh, image phải pin 2.0.32.</p></div>
+          <div class="gate"><b>TC-02</b><p>Health public không credential trả 401; credential đúng trả 200.</p></div>
+          <div class="gate"><b>TC-03</b><p>Completion thật qua CLIProxy trả nội dung UTF-8 không rỗng.</p></div>
+          <div class="gate"><b>TC-04</b><p>DERP probe và CLIProxy models vẫn 200 sau edge deploy.</p></div>
+          <div class="gate"><b>TC-05</b><p>Playwright desktop/mobile: pairing UI, snapshot, screenshot và console evidence.</p></div>
         </section>
 
         <section id="review" class="read">
-          <h3>Duyệt plan thực thi</h3>
-          <p>Plan là contract để triển khai: 12 task, interface, test RED/GREEN, commands, commit milestones, review focus và final verification. Sau khi bạn duyệt plan, hãy chọn Native hoặc Subagent-driven để bắt đầu code thật.</p>
+          <h3>Đọc đặc tả đầy đủ</h3>
+          <p>Bản Markdown là nguồn đặc tả được versioned. Sau khi bạn duyệt artifact này, bước kế tiếp là implementation plan chi tiết trước khi tạo repo và đụng hạ tầng production.</p>
           <div class="actions">
-            <a class="button" href="./cpa-bundle-router-implementation-plan.md">Mở implementation plan</a>
-            <a class="button secondary" href="./cpa-bundle-router-design.md">Mở design spec</a>
-            <a class="button secondary" href="./cpa-bundle-router-implementation-plan.md" download>Tải plan</a>
+            <a class="button" href="./opencode2-public-deployment-spec.md">Mở deployment spec</a>
+            <a class="button secondary" href="./opencode2-public-deployment-spec.md" download>Tải deployment spec</a>
           </div>
         </section>
       </article>
     </main>
-    <footer>CPA Bundle Router design review · 2026-11-02 · Public preview is a review artifact, not a deployment endpoint.</footer>
+    <footer>OpenCode v2 public deployment review · 2026-11-04 · Preview chỉ là artifact review, không phải endpoint triển khai.</footer>
   </div>
 </body>
 </html>
