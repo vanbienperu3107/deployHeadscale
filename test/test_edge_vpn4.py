@@ -1,17 +1,11 @@
-"""Validate stack edge-vpn4 (chia se cong 443 giua derper va CLIProxyAPI).
+#!/usr/bin/env python3
+"""Cac kiem tra cau hinh cho edge-vpn4.
 
-vpn4 chi co MOT IP cong khai ma can hai dich vu tren 443. nginx doc SNI roi noi
-TCP thang, KHONG giai ma. Cac bat bien duoi day bao ve chinh diem yeu cua kien
-truc do — derper la relay chinh cua ca tailnet, hong no la hong het:
-
-  1. nginx phai la thu duy nhat giu 443; derper KHONG duoc publish 443 nua.
-  2. derper van phai giu cong 80 (ACME HTTP-01 cua chinh no) va 3478/udp (STUN).
-  3. SNI khong khop phai ve derper (default) — loi ten mien khong duoc lam chet DERP.
-  4. proxy_timeout phai du dai cho ket noi DERP song lau.
-  5. Caddy khong duoc dung http challenge (cong 80 la cua derper).
-  6. reverse_proxy phai tat dem (flush_interval -1) neu khong SSE se dung hinh.
-  7. Ba stack phai cung mang 'edge' thi nginx moi goi duoc backend.
+Khong ket noi VPN that. Moi test doc YAML/config trong repo de chan regression
+nguy hiem: derper mat 443, nginx resolve Docker luc startup, hoac route moi lam
+hong duong CLIProxy cu.
 """
+
 import pathlib
 import re
 
@@ -28,6 +22,7 @@ WORKFLOW = ROOT / ".github" / "workflows" / "deploy-edge-vpn4.yml"
 
 CLIPROXY_HOST = "cliproxy.hangocthanh.io.vn"
 OPENCODE_HOST = "opencode.hangocthanh.io.vn"
+OPENCODE2_HOST = "opencode2.hangocthanh.io.vn"
 PORTAINER_HOST = "portainer.hangocthanh.io.vn"
 
 
@@ -178,6 +173,38 @@ def test_opencode_di_qua_chang_proxy_protocol():
     )
 
 
+def test_opencode2_has_an_isolated_proxy_protocol_ingress_and_fail2ban_jail():
+    """v2 must not reuse v1 or Portainer listeners, logs, or fail2ban state."""
+    conf = NGINX_CONF.read_text(encoding="utf-8")
+    caddy = CADDYFILE.read_text(encoding="utf-8")
+    jail = (EDGE / "fail2ban" / "jail.d" / "opencode2.conf").read_text(encoding="utf-8")
+    filt = (EDGE / "fail2ban" / "filter.d" / "opencode2-401.conf").read_text(encoding="utf-8")
+
+    route = re.search(
+        rf"^\s*{re.escape(OPENCODE2_HOST)}\s+127\.0\.0\.1:(\d+);$",
+        conf,
+        re.MULTILINE,
+    )
+    assert route, "opencode2 phai di qua listener loopback rieng"
+    assert route.group(1) == "8451", "opencode2 khong duoc dung chung chang 8446 cua v1"
+    second_hop = re.search(r"listen 127\.0\.0\.1:8451;(.*?)\n    }", conf, re.DOTALL)
+    assert second_hop and "set $opencode2_backend caddy-edge:8450;" in second_hop.group(1)
+    assert "proxy_protocol on;" in second_hop.group(1)
+
+    listener = caddy[caddy.index("servers :8450 {"):caddy.index("https://cliproxy", caddy.index("servers :8450 {"))]
+    assert "proxy_protocol" in listener and "fallback_policy require" in listener
+    assert "servers :8447" not in caddy, "Portainer phai giu TLS thuong, khong nhan PROXY"
+    site = f"https://{OPENCODE2_HOST}:8450"
+    assert site in caddy and "reverse_proxy opencode2:4096" in caddy
+    assert "output file /var/log/caddy/opencode2-access.log" in caddy
+
+    assert "[opencode2-401]" in jail
+    assert "logpath = /remotelogs/opencode2-access.log" in jail
+    assert "chain = DOCKER-USER" in jail
+    assert '"client_ip":"<HOST>"' in filt and '"status":401' in filt
+    assert "8447" not in jail + filt and "8448" not in jail + filt
+
+
 def test_caddy_8445_nhan_proxy_protocol_con_8444_thi_khong():
     """Chi cong opencode nhan PROXY protocol. Bat nham cho 8444 (cliproxy —
     nginx noi thang KHONG gui header) la moi ket noi cliproxy hong ngay."""
@@ -303,6 +330,16 @@ def test_workflow_verify_derp_con_song():
 def test_workflow_kiem_tra_dns_opencode():
     body = WORKFLOW.read_text(encoding="utf-8")
     assert OPENCODE_HOST in body, f"thieu buoc kiem tra DNS cho {OPENCODE_HOST}"
+
+
+def test_workflow_kiem_tra_dns_va_xac_thuc_opencode2_ma_khong_deploy_backend():
+    body = WORKFLOW.read_text(encoding="utf-8")
+    assert OPENCODE2_HOST in body
+    assert f"https://{OPENCODE2_HOST}/global/health" in body
+    assert '"${CODE:-000}" = "200"' in body, "200 khong xac thuc phai la loi bao mat"
+    assert '"${CODE:-000}" != "401"' in body
+    assert "--force-recreate nginx caddy-edge fail2ban" in body
+    assert "docker compose up -d --remove-orphans --force-recreate nginx caddy-edge fail2ban" in body
 
 
 def test_workflow_giu_duong_cu_28417():
