@@ -35,7 +35,7 @@ grep -Fq 'findtime = 600' "$jail"
 grep -Fq 'bantime = 3600' "$jail"
 grep -Fq 'banaction = iptables-allports' "$jail"
 grep -Fq 'chain = DOCKER-USER' "$jail"
-grep -Fq '"client_ip":"<HOST>"' "$filter"
+grep -Fq '"remote_ip":"<HOST>"' "$filter"
 grep -Fq '"status":401' "$filter"
 
 grep -Fq 'Kiem tra DNS opencode2.hangocthanh.io.vn' "$workflow"

@@ -98,10 +98,10 @@ status="$(curl -sk --max-time 5 --resolve "opencode2.hangocthanh.io.vn:$PORT:127
   -o /dev/null -w '%{http_code}' "https://opencode2.hangocthanh.io.vn:$PORT/protected" || true)"
 [ "$status" = '401' ] || fail "stub 401 did not cross v2 ingress (status=$status)"
 for _ in $(seq 1 10); do
-  grep -q '"client_ip".*"status":401' "$TMP/caddy-logs/opencode2-access.log" 2>/dev/null && break
+  grep -q '"remote_ip".*"status":401' "$TMP/caddy-logs/opencode2-access.log" 2>/dev/null && break
   sleep 1
 done
-grep -q '"client_ip".*"status":401' "$TMP/caddy-logs/opencode2-access.log" \
+grep -q '"remote_ip".*"status":401' "$TMP/caddy-logs/opencode2-access.log" \
   || fail 'Caddy did not write the proxied 401 to opencode2 access log'
 
 echo '==> fail2ban starts the configured v2 jail and filter matches that Caddy runtime log'

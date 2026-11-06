@@ -201,7 +201,7 @@ def test_opencode2_has_an_isolated_proxy_protocol_ingress_and_fail2ban_jail():
     assert "[opencode2-401]" in jail
     assert "logpath = /remotelogs/opencode2-access.log" in jail
     assert "chain = DOCKER-USER" in jail
-    assert '"client_ip":"<HOST>"' in filt and '"status":401' in filt
+    assert '"remote_ip":"<HOST>"' in filt and '"status":401' in filt
     assert "8447" not in jail + filt and "8448" not in jail + filt
 
 
@@ -234,7 +234,7 @@ def test_fail2ban_cau_hinh_day_du():
     ten_file = m_log.group(1).rsplit("/", 1)[-1]
     assert ten_file in jail, f"jail phai tro toi dung file log {ten_file}"
 
-    assert '"client_ip":"<HOST>"' in filt, "filter phai bat client_ip (IP that qua PROXY protocol)"
+    assert '"remote_ip":"<HOST>"' in filt, "filter phai bat remote_ip (IP that qua PROXY protocol)"
     assert "401" in filt, "filter phai loc theo status 401"
 
     f2b = compose["services"]["fail2ban"]
