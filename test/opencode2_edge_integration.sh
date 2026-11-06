@@ -50,7 +50,7 @@ https://opencode2.hangocthanh.io.vn:8450 {
 }
 EOF
 
-mkdir -p "$TMP/backend/global" "$TMP/caddy-logs"
+mkdir -p "$TMP/backend/global"
 echo 'OPENCODE2-INTEGRATION-OK' > "$TMP/backend/global/health"
 mkdir -p "$TMP/fail2ban/jail.d" "$TMP/fail2ban/filter.d"
 cp "$ROOT/edge-vpn4/fail2ban/jail.d/opencode2.conf" "$TMP/fail2ban/jail.d/opencode2.conf"
@@ -104,14 +104,13 @@ for _ in $(seq 1 10); do
 done
 grep -q '"status":401' "$TMP/caddy-runtime.log" \
   || fail 'Caddy did not write the proxied 401 to opencode2 access log'
-cp "$TMP/caddy-runtime.log" "$TMP/caddy-logs/opencode2-access.log"
 
 echo '==> fail2ban starts the configured v2 jail and filter matches that Caddy runtime log'
 docker run -d --name opencode2-edge-fail2ban --network none --cap-add NET_ADMIN --cap-add NET_RAW \
   -e TZ=Etc/UTC \
   -v "$TMP/fail2ban/jail.d:/config/fail2ban/jail.d:ro" \
   -v "$TMP/fail2ban/filter.d:/config/fail2ban/filter.d:ro" \
-  -v "$TMP/caddy-logs:/remotelogs:ro" \
+  -v "$TMP/caddy-runtime.log:/remotelogs/opencode2-access.log:ro" \
   lscr.io/linuxserver/fail2ban:1.1.0 >/dev/null
 for _ in $(seq 1 30); do
   if docker exec opencode2-edge-fail2ban fail2ban-client status opencode2-401 >/dev/null 2>&1; then break; fi
