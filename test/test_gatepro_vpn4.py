@@ -90,7 +90,7 @@ def test_deploy_requires_strict_monitor_and_database_health():
     s = script_for("SSH_HOST_VPN4")["with"]["script"]
     assert "healthz" in s
     assert 'grep -q \'"ok":true\'' in s
-    assert "seq 1 450" in s, "startup reconcile co the mat vai phut; deploy phai doi health toi 15 phut"
+    assert "seq 1 180" in s, "startup reconcile co the mat vai phut; deploy phai doi health toi 15 phut"
     assert "[monitor\\] started" not in s, "healthz phai thay the grep log monitor yeu"
 
 
