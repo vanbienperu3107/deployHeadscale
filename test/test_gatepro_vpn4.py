@@ -7,6 +7,7 @@ import yaml
 
 ROOT = pathlib.Path(__file__).parent.parent
 WORKFLOW = ROOT / ".github" / "workflows" / "deploy-gatepro-vpn4.yml"
+DIAG = ROOT / ".github" / "workflows" / "diag-gatepro-network-vpn4.yml"
 
 
 def load():
@@ -40,11 +41,11 @@ def test_vpn6_only_creates_isolated_role_and_database():
         assert not re.search(rf"(?i)(ALTER|CREATE)\s+DATABASE\s+{shared}\b", s)
 
 
-def test_schema_only_from_image_and_no_monitor():
+def test_schema_only_from_image_and_runs_monitor():
     s = script_for("SSH_HOST_VPN4")["with"]["script"]
     assert "gatepro db init" in s
     assert '"serve", "--with-monitor"' in s
-    assert "[monitor\\\\] started" in s or "monitor started" in s
+    assert 'grep -q \'"ok":true\'' in s
     assert "CREATE TABLE" not in s
 
 
@@ -83,3 +84,33 @@ def test_rollback_is_scoped_and_keeps_data():
     assert "volume rm" not in s and "system prune" not in s
     assert "snapshot_unrelated_workloads > before.snap" in s
     assert "cmp -s before.snap after.snap" in s
+
+
+def test_deploy_requires_strict_monitor_and_database_health():
+    s = script_for("SSH_HOST_VPN4")["with"]["script"]
+    assert "healthz" in s
+    assert 'grep -q \'"ok":true\'' in s
+    assert "seq 1 180" in s, "startup reconcile co the mat vai phut; deploy phai doi health toi 15 phut"
+    assert "[monitor\\] started" not in s, "healthz phai thay the grep log monitor yeu"
+
+
+def test_diag_collects_redacted_tunnel_and_vpn6_postgres_evidence_read_only():
+    wf = yaml.safe_load(DIAG.read_text(encoding="utf-8"))
+    steps = wf["jobs"]["diagnose"]["steps"]
+    assert len([s for s in steps if "SSH_HOST_VPN4" in s["with"]["host"]]) == 1
+    assert len([s for s in steps if "SSH_HOST_VPN6" in s["with"]["host"]]) == 1
+    body = DIAG.read_text(encoding="utf-8")
+    for required in (
+        "docker logs --tail 200 gatepro-pg-tunnel",
+        "docker inspect",
+        "derp-postgres",
+        "pg_stat_activity",
+        "pg_postmaster_start_time",
+    ):
+        assert required in body
+    assert "password|secret|token|session_id|dsn" in body
+    for forbidden in (
+        "docker restart", "docker compose up", "docker compose down", "docker exec -i",
+        "ALTER ", "CREATE ", "DROP ", "DELETE ", "UPDATE ", "INSERT ",
+    ):
+        assert forbidden not in body
