@@ -51,5 +51,28 @@ jobs:
             $SUDO docker ps -a --filter name=gatepro --format '{{.Names}} | {{.Status}} | restarts={{.RunningFor}}'
             $SUDO docker inspect -f 'state={{.State.Status}} restarts={{.RestartCount}} started={{.State.StartedAt}} oom={{.State.OOMKilled}} exit={{.State.ExitCode}}' gatepro 2>&1 || true
             $SUDO docker stats --no-stream --format '{{.Name}} mem={{.MemUsage}} cpu={{.CPUPerc}}' gatepro gatepro-pg-tunnel 2>&1 || true
+            echo '== gatepro-pg-tunnel state + log (redact) =='
+            $SUDO docker inspect -f 'state={{.State.Status}} restarts={{.RestartCount}} started={{.State.StartedAt}} oom={{.State.OOMKilled}} exit={{.State.ExitCode}}' gatepro-pg-tunnel 2>&1 || true
+            $SUDO docker logs --tail 200 gatepro-pg-tunnel 2>&1 | grep -v -iE 'password|secret|token|session_id|dsn' || true
             echo '== log gatepro 120 dong cuoi (redact) =='
             $SUDO docker logs --tail 120 gatepro 2>&1 | grep -v -iE 'password|token|session_id' || true
+
+      - name: vpn6 - PostgreSQL state and connection evidence
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SSH_HOST_VPN6 }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT || '22' }}
+          script_stop: false
+          command_timeout: 5m
+          script: |
+            set -u
+            if [ "$(id -u)" -ne 0 ]; then SUDO="sudo -n"; else SUDO=""; fi
+            echo '== derp-postgres state =='
+            $SUDO docker inspect -f 'state={{.State.Status}} restarts={{.RestartCount}} started={{.State.StartedAt}} oom={{.State.OOMKilled}} exit={{.State.ExitCode}}' derp-postgres 2>&1 || true
+            echo '== PostgreSQL start time and gatepro activity =='
+            $SUDO docker exec derp-postgres psql -U derp -d postgres -tAc "SELECT pg_postmaster_start_time()" 2>&1 || true
+            $SUDO docker exec derp-postgres psql -U derp -d postgres -c "SELECT usename,datname,state,client_addr,backend_start,state_change,wait_event_type,wait_event FROM pg_stat_activity WHERE usename='gatepro' ORDER BY backend_start" 2>&1 || true
+            echo '== PostgreSQL recent connection/error log (redact) =='
+            $SUDO docker logs --tail 200 derp-postgres 2>&1 | grep -iE 'gatepro|connection|terminat|timeout|fatal|error|restart|shutdown|ready' | grep -v -iE 'password|secret|token|session_id|dsn' || true
