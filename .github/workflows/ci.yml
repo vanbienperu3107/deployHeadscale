@@ -155,6 +155,9 @@ jobs:
       - name: Integration — dinh tuyen SNI that
         run: bash test/edge_vpn4_integration.sh
 
+      - name: Integration — OpenCode v2 SNI, PROXY protocol, va fail2ban runtime
+        run: bash test/opencode2_edge_integration.sh
+
   portainer-vpn4:
     name: portainer-vpn4 — private SNI ingress and service isolation
     runs-on: ubuntu-latest

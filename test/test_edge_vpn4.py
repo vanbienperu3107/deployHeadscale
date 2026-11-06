@@ -201,7 +201,7 @@ def test_opencode2_has_an_isolated_proxy_protocol_ingress_and_fail2ban_jail():
     assert "[opencode2-401]" in jail
     assert "logpath = /remotelogs/opencode2-access.log" in jail
     assert "chain = DOCKER-USER" in jail
-    assert '"client_ip":"<HOST>"' in filt and '"status":401' in filt
+    assert '"remote_ip":"<HOST>"' in filt and '"status":401' in filt
     assert "8447" not in jail + filt and "8448" not in jail + filt
 
 
@@ -211,8 +211,6 @@ def test_caddy_8445_nhan_proxy_protocol_con_8444_thi_khong():
     body = CADDYFILE.read_text(encoding="utf-8")
     vi_tri = body.find("servers :8445")
     assert vi_tri >= 0, "Caddyfile phai co global option `servers :8445`"
-    # proxy_protocol phai xuat hien ngay sau khai bao servers :8445 (trong ~200
-    # ky tu — du cho khoi listener_wrappers, khong voi sang site khac).
     assert "proxy_protocol" in body[vi_tri:vi_tri + 200], (
         "khoi servers :8445 phai bat listener_wrappers proxy_protocol"
     )
