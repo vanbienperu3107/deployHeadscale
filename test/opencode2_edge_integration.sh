@@ -50,7 +50,7 @@ https://opencode2.hangocthanh.io.vn:8450 {
 }
 EOF
 
-mkdir -p "$TMP/backend/global"
+mkdir -p "$TMP/backend/global" "$TMP/caddy-logs"
 echo 'OPENCODE2-INTEGRATION-OK' > "$TMP/backend/global/health"
 mkdir -p "$TMP/fail2ban/jail.d" "$TMP/fail2ban/filter.d"
 cp "$ROOT/edge-vpn4/fail2ban/jail.d/opencode2.conf" "$TMP/fail2ban/jail.d/opencode2.conf"
