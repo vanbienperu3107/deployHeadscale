@@ -211,8 +211,6 @@ def test_caddy_8445_nhan_proxy_protocol_con_8444_thi_khong():
     body = CADDYFILE.read_text(encoding="utf-8")
     vi_tri = body.find("servers :8445")
     assert vi_tri >= 0, "Caddyfile phai co global option `servers :8445`"
-    # proxy_protocol phai xuat hien ngay sau khai bao servers :8445 (trong ~200
-    # ky tu — du cho khoi listener_wrappers, khong voi sang site khac).
     assert "proxy_protocol" in body[vi_tri:vi_tri + 200], (
         "khoi servers :8445 phai bat listener_wrappers proxy_protocol"
     )
@@ -234,7 +232,7 @@ def test_fail2ban_cau_hinh_day_du():
     ten_file = m_log.group(1).rsplit("/", 1)[-1]
     assert ten_file in jail, f"jail phai tro toi dung file log {ten_file}"
 
-    assert '"remote_ip":"<HOST>"' in filt, "filter phai bat remote_ip (IP that qua PROXY protocol)"
+    assert '"client_ip":"<HOST>"' in filt, "filter phai bat client_ip (IP that qua PROXY protocol)"
     assert "401" in filt, "filter phai loc theo status 401"
 
     f2b = compose["services"]["fail2ban"]
