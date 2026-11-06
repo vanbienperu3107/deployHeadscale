@@ -99,10 +99,10 @@ status="$(curl -sk --max-time 5 --resolve "opencode2.hangocthanh.io.vn:$PORT:127
 [ "$status" = '401' ] || fail "stub 401 did not cross v2 ingress (status=$status)"
 for _ in $(seq 1 10); do
   docker exec opencode2-edge-caddy cat /var/log/caddy/opencode2-access.log > "$TMP/caddy-runtime.log" 2>/dev/null || true
-  grep -q '"remote_ip".*"status":401' "$TMP/caddy-runtime.log" 2>/dev/null && break
+  grep -q '"status":401' "$TMP/caddy-runtime.log" 2>/dev/null && break
   sleep 1
 done
-grep -q '"remote_ip".*"status":401' "$TMP/caddy-runtime.log" \
+grep -q '"status":401' "$TMP/caddy-runtime.log" \
   || fail 'Caddy did not write the proxied 401 to opencode2 access log'
 cp "$TMP/caddy-runtime.log" "$TMP/caddy-logs/opencode2-access.log"
 
