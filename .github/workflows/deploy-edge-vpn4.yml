@@ -48,6 +48,21 @@ jobs:
           fi
           echo "DNS OK: opencode.hangocthanh.io.vn -> vpn4"
 
+      - name: Kiem tra DNS opencode2.hangocthanh.io.vn (truoc khi dung toi derper)
+        env:
+          HOST: ${{ secrets.SSH_HOST_VPN4 }}
+        run: |
+          RESOLVED=$(python3 -c "import socket;print(socket.gethostbyname('opencode2.hangocthanh.io.vn'))" 2>/dev/null || echo "")
+          if [ -z "$RESOLVED" ]; then
+            echo "::error::opencode2.hangocthanh.io.vn chua phan giai duoc. Them ban ghi A tro toi vpn4 roi chay lai."
+            exit 1
+          fi
+          if [ "$RESOLVED" != "$HOST" ]; then
+            echo "::error::opencode2.hangocthanh.io.vn tro sai dich (khong phai vpn4). Kiem tra lai ban ghi A."
+            exit 1
+          fi
+          echo "DNS OK: opencode2.hangocthanh.io.vn -> vpn4"
+
       - name: Kiem tra secrets bat buoc
         env:
           API_KEY: ${{ secrets.CLIPROXY_API_KEY }}
@@ -103,7 +118,9 @@ jobs:
             # mount doi (chi so sanh hash dinh nghia service/image/env) nen sua xong
             # ma khong force thi container van chay cau hinh CU vo thoi han — chinh
             # la ly do route opencode tra HTTP 000 sau hai lan deploy lien tiep.
-            $SUDO docker compose up -d --remove-orphans --force-recreate
+            # fail2ban cung doc jail/filter tu bind mount khi khoi dong, nen phai
+            # recreate no cung nginx/Caddy de jail opencode2 co hieu luc ngay.
+            $SUDO docker compose up -d --remove-orphans --force-recreate nginx caddy-edge fail2ban
             sleep 5
             $SUDO docker compose ps
 
@@ -189,6 +206,20 @@ jobs:
           fi
           if [ "${CODE:-000}" != "401" ]; then
             echo "::warning::opencode.hangocthanh.io.vn chua tra 401 nhu mong doi (co the opencode-server chua chay hoac Caddy chua xin duoc chung chi) — khong chan deploy nay, kiem tra rieng"
+          fi
+
+      - name: Verify tu Internet — OpenCode v2 qua 443 (khong xac thuc phai la 401)
+        run: |
+          # Backend opencode2 co the chua duoc deploy o lan dau. 401 chung minh
+          # ca DNS, SNI, TLS va Basic Auth da dung; 200 la loi bao mat va phai fail.
+          CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 https://opencode2.hangocthanh.io.vn/global/health || true)
+          echo "https://opencode2.hangocthanh.io.vn/global/health -> ${CODE:-000} (mong doi 401)"
+          if [ "${CODE:-000}" = "200" ]; then
+            echo "::error::opencode2.hangocthanh.io.vn tra 200 KHONG kem xac thuc — tat route va kiem tra OPENCODE_SERVER_PASSWORD ngay lap tuc"
+            exit 1
+          fi
+          if [ "${CODE:-000}" != "401" ]; then
+            echo "::warning::opencode2.hangocthanh.io.vn chua tra 401 (backend co the chua deploy); DERP, CLIProxy va OpenCode v1 da duoc kiem tra doc lap"
           fi
 
       - name: Smoke test completion qua 443 (tieng Viet, kiem tra UTF-8 + SSE)

@@ -1,4 +1,4 @@
-# edge-vpn4 — chia sẻ cổng 443 giữa DERP, CLIProxyAPI và OpenCode
+# edge-vpn4 — chia sẻ cổng 443 giữa DERP, CLIProxyAPI và hai OpenCode độc lập
 
 vpn4 chỉ có **một IP công khai** (`149.104.66.174`, không IPv6) nhưng cần nhiều dịch vụ
 trên cổng 443:
@@ -8,6 +8,7 @@ trên cổng 443:
 | `derper` (DERP relay) | Mọi peer trong tailnet đều relay qua `vpn4-vn`; client sau proxy hạn chế chỉ ra được 443 |
 | `CLIProxyAPI` | Mạng của người dùng gần như chỉ cho `CONNECT :443` |
 | `opencode-server` | Cho client bên ngoài tailnet (vd. Zed) nối tới OpenCode remote qua HTTPS |
+| `opencode2` | OpenCode v2 public deployment, độc lập với v1 ở backend, listener, log và fail2ban |
 
 ## Kiến trúc
 
@@ -18,14 +19,15 @@ Internet :443
      ├── SNI vpn4.hangocthanh.io.vn ─────┐
      ├── (không có SNI / không khớp) ────┤──→ derper:443   ← TLS + cert của chính derper
      ├── SNI cliproxy.hangocthanh.io.vn ──→ caddy-edge:8444 ──→ cliproxy:8317
-     └── SNI opencode.hangocthanh.io.vn ──→ caddy-edge:8445 ──→ opencode-server:4096
+     ├── SNI opencode.hangocthanh.io.vn ──→ 127.0.0.1:8446 ──PROXY──→ caddy-edge:8445 ──→ opencode-server:4096
+     └── SNI opencode2.hangocthanh.io.vn ─→ 127.0.0.1:8451 ──PROXY──→ caddy-edge:8450 ──→ opencode2:4096
 
 Cổng 80  → derper (ACME HTTP-01 của autocert)
 Cổng 3478/udp → derper (STUN, nginx không proxy UDP)
 Cổng 28417 → cliproxy (đường cũ, giữ nguyên cho máy đã cấu hình)
 ```
 
-**fail2ban cho opencode (2026-08-30):** log Caddy ghi nhận scanner Internet quét
+**fail2ban cho opencode v1 (2026-08-30):** log Caddy ghi nhận scanner Internet quét
 `opencode.hangocthanh.io.vn` liên tục (401 hàng loạt, UA giả). Đã thêm:
 nginx tách nhánh opencode qua chặng nội bộ `127.0.0.1:8446` gắn **PROXY
 protocol** (bắt buộc — không có nó Caddy chỉ thấy IP nội bộ của nginx, ban vô
@@ -36,6 +38,14 @@ protocol, ghi log JSON có `client_ip` thật ra file riêng → container
 phút → ban IP 1 giờ** tại iptables host. DERP/cliproxy không đổi đường đi.
 Xem jail/filter trong `fail2ban/`. Kiểm tra IP đang bị ban:
 `docker exec edge-fail2ban fail2ban-client status opencode-401`.
+
+**OpenCode v2 là đường hoàn toàn riêng:** nginx SNI chuyển `opencode2` qua
+`127.0.0.1:8451`, gắn PROXY protocol đến Caddy `:8450`; listener đó chỉ tin dải
+Docker `172.16.0.0/12`, dùng TLS-ALPN và reverse proxy `opencode2:4096` với
+`flush_interval -1` cho SSE. Caddy ghi JSON riêng tại
+`/var/log/caddy/opencode2-access.log`; jail `opencode2-401` đọc đúng file này và
+ban 5 lần 401/10 phút trong 1 giờ qua `DOCKER-USER`. Xem trạng thái bằng
+`docker exec edge-fail2ban fail2ban-client status opencode2-401`.
 
 **Cảnh báo bảo mật riêng cho `opencode-server`:** tiến trình này được phép chạy `bash`
 và sửa file trong workspace (xem [[opencode-api-do-duoc]]). Route này lộ nó ra Internet —
@@ -63,15 +73,23 @@ CLIProxyAPI không vào được, chứ **không được làm chết DERP**.
 | `https://cliproxy.hangocthanh.io.vn/v1` | Mạng chỉ cho 443 (mặc định nên dùng) |
 | `http://149.104.66.174:28417/v1` | Đường cũ, vẫn chạy, không TLS |
 | `https://opencode.hangocthanh.io.vn` | OpenCode remote (API opencode-server, Basic Auth) |
+| `https://opencode2.hangocthanh.io.vn` | OpenCode v2 (Basic Auth; backend `opencode2:4096`) |
 
 ## Triển khai
 
-Yêu cầu trước: bản ghi DNS `A cliproxy.hangocthanh.io.vn → 149.104.66.174` và
-`A opencode.hangocthanh.io.vn → 149.104.66.174`.
+Yêu cầu trước: bản ghi DNS `A cliproxy.hangocthanh.io.vn → 149.104.66.174`,
+`A opencode.hangocthanh.io.vn → 149.104.66.174` và
+`A opencode2.hangocthanh.io.vn → 149.104.66.174`.
 Workflow kiểm tra DNS **trước khi** đụng tới derper — thiếu là dừng ngay, DERP không suy suyển.
 Stack `opencode-server` tự nó nằm ở repo `TelegramAgent` (`/opt/opencode`, deploy qua
 `deploy.yml` của repo đó) — workflow của `edge-vpn4` chỉ tạo đường route, không khởi
 động opencode-server; nếu chưa deploy stack đó thì route trả 502, không phải lỗi ở đây.
+Sau thay đổi bind mount, workflow recreate đúng `nginx`, `caddy-edge` và
+`fail2ban` với `--force-recreate`; không deploy backend OpenCode v2. Sau khi các
+container lên, workflow giữ các smoke test DERP, CLIProxy, OpenCode v1 và kiểm tra
+`https://opencode2.hangocthanh.io.vn/global/health` **không có credentials**:
+`401` là thành công, `200` là lỗi bảo mật và fail job; trạng thái khác chỉ cảnh báo
+khi backend v2 chủ ý chưa deploy.
 
 ```bash
 gh workflow run deploy-edge-vpn4.yml --ref main
@@ -84,12 +102,12 @@ Thứ tự cắt chuyển trong workflow: kiểm tra DNS → tạo mạng `edge`
 ## Chứng chỉ
 
 - `vpn4.hangocthanh.io.vn` — do **derper** tự xin qua ACME HTTP-01 trên cổng 80. Không đổi.
-- `cliproxy.hangocthanh.io.vn` và `opencode.hangocthanh.io.vn` — do **Caddy** xin qua
-  **TLS-ALPN-01**, mỗi domain một cổng nội bộ riêng (8444, 8445) để một site lỗi không
-  kéo site kia sập. Không dùng HTTP-01 được vì cổng 80 thuộc về derper; nginx chuyển
-  tiếp đúng SNI nên Let's Encrypt vẫn bắt tay được. Chứng chỉ nằm trong volume
-  `caddy_edge_data` — mất là phải xin lại (có rate limit của Let's Encrypt, 5 lần/tuần
-  cho mỗi tên miền).
+- `cliproxy.hangocthanh.io.vn`, `opencode.hangocthanh.io.vn` và
+  `opencode2.hangocthanh.io.vn` — do **Caddy** xin qua **TLS-ALPN-01**, mỗi domain một
+  cổng nội bộ riêng (8444, 8445, 8450) để một site lỗi không kéo site kia sập. Không dùng
+  HTTP-01 được vì cổng 80 thuộc về derper; nginx chuyển tiếp đúng SNI nên Let's Encrypt
+  vẫn bắt tay được. Chứng chỉ nằm trong volume `caddy_edge_data` — mất là phải xin lại
+  (có rate limit của Let's Encrypt, 5 lần/tuần cho mỗi tên miền).
 
 ## Rollback
 
@@ -112,25 +130,9 @@ Rồi revert commit tương ứng trên `main` để lần deploy sau không l�
 | `https://cliproxy.hangocthanh.io.vn` báo lỗi chứng chỉ | Caddy chưa xin được cert. `docker logs caddy-edge`; kiểm tra DNS đã trỏ đúng và nginx đang chạy (TLS-ALPN đi xuyên nginx). |
 | `https://opencode.hangocthanh.io.vn` trả 502 | opencode-server chưa chạy hoặc chưa vào mạng `edge` — kiểm `docker network inspect edge` ở máy đang chạy stack `/opt/opencode`. |
 | `https://opencode.hangocthanh.io.vn` (hoặc `cliproxy...`) trả HTTP 000 / lỗi TLS ngay cả khi backend healthy | **Bẫy đã gặp thật (2026-08-27)**: `nginx.conf`/`Caddyfile` là bind mount, `docker compose up -d` không phát hiện nội dung file đổi (chỉ so hash service/image/env) nên container cũ vẫn chạy cấu hình cũ vô thời hạn dù deploy "thành công" nhiều lần. Deploy workflow đã sửa dùng `--force-recreate` ở bước bật nginx+caddy; nếu vẫn gặp lại (sửa tay ngoài workflow) thì `docker compose up -d --force-recreate nginx caddy-edge`. |
+| `https://opencode2.hangocthanh.io.vn` không xác thực không trả 401 | Backend OpenCode v2 chưa chạy/không ở network `edge` thì workflow chỉ cảnh báo; trả **200** là sự cố bảo mật, phải tắt route và kiểm tra Basic Auth ngay. |
 | `https://opencode.hangocthanh.io.vn` trả 200 không cần mật khẩu | **Sự cố bảo mật nghiêm trọng** — `OPENCODE_SERVER_PASSWORD` rỗng hoặc chưa được nạp vào `opencode-server`. Tắt route ngay (dừng `edge-vpn4` hoặc xoá nhánh opencode khỏi `nginx.conf`) cho tới khi xác nhận lại biến môi trường. |
 | DERP chết sau khi deploy | `docker logs edge-nginx` xem SNI có vào đúng `derper` không; kiểm tra `docker network inspect edge` có cả derper lẫn nginx. Không cứu được thì rollback ở trên. |
 | Client "đứng hình" khi model đang trả lời | Thiếu `flush_interval -1` trong Caddyfile → phản hồi SSE bị đệm. |
 | Kết nối DERP bị ngắt sau ~10 phút | `proxy_timeout` trong `nginx.conf` quá ngắn. Đang đặt 1h. |
 | `docker compose up` báo thiếu network `edge` | `docker network create edge` rồi chạy lại. Các workflow deploy đều tự tạo. |
-
-## Chuyển sang server khác
-
-1. **Chuẩn bị máy mới**: Docker + Docker Compose, cổng 443/80/3478 chưa ai dùng.
-2. **Trỏ DNS**: cả `vpn4.hangocthanh.io.vn` (hoặc tên mới cho DERP),
-   `cliproxy.hangocthanh.io.vn` và `opencode.hangocthanh.io.vn` phải trỏ về IP máy mới
-   **trước khi** deploy — cả derper lẫn Caddy đều xin chứng chỉ theo tên miền.
-3. **Sửa `nginx.conf`** nếu đổi tên miền: cập nhật khoá trong khối `map`. Giữ nhánh
-   `default` trỏ về derper.
-4. **Sửa workflow**: `deploy-edge-vpn4.yml` đang dùng `secrets.SSH_HOST_VPN4`; đổi sang
-   secret host mới, và đổi `concurrency.group` nếu máy mới không phải vpn4.
-5. **Thứ tự deploy trên máy mới**: `docker network create edge` → derp → cliproxy → edge.
-6. **Chứng chỉ**: không cần bê theo. Cả hai đều tự xin mới. Nếu muốn tránh rate limit của
-   Let's Encrypt thì copy volume `caddy_edge_data` và `derper_certs` sang.
-7. **Cập nhật DERPMap**: region của vpn4 trong DB (`derp_servers`) phải trỏ tới IP/hostname
-   mới — xem `docs/derp-management.md`.
-8. **Tắt máy cũ** sau khi `https://<host-moi>/derp/probe` trả 200 và client đã chuyển region.
