@@ -3,172 +3,88 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="OpenCode v2 public deployment specification">
-  <title>OpenCode v2 | Deployment Review</title>
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='%23082538' d='M0 0h16v16H0z'/%3E%3Cpath fill='%23e3ad41' d='M0 0h16v3H0z'/%3E%3Ccircle cx='8' cy='9' r='3' fill='%23fff'/%3E%3C/svg%3E">
+  <meta name="description" content="Cooldown Model Filter plugin design review">
+  <title>Cooldown Model Filter - Design Review</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'/%3E">
   <style>
-    :root {
-      --paper: #f4f6f8;
-      --ink: #10202d;
-      --muted: #526673;
-      --navy: #082538;
-      --blue: #126d9c;
-      --gold: #e3ad41;
-      --line: #c5d0d8;
-      --panel: #ffffff;
-      --code: #e8eff3;
-    }
+    :root { color-scheme: dark; --bg:#071018; --panel:#0d1a24; --panel2:#102632; --ink:#eaf8f7; --muted:#9eb6b8; --line:#29424b; --cyan:#47d7cf; --amber:#f2b84b; --green:#8be28b; }
     * { box-sizing: border-box; }
     html { scroll-behavior: smooth; }
-    body { margin: 0; background: var(--paper); color: var(--ink); font: 17px/1.62 Georgia, "Times New Roman", serif; }
-    .topline { height: 9px; background: linear-gradient(90deg, var(--gold) 0 16%, var(--blue) 16% 61%, var(--navy) 61%); }
-    .shell { width: min(1200px, calc(100% - 40px)); margin: 0 auto; }
-    header { display: grid; grid-template-columns: 1.5fr .8fr; gap: 42px; padding: 68px 0 42px; border-bottom: 2px solid var(--navy); }
-    .kicker, .label { margin: 0 0 14px; font: 700 12px/1.2 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; letter-spacing: .08em; color: var(--blue); }
-    h1, h2, h3 { font-family: Arial, Helvetica, sans-serif; letter-spacing: -.045em; }
-    h1 { margin: 0; max-width: 800px; color: var(--navy); font-size: clamp(44px, 7vw, 84px); line-height: .91; }
-    .lede { max-width: 780px; margin: 26px 0 0; color: #263c4a; font-size: 21px; }
-    .status { align-self: end; border-left: 4px solid var(--gold); padding: 8px 0 8px 20px; font: 15px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-    .status strong { color: var(--navy); }
-    main { display: grid; grid-template-columns: 210px minmax(0, 1fr); gap: 52px; padding: 44px 0 80px; }
-    nav { position: sticky; top: 18px; height: max-content; border-top: 1px solid var(--line); }
-    nav a { display: block; padding: 11px 0; border-bottom: 1px solid var(--line); color: var(--muted); font: 600 13px/1.3 Arial, Helvetica, sans-serif; text-decoration: none; }
-    nav a:hover, nav a:focus { color: var(--blue); }
-    article { min-width: 0; }
-    section { margin-bottom: 58px; scroll-margin-top: 20px; }
-    h2 { margin: 0 0 18px; color: var(--navy); font-size: clamp(28px, 4vw, 42px); line-height: 1; }
-    h3 { margin: 28px 0 8px; color: #16374b; font-size: 21px; }
-    p { max-width: 790px; margin: 0 0 16px; }
-    .diagram { overflow-x: auto; margin: 24px 0; padding: 26px; color: #dce8ef; background: var(--navy); border-bottom: 5px solid var(--gold); font: 14px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-    .diagram span { display: block; min-width: 530px; }
-    .diagram .indent-1 { padding-left: 34px; color: #95cde7; }
-    .diagram .indent-2 { padding-left: 68px; color: #f3d58a; }
-    .invariants { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); }
-    .invariant { min-height: 148px; padding: 24px; background: var(--panel); }
-    .invariant b { display: block; margin-bottom: 7px; font: 700 16px/1.2 Arial, Helvetica, sans-serif; color: var(--navy); }
-    .invariant span { color: var(--muted); font-size: 15px; }
-    .flow { list-style: none; padding: 0; margin: 20px 0; counter-reset: step; }
-    .flow li { position: relative; padding: 0 0 25px 57px; min-height: 49px; }
-    .flow li::before { content: counter(step, decimal-leading-zero); counter-increment: step; position: absolute; left: 0; top: 0; color: var(--blue); font: 700 17px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-    .flow li:not(:last-child)::after { content: ""; position: absolute; left: 10px; top: 29px; bottom: 5px; width: 1px; background: var(--line); }
-    .flow strong { font-family: Arial, Helvetica, sans-serif; }
-    .gate { display: grid; grid-template-columns: 100px 1fr; gap: 20px; padding: 18px 0; border-top: 1px solid var(--line); }
-    .gate:last-child { border-bottom: 1px solid var(--line); }
-    .gate b { color: var(--blue); font: 800 14px/1.2 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-    .gate p { margin: 0; font-size: 16px; }
-    code { padding: 2px 5px; background: var(--code); color: #16374b; font: .85em ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; overflow-wrap: anywhere; }
-    .read { margin-top: 36px; padding: 25px; background: #fff8e6; border: 1px solid #d4b56b; }
-    .read h3 { margin-top: 0; }
-    .actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 22px; }
-    .button { display: inline-flex; min-height: 48px; align-items: center; padding: 12px 17px; background: var(--navy); color: white; border: 1px solid var(--navy); font: 700 14px/1 Arial, Helvetica, sans-serif; text-decoration: none; }
-    .button.secondary { background: transparent; color: var(--navy); }
-    footer { padding: 24px 0 48px; border-top: 1px solid var(--line); color: var(--muted); font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-    @media (max-width: 760px) {
-      .shell { width: min(100% - 28px, 720px); }
-      header, main { display: block; }
-      header { padding: 42px 0 30px; }
-      .status { margin-top: 30px; }
-      nav { position: static; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 18px; padding: 14px 0; margin-bottom: 34px; }
-      nav a { border: 0; padding: 0; }
-      .invariants { grid-template-columns: 1fr; }
-      .diagram { margin-left: -14px; margin-right: -14px; border-left: 0; border-right: 0; }
-      .diagram span { min-width: 0; white-space: normal; }
-    }
-    @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+    body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.65 "IBM Plex Sans","Segoe UI",sans-serif; }
+    code { font-family:"IBM Plex Mono","Cascadia Code",monospace; }
+    .shell { width:min(1180px,calc(100% - 32px)); margin:0 auto; padding:30px 0 72px; }
+    .mast { border:1px solid var(--line); background:linear-gradient(135deg,#0d1a24 0%,#102632 68%,#12343a 100%); padding:clamp(28px,6vw,72px); position:relative; overflow:hidden; }
+    .mast::after { content:"FILTER"; position:absolute; right:-18px; bottom:-48px; color:rgba(71,215,207,.07); font:800 clamp(92px,20vw,240px)/1 "Arial Narrow",sans-serif; letter-spacing:-.09em; }
+    h1,h2,h3 { margin:0; line-height:1.08; }
+    h1 { max-width:850px; font-size:clamp(42px,8vw,88px); letter-spacing:-.055em; }
+    h2 { margin-bottom:18px; font-size:clamp(25px,4vw,38px); letter-spacing:-.035em; }
+    h3 { font-size:18px; }
+    .lead { max-width:760px; margin:24px 0 0; color:#c5dcdd; font-size:clamp(17px,2vw,21px); }
+    .status { display:flex; flex-wrap:wrap; gap:9px; margin-top:30px; }
+    .pill { border:1px solid #3d6267; padding:7px 11px; color:#c8e6e5; background:rgba(7,16,24,.45); font-size:13px; }
+    .pill.good { border-color:#3f7455; color:var(--green); }
+    .layout { display:grid; grid-template-columns:250px minmax(0,1fr); gap:28px; margin-top:28px; align-items:start; }
+    nav { position:sticky; top:20px; border-left:2px solid var(--cyan); padding:9px 0 9px 18px; }
+    nav a { display:block; padding:6px 0; color:var(--muted); text-decoration:none; font-size:14px; }
+    nav a:hover,nav a:focus-visible { color:var(--ink); }
+    article { min-width:0; }
+    section { border-top:1px solid var(--line); padding:34px 0 38px; }
+    section:first-child { border-top:0; padding-top:8px; }
+    p { max-width:76ch; margin:12px 0; }
+    .flow { display:grid; grid-template-columns:repeat(5,1fr); gap:8px; margin-top:22px; }
+    .flow div { min-height:116px; border:1px solid var(--line); background:var(--panel); padding:16px; }
+    .flow strong { display:block; color:var(--cyan); font-size:13px; margin-bottom:9px; }
+    .decision { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:18px; }
+    .decision>div { border:1px solid var(--line); padding:20px; background:var(--panel); }
+    .keep { border-color:#35685a!important; } .hide { border-color:#725542!important; }
+    .keep h3 { color:var(--green); } .hide h3 { color:var(--amber); }
+    ul { padding-left:20px; } li { margin:7px 0; }
+    .code { overflow-x:auto; white-space:pre; border:1px solid var(--line); border-left:3px solid var(--cyan); background:#050c12; padding:18px; color:#d8efed; font:14px/1.65 "IBM Plex Mono",monospace; }
+    table { width:100%; border-collapse:collapse; margin-top:18px; font-size:14px; }
+    th,td { border-bottom:1px solid var(--line); padding:12px 10px; text-align:left; vertical-align:top; }
+    th { color:var(--cyan); font-weight:650; }
+    .gate { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }
+    .gate div { background:var(--panel2); border:1px solid #31515c; padding:18px; }
+    .pass { color:var(--green); font-weight:750; }
+    .warning { border:1px solid #6c5432; background:#231b10; padding:18px; color:#f8dca2; }
+    footer { color:var(--muted); border-top:1px solid var(--line); padding-top:24px; font-size:14px; }
+    :focus-visible { outline:3px solid var(--amber); outline-offset:3px; }
+    @media(max-width:860px){.layout{grid-template-columns:1fr}nav{position:static;display:grid;grid-template-columns:1fr 1fr;gap:0 16px}.flow{grid-template-columns:1fr}.flow div{min-height:0}.gate{grid-template-columns:1fr}}
+    @media(max-width:560px){.shell{width:min(100% - 20px,1180px);padding-top:10px}.mast{padding:26px 20px 32px}.decision{grid-template-columns:1fr}nav{grid-template-columns:1fr}th:nth-child(3),td:nth-child(3){display:none}th,td{padding:10px 6px}}
+    @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
   </style>
 </head>
 <body>
-  <div class="topline"></div>
-  <div class="shell">
-    <header>
-      <div>
-        <p class="kicker">Architecture review / public service with Tailnet operations</p>
-        <h1>OpenCode v2: Public, Persistent, Tailnet-Aware</h1>
-        <p class="lede">Instance riêng tại <code>opencode2.hangocthanh.io.vn</code>: Basic Auth, CLIProxy, persistent workspace, Internet outbound và SSH mọi node Tailnet qua identity/key riêng, không dùng Docker socket hay key hạ tầng cũ.</p>
-      </div>
-      <div class="status"><strong>Review artifact</strong><br>Deployment spec v2<br>Tailnet: allow all<br>Runtime: <code>OpenCode 2.0.32</code></div>
-    </header>
-    <main>
-      <nav aria-label="Mục lục thiết kế">
-        <a href="#boundary">Architecture</a>
-        <a href="#selection">Auth & permissions</a>
-        <a href="#safety">Isolation</a>
-        <a href="#state">State & Tailnet</a>
-        <a href="#gates">Verification</a>
-        <a href="#review">Review file</a>
-      </nav>
-      <article>
-        <section id="boundary">
-          <p class="label">01 / architecture</p>
-          <h2>Public ingress, private runtime.</h2>
-          <p>OpenCode v2 chạy trong container độc lập, chỉ được Caddy gọi qua Docker network <code>edge</code>. Tailscale sidecar cung cấp Tailnet netns; OpenCode không có Docker socket, host mount hay capability TUN.</p>
-          <div class="diagram" role="img" aria-label="Luồng request qua nginx, Caddy và OpenCode v2">
-            <span>Browser HTTPS: opencode2.hangocthanh.io.vn</span>
-            <span class="indent-1">↓</span>
-            <span>edge-nginx :443 -- SNI passthrough --> Caddy :8447</span>
-            <span class="indent-1">↓</span>
-            <span class="indent-2">PROXY protocol + TLS-ALPN + JSON access log</span>
-            <span class="indent-1">↓</span>
-            <span>opencode2 :4096 -- workspace/state --> CLIProxy + Internet + Tailnet SSH</span>
-          </div>
-        </section>
+<main class="shell">
+  <header class="mast">
+    <h1>Ẩn model đang cooldown, không chạm scheduler.</h1>
+    <p class="lead">Đặc tả plugin-only cho CLIProxyAPI: model biến mất khỏi catalog khi mọi credential sở hữu nó đều không khả dụng, rồi tự xuất hiện lại sau deadline.</p>
+    <div class="status"><span class="pill good">Normal: PASS</span><span class="pill good">High: PASS</span><span class="pill good">XHigh: PASS</span><span class="pill">Plugin ABI 1</span><span class="pill">RPC schema 6</span><span class="pill">Baseline 91d452a</span></div>
+  </header>
+  <div class="layout">
+    <nav aria-label="Mục lục"><a href="#intent">Mục tiêu</a><a href="#flow">Luồng xử lý</a><a href="#policy">Chính sách lọc</a><a href="#safety">Fail-open</a><a href="#scope">Phạm vi</a><a href="#tests">Test matrix</a><a href="#impact">Tác động</a><a href="#rollback">Rollback</a></nav>
+    <article>
+      <section id="intent"><h2>Mục tiêu</h2><p>Plugin <code>cooldown-model-filter</code> chỉ sửa response danh sách model. Nó không khóa tài khoản, không thay đổi cooldown, không chọn credential, không probe quota và không thay đổi đường thực thi request.</p><div class="decision"><div class="keep"><h3>Giữ model</h3><p>Còn ít nhất một credential khỏe, hoặc ownership/state chưa đủ chắc chắn.</p></div><div class="hide"><h3>Ẩn model</h3><p>Mọi credential đã biết của model đều disabled hoặc unavailable ở thời điểm hiện tại.</p></div></div></section>
+      <section id="flow"><h2>Luồng xử lý</h2><div class="flow"><div><strong>1. Catalog</strong>CPA tạo response <code>/v1/models</code>.</div><div><strong>2. Runtime state</strong>Gọi <code>host.auth.list</code>.</div><div><strong>3. Ownership</strong>Gọi <code>host.auth.models</code>.</div><div><strong>4. Filter</strong>Ghép credential ID và lọc.</div><div><strong>5. Recovery</strong>Refresh sau deadline tự hiện lại.</div></div><p class="warning">Không cron, database hoặc timer nền. Mỗi lần client tải catalog, plugin tính lại từ host state hiện tại.</p></section>
+      <section id="policy"><h2>Chính sách lọc</h2><div class="code">usable = !disabled &amp;&amp; (
+  !unavailable ||
+  (next_retry_after != zero &amp;&amp; next_retry_after &lt;= now)
+)
 
-        <section id="selection">
-          <p class="label">02 / auth and automatic permissions</p>
-          <h2>Basic Auth ở biên, mọi tool tự động ở bên trong.</h2>
-          <ol class="flow">
-            <li><strong>DNS preflight.</strong> <code>opencode2.hangocthanh.io.vn</code> phải trỏ đúng VPN4 trước khi deploy edge.</li>
-            <li><strong>SNI route riêng.</strong> Nginx chuyển domain qua listener loopback, gắn PROXY protocol để Caddy thấy IP thật.</li>
-            <li><strong>TLS-ALPN.</strong> Caddy xin certificate qua SNI passthrough; port 80 vẫn dành cho DERP.</li>
-            <li><strong>Server authentication.</strong> Mọi API và pairing flow yêu cầu OpenCode HTTP Basic Auth.</li>
-            <li><strong>Permission wildcard.</strong> Rules v2 <code>action: *</code>, <code>resource: *</code>, <code>effect: allow</code> cho mọi shell, edit, network, MCP và plugin tool.</li>
-            <li><strong>Rate protection.</strong> fail2ban ban IP sau 5 phản hồi 401 trong 10 phút.</li>
-          </ol>
-        </section>
-
-        <section id="safety">
-          <p class="label">03 / isolation invariants</p>
-          <h2>Agent được làm việc, không được chạm Docker hoặc host.</h2>
-          <div class="invariants">
-            <div class="invariant"><b>Không Docker socket</b><span>Không privileged mode, host networking hay Linux capability bổ sung.</span></div>
-            <div class="invariant"><b>Không host filesystem</b><span>Chỉ hai named volumes workspace và state được cấp cho container.</span></div>
-            <div class="invariant"><b>Không port backend public</b><span>Caddy là đường vào duy nhất; service chỉ nằm trong network edge.</span></div>
-            <div class="invariant"><b>Không secret trong Git</b><span>Credential chỉ ở GitHub Secrets và file VPS mode 0600.</span></div>
-            <div class="invariant"><b>Có Internet thật</b><span>Agent clone Git, cài dependency, gọi provider và chạy mọi tool không cần prompt.</span></div>
-            <div class="invariant"><b>Không ảnh hưởng v1</b><span>OpenCode v2 có Caddy listener, access log và fail2ban jail riêng.</span></div>
-          </div>
-        </section>
-
-        <section id="state">
-          <p class="label">04 / persistence and operations</p>
-          <h2>Deploy lại không làm mất workspace, session hay Tailnet identity.</h2>
-          <p><code>opencode2_workspace</code> giữ repository/artifact người dùng tạo. <code>opencode2_state</code> giữ SQLite database, session, config và auth state. Redeploy chỉ recreate container và không dùng <code>-v</code>.</p>
-          <p>OpenCode state và Tailscale state dùng volume riêng. Sidecar join Headscale bằng auth key riêng, hostname <code>opencode2</code>. Headscale ACL allow all theo yêu cầu; SSH dùng user/key riêng, known_hosts pinning và không dùng root.</p>
-        </section>
-
-        <section id="gates">
-          <p class="label">05 / evidence before release</p>
-          <h2>Không báo hoàn tất khi thiếu evidence production.</h2>
-          <div class="gate"><b>TC-01</b><p>Compose/config validation và secret scan xanh, image phải pin 2.0.32.</p></div>
-          <div class="gate"><b>TC-02</b><p>Health public không credential trả 401; credential đúng trả 200.</p></div>
-          <div class="gate"><b>TC-03</b><p>Completion thật qua CLIProxy trả nội dung UTF-8 không rỗng.</p></div>
-          <div class="gate"><b>TC-04</b><p>DERP probe và CLIProxy models vẫn 200 sau edge deploy.</p></div>
-          <div class="gate"><b>TC-05</b><p>Tailnet sidecar online; SSH user <code>opencode</code> thành công, root và fingerprint sai bị từ chối.</p></div>
-          <div class="gate"><b>TC-06</b><p>Resolved v2 config chứng minh wildcard permission allow hoạt động không prompt.</p></div>
-          <div class="gate"><b>TC-07</b><p>Playwright desktop/mobile: pairing UI, snapshot, screenshot và console evidence.</p></div>
-        </section>
-
-        <section id="review" class="read">
-          <h3>Đọc đặc tả đầy đủ</h3>
-          <p>Bản Markdown là nguồn đặc tả được versioned. Nó bao gồm Tailnet allow-all, SSH identity riêng và wildcard permission không prompt. Sau khi bạn duyệt, bước kế tiếp là implementation plan chi tiết trước production.</p>
-          <div class="actions">
-            <a class="button" href="./opencode2-public-deployment-spec.md">Mở deployment spec</a>
-            <a class="button secondary" href="./opencode2-public-deployment-spec.md" download>Tải deployment spec</a>
-          </div>
-        </section>
-      </article>
-    </main>
-    <footer>OpenCode v2 public deployment review · 2026-11-04 · Preview chỉ là artifact review, không phải endpoint triển khai.</footer>
+hide(model) = known_owners(model) &gt; 0
+  &amp;&amp; every owner is unusable</div><ul><li><code>unavailable=true</code> nhưng không có deadline: coi là chưa thể tự phục hồi.</li><li>Model không map được tới credential: luôn giữ, không đoán.</li><li>Static plugin model không có ownership credential: luôn giữ.</li><li>Hỗ trợ OpenAI <code>data[*].id</code> và Codex client <code>models[*].slug</code>.</li></ul></section>
+      <section id="safety"><h2>Fail-open</h2><p>Mọi lỗi callback, JSON, join identity hoặc shape không hỗ trợ đều trả nguyên catalog. Plugin không được làm mất model khi thiếu bằng chứng.</p><div class="code">X-CPA-Cooldown-Model-Filter: applied | bypassed
+X-CPA-Cooldown-Models-Hidden: &lt;count&gt;</div><p>Kết quả lọc rỗng không chứng minh đầy đủ ownership/state sẽ bị hủy và trả body gốc.</p></section>
+      <section id="scope"><h2>Phạm vi</h2><table><thead><tr><th>Có</th><th>Không</th><th>Lý do</th></tr></thead><tbody><tr><td>Credential-wide cooldown</td><td>Per-model cooldown trong cùng credential</td><td>ABI chưa expose <code>ModelStates</code>.</td></tr><tr><td>OpenAI/Codex catalog</td><td>Đoán field catalog lạ</td><td>Tránh lọc nhầm.</td></tr><tr><td>Read-only callbacks</td><td>Sửa auth file/scheduler</td><td>Native selector là nguồn sự thật.</td></tr><tr><td>Tự hiện lại khi refresh</td><td>Ép client xóa cache</td><td>Client phải gọi lại endpoint.</td></tr></tbody></table></section>
+      <section id="tests"><h2>Test matrix bắt buộc</h2><table><thead><tr><th>ID</th><th>Tình huống</th><th>Kết quả</th></tr></thead><tbody><tr><td>T01</td><td>Một owner cooldown, một owner khỏe</td><td>Model vẫn hiện</td></tr><tr><td>T02</td><td>Tất cả owner cooldown</td><td>Model bị ẩn</td></tr><tr><td>T03</td><td>Deadline đã qua, không restart</td><td>Model tự hiện</td></tr><tr><td>T04-T06</td><td>Unavailable, disabled, ownership không rõ</td><td>Ẩn chỉ khi chắc chắn</td></tr><tr><td>T07</td><td>Host callback lỗi</td><td>Catalog byte-equivalent</td></tr><tr><td>T08-T09</td><td>OpenAI và Codex catalog</td><td>Giữ order và field bắt buộc</td></tr><tr><td>T10-T11</td><td>Chat response và concurrency</td><td>Không đổi, race PASS</td></tr><tr><td>T12-T13</td><td>Redeploy và rollback</td><td>Plugin bền, tắt được ngay</td></tr></tbody></table></section>
+      <section id="impact"><h2>Tác động và review gates</h2><div class="gate"><div><h3>Normal</h3><p class="pass">PASS</p><p>Intent và acceptance đầy đủ.</p></div><div><h3>High</h3><p class="pass">PASS</p><p>Không đổi routing, network, storage.</p></div><div><h3>XHigh</h3><p class="pass">PASS</p><p>Fail-open, không state, không mất dữ liệu.</p></div></div><ul><li>Hai RPC nội bộ và một lần lọc JSON chỉ khi tải catalog.</li><li>Không secret mới; log không chứa email/token/key.</li><li>Direct request và fallback vẫn do core quyết định.</li><li>Client có thể còn hiện model tới lần refresh catalog tiếp theo.</li></ul></section>
+      <section id="rollback"><h2>Rollback</h2><div class="code">plugins:
+  configs:
+    cooldown-model-filter:
+      enabled: false</div><p>Reload/restart CPA, kiểm tra catalog gốc và completion smoke test. Không migration, không dữ liệu cần khôi phục.</p></section>
+      <footer>Artifact review cho revision <code>91d452afb07b67af2266146d19bb40c6e66ba654</code>. Đây là thiết kế, chưa phải implementation.</footer>
+    </article>
   </div>
+</main>
 </body>
 </html>
