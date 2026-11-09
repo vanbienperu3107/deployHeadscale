@@ -13,7 +13,7 @@ import yaml
 
 ROOT = pathlib.Path(__file__).parent.parent
 EDGE = ROOT / "edge-vpn4"
-NGINX_CONF = EDGE / "nginx.conf"
+HAPROXY_CONF = EDGE / "haproxy.cfg"
 CADDYFILE = EDGE / "Caddyfile"
 EDGE_COMPOSE = EDGE / "docker-compose.yml"
 DERP_COMPOSE = ROOT / "derp-vpn4" / "docker-compose.yml"
@@ -36,8 +36,8 @@ def ports_of(compose_path, service):
 
 # ---------- ai giu cong nao ----------
 
-def test_chi_nginx_giu_443():
-    assert "443:443" in ports_of(EDGE_COMPOSE, "nginx"), "nginx phai publish 443"
+def test_chi_haproxy_giu_443():
+    assert "443:443" in ports_of(EDGE_COMPOSE, "haproxy"), "haproxy phai publish 443"
 
 
 def test_derper_khong_con_publish_443():
@@ -66,7 +66,7 @@ def test_caddy_edge_khong_publish_cong_nao():
 
 def test_ba_stack_cung_mang_edge():
     for path, service in (
-        (EDGE_COMPOSE, "nginx"),
+        (EDGE_COMPOSE, "haproxy"),
         (EDGE_COMPOSE, "caddy-edge"),
         (DERP_COMPOSE, "derper"),
         (CLIPROXY_COMPOSE, "cliproxy"),
@@ -83,113 +83,63 @@ def test_mang_edge_khai_bao_external_o_moi_stack():
         assert net.get("name") == "edge", f"{path}: ten mang phai la 'edge'"
 
 
-# ---------- nginx ----------
+# ---------- HAProxy ----------
 
-def test_nginx_dinh_tuyen_bang_ssl_preread_khong_giai_ma():
-    conf = NGINX_CONF.read_text(encoding="utf-8")
-    assert "ssl_preread on" in conf, "phai bat ssl_preread de doc SNI"
-    assert "ssl_certificate" not in conf, (
-        "nginx KHONG duoc terminate TLS — derper phai tu giu cert cua no"
-    )
-    assert "stream {" in conf, "phai dinh tuyen o tang stream (TCP), khong phai http"
+def test_haproxy_dinh_tuyen_sni_l4_khong_giai_ma():
+    conf = HAPROXY_CONF.read_text(encoding="utf-8")
+    assert "mode tcp" in conf and "req.ssl_sni" in conf
+    assert "bind :443" in conf
+    assert "ssl " not in conf, "HAProxy KHONG duoc terminate TLS"
 
 
 def test_sni_khong_khop_thi_ve_derper():
     """Bat bien an toan: cau hinh ten mien sai khong duoc lam chet DERP."""
-    conf = NGINX_CONF.read_text(encoding="utf-8")
-    m = re.search(r"default\s+([\w.:-]+);", conf)
-    assert m, "map phai co nhanh default"
-    assert m.group(1).startswith("derper:"), (
-        f"default phai tro ve derper, dang la {m.group(1)}"
-    )
+    conf = HAPROXY_CONF.read_text(encoding="utf-8")
+    assert re.search(r"default_backend\s+derper", conf)
 
 
-def test_khong_dung_upstream_block_de_nginx_t_chay_doc_lap():
-    """Khoi `upstream` bat nginx resolve NGAY luc doc config: `nginx -t` trong
-    workflow (chay truoc khi derper vao mang edge) se that bai, va derper khoi dong
-    lai doi IP thi nginx cung khong bat kip. Phai dung resolver + bien.
-    """
-    conf = NGINX_CONF.read_text(encoding="utf-8")
-    assert not re.search(r"^\s*upstream\s+", conf, re.MULTILINE), (
-        "khong duoc dung khoi upstream — dung `resolver` + bien trong proxy_pass"
-    )
-    assert "resolver 127.0.0.11" in conf, "phai khai bao DNS noi bo cua Docker"
-    assert "proxy_pass $backend" in conf, "proxy_pass phai dung bien de resolve luc chay"
+def test_haproxy_resolve_docker_backend_luc_chay():
+    conf = HAPROXY_CONF.read_text(encoding="utf-8")
+    assert "nameserver docker 127.0.0.11:53" in conf
+    assert "resolvers docker" in conf
 
 
 def test_ten_mien_cliproxy_duoc_dinh_tuyen():
-    conf = NGINX_CONF.read_text(encoding="utf-8")
+    conf = HAPROXY_CONF.read_text(encoding="utf-8")
     assert CLIPROXY_HOST in conf, f"thieu route cho {CLIPROXY_HOST}"
 
 
 def test_ten_mien_opencode_duoc_dinh_tuyen():
-    conf = NGINX_CONF.read_text(encoding="utf-8")
+    conf = HAPROXY_CONF.read_text(encoding="utf-8")
     assert OPENCODE_HOST in conf, f"thieu route cho {OPENCODE_HOST}"
 
 
 def test_portainer_sni_route_is_exact_and_existing_routes_stay_unchanged():
     """Portainer chi duoc them vao map SNI; DERP va hai duong cu phai bat bien."""
-    conf = NGINX_CONF.read_text(encoding="utf-8")
-
-    assert re.search(
-        rf"^\s*{re.escape(PORTAINER_HOST)} caddy-edge:8447;$", conf, re.MULTILINE
-    ), "Portainer phai co route SNI chinh xac, TLS thuong, toi caddy-edge:8447"
-    assert re.search(r"^\s*default\s+derper:443;$", conf, re.MULTILINE), (
-        "default SNI phai giu NGUYEN derper:443"
-    )
-    assert re.search(
-        rf"^\s*{re.escape(CLIPROXY_HOST)}\s+caddy-edge:8444;$", conf, re.MULTILINE
-    ), "khong duoc doi route CLIProxy 8444"
-    assert re.search(
-        rf"^\s*{re.escape(OPENCODE_HOST)}\s+127\.0\.0\.1:8446;$", conf, re.MULTILINE
-    ), "khong duoc doi route OpenCode qua listener 127.0.0.1:8446"
-    assert "listen 443;" in conf and "listen [::]:443;" in conf, (
-        "khong duoc doi listener SNI cong 443"
-    )
+    conf = HAPROXY_CONF.read_text(encoding="utf-8")
+    for host, backend in ((PORTAINER_HOST, "portainer"), (CLIPROXY_HOST, "cliproxy"), (OPENCODE_HOST, "opencode")):
+        assert host in conf and f"use_backend {backend}" in conf
 
 
-def test_opencode_di_qua_chang_proxy_protocol():
-    """opencode phai VONG qua listener noi bo (127.0.0.1:8446) co proxy_protocol
-    de Caddy log IP THAT cho fail2ban — tro thang caddy-edge thi chi thay IP noi
-    bo cua nginx, ban vo nghia. cliproxy giu nguyen duong thang (khong PROXY
-    protocol, khong fail2ban)."""
-    conf = NGINX_CONF.read_text(encoding="utf-8")
-    m_cliproxy = re.search(rf"{re.escape(CLIPROXY_HOST)}\s+caddy-edge:(\d+);", conf)
-    assert m_cliproxy, "cliproxy phai tro thang caddy-edge"
-    m_opencode = re.search(rf"{re.escape(OPENCODE_HOST)}\s+127\.0\.0\.1:(\d+);", conf)
-    assert m_opencode, "opencode phai tro ve listener noi bo 127.0.0.1 (chang proxy_protocol)"
-    cong_noi_bo = m_opencode.group(1)
-    khoi_chang2 = re.search(
-        rf"listen 127\.0\.0\.1:{cong_noi_bo};(.*?)}}", conf, re.DOTALL
-    )
-    assert khoi_chang2, f"thieu server block listen 127.0.0.1:{cong_noi_bo}"
-    assert "proxy_protocol on" in khoi_chang2.group(1), (
-        "chang 2 phai bat proxy_protocol — thieu no la fail2ban khong co IP that de ban"
-    )
-    m_dich = re.search(r"caddy-edge:(\d+)", khoi_chang2.group(1))
-    assert m_dich, "chang 2 phai noi toi caddy-edge"
-    assert m_dich.group(1) != m_cliproxy.group(1), (
-        "opencode va cliproxy phai khac cong caddy-edge — chung cong la ghi de site"
-    )
+def test_send_proxy_chi_duoc_gui_truc_tiep_toi_hai_backend_opencode():
+    conf = HAPROXY_CONF.read_text(encoding="utf-8")
+    for backend, port in (("opencode", "8445"), ("opencode2", "8450")):
+        block = re.search(rf"backend {backend}\n(.*?)(?=\nbackend |\Z)", conf, re.DOTALL)
+        assert block and f"caddy-edge:{port}" in block.group(1) and "send-proxy" in block.group(1)
+    for backend in ("derper", "cliproxy", "portainer"):
+        block = re.search(rf"backend {backend}\n(.*?)(?=\nbackend |\Z)", conf, re.DOTALL)
+        assert block and "send-proxy" not in block.group(1)
 
 
 def test_opencode2_has_an_isolated_proxy_protocol_ingress_and_fail2ban_jail():
     """v2 must not reuse v1 or Portainer listeners, logs, or fail2ban state."""
-    conf = NGINX_CONF.read_text(encoding="utf-8")
+    conf = HAPROXY_CONF.read_text(encoding="utf-8")
     caddy = CADDYFILE.read_text(encoding="utf-8")
     jail = (EDGE / "fail2ban" / "jail.d" / "opencode2.conf").read_text(encoding="utf-8")
     filt = (EDGE / "fail2ban" / "filter.d" / "opencode2-401.conf").read_text(encoding="utf-8")
 
-    route = re.search(
-        rf"^\s*{re.escape(OPENCODE2_HOST)}\s+127\.0\.0\.1:(\d+);$",
-        conf,
-        re.MULTILINE,
-    )
-    assert route, "opencode2 phai di qua listener loopback rieng"
-    assert route.group(1) == "8451", "opencode2 khong duoc dung chung chang 8446 cua v1"
-    second_hop = re.search(r"listen 127\.0\.0\.1:8451;(.*?)\n    }", conf, re.DOTALL)
-    assert second_hop and "set $opencode2_backend caddy-edge:8450;" in second_hop.group(1)
-    assert "proxy_protocol on;" in second_hop.group(1)
+    route = re.search(r"backend opencode2\n(.*?)(?=\nbackend |\Z)", conf, re.DOTALL)
+    assert route and "caddy-edge:8450" in route.group(1) and "send-proxy" in route.group(1)
 
     listener = caddy[caddy.index("servers :8450 {"):caddy.index("https://cliproxy", caddy.index("servers :8450 {"))]
     assert "proxy_protocol" in listener and "fallback_policy require" in listener
@@ -246,12 +196,8 @@ def test_fail2ban_cau_hinh_day_du():
 
 def test_proxy_timeout_du_dai_cho_derp():
     """Mac dinh 10 phut se cat nham ket noi DERP dang im lang giua cac keepalive."""
-    conf = NGINX_CONF.read_text(encoding="utf-8")
-    m = re.search(r"proxy_timeout\s+(\d+)([smh]);", conf)
-    assert m, "phai dat proxy_timeout tuong minh"
-    value, unit = int(m.group(1)), m.group(2)
-    seconds = value * {"s": 1, "m": 60, "h": 3600}[unit]
-    assert seconds >= 1800, f"proxy_timeout {value}{unit} qua ngan cho DERP"
+    conf = HAPROXY_CONF.read_text(encoding="utf-8")
+    assert "timeout client 1h" in conf and "timeout server 1h" in conf
 
 
 # ---------- caddy ----------
@@ -336,8 +282,9 @@ def test_workflow_kiem_tra_dns_va_xac_thuc_opencode2_ma_khong_deploy_backend():
     assert f"https://{OPENCODE2_HOST}/global/health" in body
     assert '"${CODE:-000}" = "200"' in body, "200 khong xac thuc phai la loi bao mat"
     assert '"${CODE:-000}" != "401"' in body
-    assert "--force-recreate nginx caddy-edge fail2ban" in body
-    assert "docker compose up -d --remove-orphans --force-recreate nginx caddy-edge fail2ban" in body
+    assert "--force-recreate haproxy caddy-edge fail2ban" in body
+    assert "docker compose up -d --remove-orphans --force-recreate haproxy caddy-edge fail2ban" in body
+    assert "haproxy -c -f /usr/local/etc/haproxy/haproxy.cfg" in body
 
 
 def test_workflow_giu_duong_cu_28417():
