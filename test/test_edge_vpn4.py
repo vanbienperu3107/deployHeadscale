@@ -89,6 +89,7 @@ def test_haproxy_dinh_tuyen_sni_l4_khong_giai_ma():
     conf = HAPROXY_CONF.read_text(encoding="utf-8")
     assert "mode tcp" in conf and "req.ssl_sni" in conf
     assert "bind :443" in conf
+    assert "backend=%b/%s" in conf
     assert "ssl " not in conf, "HAProxy KHONG duoc terminate TLS"
 
 

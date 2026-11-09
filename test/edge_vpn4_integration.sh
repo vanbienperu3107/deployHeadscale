@@ -94,9 +94,12 @@ fi
 echo "==> [5/5] Khong co SNI phai duoc DINH TUYEN ve derper (bat bien an toan cho DERP)"
 # Goi bang IP -> khong co SNI. Bat tay TLS se that bai (ca derper that lan backend
 # gia deu can SNI de chon cert) nen KHONG kiem tra noi dung tra ve — thu can kiem
-# la HAProxy QUYET DINH DI DAU. Ket noi khong SNI phai van nhan backend DERP.
-default_body=$(curl -sk --max-time 5 "https://127.0.0.1:$PORT/" 2>/dev/null || true)
-[ "$default_body" = "DERPER" ] || { echo "::error::ket noi khong SNI khong vao DERP"; exit 1; }
+# DERP TLS can SNI to select a certificate, so a no-SNI handshake may fail.
+# The HAProxy TCP log still proves the safe default backend decision.
+curl -sk --max-time 5 "https://127.0.0.1:$PORT/" >/dev/null 2>&1 || true
+sleep 1
+routed=$(docker logs edge-test-haproxy 2>&1 | grep -c 'backend=derper/' || true)
+[ "${routed:-0}" -ge 1 ] || { echo "::error::ket noi khong SNI khong vao backend DERP"; docker logs edge-test-haproxy; exit 1; }
 
 # Chung minh nginx KHONG giai ma: moi backend tu phat cert rieng, nen van tay cert
 # nhan duoc phai KHAC nhau. Neu nginx terminate TLS thi ca hai se tra ve cung mot
