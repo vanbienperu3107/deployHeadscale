@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Integration test cho edge-vpn4: chay CHINH nginx.conf se deploy len vpn4, voi hai
+# Integration test cho edge-vpn4: chay CHINH haproxy.cfg se deploy len vpn4, voi hai
 # backend gia mang dung ten container ma config tro toi (derper, caddy-edge), roi
-# chung minh nginx dinh tuyen theo SNI ma KHONG giai ma TLS:
+# chung minh HAProxy dinh tuyen theo SNI ma KHONG giai ma TLS:
 #
 #   1. SNI vpn4.hangocthanh.io.vn      -> backend derper
 #   2. SNI cliproxy.hangocthanh.io.vn  -> backend caddy-edge
 #   3. Khong gui SNI (goi bang IP)     -> derper (nhanh default, an toan cho DERP)
-#   4. Moi backend tu terminate TLS bang cert RIENG cua no -> chung minh nginx chi
+#   4. Moi backend tu terminate TLS bang cert RIENG cua no -> chung minh HAProxy chi
 #      noi TCP, khong dung toi noi dung (dieu kien de derper giu autocert).
 set -euo pipefail
 
@@ -17,7 +17,7 @@ PORT=8443
 
 cleanup() {
   echo "--- don dep ---"
-  docker rm -f edge-test-nginx edge-test-derper edge-test-caddy >/dev/null 2>&1 || true
+  docker rm -f edge-test-haproxy edge-test-derper edge-test-caddy >/dev/null 2>&1 || true
   docker network rm "$NET" >/dev/null 2>&1 || true
   rm -rf "$TMP"
 }
@@ -46,18 +46,18 @@ EOF
 
 docker network create "$NET" >/dev/null
 
-# Ten container phai TRUNG voi upstream trong nginx.conf that.
+# Ten container phai TRUNG voi upstream trong haproxy.cfg that.
 docker run -d --name edge-test-derper --network "$NET" --network-alias derper \
   -v "$TMP/derper.Caddyfile:/etc/caddy/Caddyfile:ro" caddy:2.8-alpine >/dev/null
 docker run -d --name edge-test-caddy --network "$NET" --network-alias caddy-edge \
   -v "$TMP/cliproxy.Caddyfile:/etc/caddy/Caddyfile:ro" caddy:2.8-alpine >/dev/null
 
-echo "==> [2/5] Kiem tra cu phap nginx.conf that"
-docker run --rm -v "$ROOT/edge-vpn4/nginx.conf:/etc/nginx/nginx.conf:ro" nginx:1.27-alpine nginx -t
+echo "==> [2/5] Kiem tra cu phap haproxy.cfg that"
+docker run --rm -v "$ROOT/edge-vpn4/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro" haproxy:3.0.12-alpine haproxy -c -f /usr/local/etc/haproxy/haproxy.cfg
 
-echo "==> [3/5] Chay nginx voi chinh nginx.conf se deploy"
-docker run -d --name edge-test-nginx --network "$NET" -p "$PORT:443" \
-  -v "$ROOT/edge-vpn4/nginx.conf:/etc/nginx/nginx.conf:ro" nginx:1.27-alpine >/dev/null
+echo "==> [3/5] Chay HAProxy voi chinh haproxy.cfg se deploy"
+docker run -d --name edge-test-haproxy --network "$NET" -p "$PORT:443" \
+  -v "$ROOT/edge-vpn4/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro" haproxy:3.0.12-alpine >/dev/null
 
 echo "  cho backend san sang..."
 ready=0
@@ -69,7 +69,7 @@ for _ in $(seq 1 30); do
 done
 if [ "$ready" != "1" ]; then
   echo "::error::backend khong len sau 60s"
-  docker logs edge-test-nginx 2>&1 | tail -20
+  docker logs edge-test-haproxy 2>&1 | tail -20
   docker logs edge-test-derper 2>&1 | tail -20
   exit 1
 fi
@@ -94,18 +94,9 @@ fi
 echo "==> [5/5] Khong co SNI phai duoc DINH TUYEN ve derper (bat bien an toan cho DERP)"
 # Goi bang IP -> khong co SNI. Bat tay TLS se that bai (ca derper that lan backend
 # gia deu can SNI de chon cert) nen KHONG kiem tra noi dung tra ve — thu can kiem
-# la NGINX QUYET DINH DI DAU. Log dinh tuyen cua nginx tra loi chinh xac dieu do.
-curl -sk --max-time 5 "https://127.0.0.1:$PORT/" >/dev/null 2>&1 || true
-sleep 1
-# Bien rong trong context `stream` duoc in ra la RONG (khac http log, noi no thanh '-').
-routed=$(docker logs edge-test-nginx 2>&1 | grep -cE "sni=-? -> derper:443" || true)
-echo "  so ket noi khong SNI duoc dinh tuyen ve derper: $routed"
-if [ "${routed:-0}" -lt 1 ]; then
-  echo "::error::ket noi khong co SNI KHONG duoc dinh tuyen ve derper — loi ten mien se lam chet DERP"
-  echo "--- log nginx ---"
-  docker logs edge-test-nginx 2>&1 | tail -15
-  exit 1
-fi
+# la HAProxy QUYET DINH DI DAU. Ket noi khong SNI phai van nhan backend DERP.
+default_body=$(curl -sk --max-time 5 "https://127.0.0.1:$PORT/" 2>/dev/null || true)
+[ "$default_body" = "DERPER" ] || { echo "::error::ket noi khong SNI khong vao DERP"; exit 1; }
 
 # Chung minh nginx KHONG giai ma: moi backend tu phat cert rieng, nen van tay cert
 # nhan duoc phai KHAC nhau. Neu nginx terminate TLS thi ca hai se tra ve cung mot
@@ -125,8 +116,8 @@ if [ -z "$fp_a" ] || [ -z "$fp_b" ]; then
   exit 1
 fi
 if [ "$fp_a" = "$fp_b" ]; then
-  echo "::error::hai backend tra ve CUNG mot cert — nginx dang terminate TLS chu khong passthrough"
+  echo "::error::hai backend tra ve CUNG mot cert — HAProxy dang terminate TLS chu khong passthrough"
   exit 1
 fi
 
-echo "PASS: nginx dinh tuyen dung theo SNI va khong dung toi TLS."
+echo "PASS: HAProxy dinh tuyen dung theo SNI va khong dung toi TLS."

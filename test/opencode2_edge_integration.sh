@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Disposable execution test for OpenCode v2's complete ingress path:
-# the deploy nginx.conf TLS/SNI -> loopback :8451 -> PROXY -> Caddy :8450 -> backend.
+# the deploy haproxy.cfg TLS/SNI -> PROXY -> Caddy :8450 -> backend.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -9,7 +9,7 @@ TMP="$(mktemp -d)"
 PORT=8453
 
 cleanup() {
-  docker rm -f opencode2-edge-nginx opencode2-edge-caddy opencode2-edge-backend opencode2-edge-fail2ban opencode2-edge-client >/dev/null 2>&1 || true
+  docker rm -f opencode2-edge-haproxy opencode2-edge-caddy opencode2-edge-backend opencode2-edge-fail2ban opencode2-edge-client >/dev/null 2>&1 || true
   docker network rm "$NET" >/dev/null 2>&1 || true
   rm -rf "$TMP"
 }
@@ -17,7 +17,7 @@ trap cleanup EXIT
 
 fail() {
   echo "::error::$*" >&2
-  for container in opencode2-edge-nginx opencode2-edge-caddy opencode2-edge-backend; do
+  for container in opencode2-edge-haproxy opencode2-edge-caddy opencode2-edge-backend; do
     echo "--- $container ---" >&2
     docker logs "$container" 2>&1 | tail -40 >&2 || true
   done
@@ -71,11 +71,11 @@ docker run -d --name opencode2-edge-caddy --network "$NET" --network-alias caddy
   -v "$TMP/Caddyfile:/etc/caddy/Caddyfile:ro" \
   -v "$TMP/caddy-logs:/var/log/caddy" caddy:2.8-alpine >/dev/null
 
-docker run --rm -v "$ROOT/edge-vpn4/nginx.conf:/etc/nginx/nginx.conf:ro" nginx:1.27-alpine nginx -t
-docker run -d --name opencode2-edge-nginx --network "$NET" -p "$PORT:443" \
-  -v "$ROOT/edge-vpn4/nginx.conf:/etc/nginx/nginx.conf:ro" nginx:1.27-alpine >/dev/null
+docker run --rm -v "$ROOT/edge-vpn4/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro" haproxy:3.0.12-alpine haproxy -c -f /usr/local/etc/haproxy/haproxy.cfg
+docker run -d --name opencode2-edge-haproxy --network "$NET" -p "$PORT:443" \
+  -v "$ROOT/edge-vpn4/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro" haproxy:3.0.12-alpine >/dev/null
 
-echo '==> v2 real SNI -> 8451 -> PROXY -> 8450 -> backend'
+echo '==> v2 real SNI -> PROXY -> 8450 -> backend'
 body=''
 for _ in $(seq 1 30); do
   body="$(curl -sk --max-time 3 --resolve "opencode2.hangocthanh.io.vn:$PORT:127.0.0.1" \

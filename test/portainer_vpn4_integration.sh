@@ -3,14 +3,14 @@
 #
 # This deliberately does not run Portainer or mount /var/run/docker.sock.  All
 # containers are test stubs on a unique Docker network; the only host binding
-# is Docker's dynamically selected 127.0.0.1 port for the disposable nginx.
+# is Docker's dynamically selected 127.0.0.1 port for the disposable HAProxy.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SUFFIX="$$-${RANDOM}"
 NETWORK="portainer-vpn4-test-${SUFFIX}"
 PROXY_NETWORK="portainer-vpn4-proxy-test-${SUFFIX}"
-NGINX="portainer-vpn4-test-nginx-${SUFFIX}"
+HAProxy="portainer-vpn4-test-haproxy-${SUFFIX}"
 DERP="portainer-vpn4-test-derp-${SUFFIX}"
 CADDY="portainer-vpn4-test-caddy-${SUFFIX}"
 PORTAINER_STUB="portainer-vpn4-test-backend-${SUFFIX}"
@@ -26,7 +26,7 @@ DERP_DEFAULT_SNI="vpn4.hangocthanh.io.vn"
 cleanup() {
   status=$?
   echo "==> Cleanup disposable Docker resources"
-  docker rm -f "$NGINX" "$DERP" "$CADDY" "$PORTAINER_STUB" "$GATE_STUB" >/dev/null 2>&1 || true
+  docker rm -f "$HAProxy" "$DERP" "$CADDY" "$PORTAINER_STUB" "$GATE_STUB" >/dev/null 2>&1 || true
   docker network rm "$NETWORK" >/dev/null 2>&1 || true
   docker network rm "$PROXY_NETWORK" >/dev/null 2>&1 || true
   rm -rf "$TMP"
@@ -38,7 +38,7 @@ trap cleanup EXIT
 fail() {
   echo "::error::$1" >&2
   echo "--- nginx log ---" >&2
-  docker logs "$NGINX" 2>&1 || true
+  docker logs "$HAProxy" 2>&1 || true
   echo "--- caddy edge log ---" >&2
   docker logs "$CADDY" 2>&1 || true
   echo "--- DERP stub log ---" >&2
@@ -90,8 +90,8 @@ print("rendered Portainer stack publishes no host port and gates on Google SSO")
 
 echo "==> [3/7] Binary-validate exact repository Nginx and Caddy configs"
 docker run --rm \
-  -v "$ROOT/edge-vpn4/nginx.conf:/etc/nginx/nginx.conf:ro" \
-  nginx:1.27-alpine nginx -t
+  -v "$ROOT/edge-vpn4/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro" \
+  haproxy:3.0.12-alpine haproxy -c -f /usr/local/etc/haproxy/haproxy.cfg
 
 # `caddy validate` provisions reverse_proxy transport modules but must not
 # require production backends.  Map every config backend to loopback inside the
@@ -207,10 +207,10 @@ EXPECTED_PROXY_MEMBERS="$(printf '%s\n%s\n%s\n' "$CADDY" "$PORTAINER_STUB" "$GAT
 [ "$PROXY_MEMBERS" = "$EXPECTED_PROXY_MEMBERS" ] || fail "private proxy test network members differ: ${PROXY_MEMBERS:-<empty>}"
 
 echo "==> [5/7] Start exact repository Nginx with a random loopback-only port"
-docker run -d --name "$NGINX" --network "$NETWORK" -p 127.0.0.1::443 \
-  -v "$ROOT/edge-vpn4/nginx.conf:/etc/nginx/nginx.conf:ro" \
-  nginx:1.27-alpine >/dev/null
-HOST_PORT="$(docker port "$NGINX" 443/tcp | python3 -c 'import sys; print(sys.stdin.read().strip().rsplit(":", 1)[1])')"
+docker run -d --name "$HAProxy" --network "$NETWORK" -p 127.0.0.1::443 \
+  -v "$ROOT/edge-vpn4/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro" \
+  haproxy:3.0.12-alpine >/dev/null
+HOST_PORT="$(docker port "$HAProxy" 443/tcp | python3 -c 'import sys; print(sys.stdin.read().strip().rsplit(":", 1)[1])')"
 case "$HOST_PORT" in
   ''|*[!0-9]*) fail "could not determine disposable loopback port" ;;
 esac

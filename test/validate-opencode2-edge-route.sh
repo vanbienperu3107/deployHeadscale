@@ -2,16 +2,15 @@
 # Static contract for OpenCode v2's SNI -> PROXY -> Caddy ingress.
 set -euo pipefail
 
-readonly nginx_conf="edge-vpn4/nginx.conf"
+readonly haproxy_conf="edge-vpn4/haproxy.cfg"
 readonly caddyfile="edge-vpn4/Caddyfile"
 readonly jail="edge-vpn4/fail2ban/jail.d/opencode2.conf"
 readonly filter="edge-vpn4/fail2ban/filter.d/opencode2-401.conf"
 readonly workflow=".github/workflows/deploy-edge-vpn4.yml"
 
-grep -Eq '^[[:space:]]*opencode2\.hangocthanh\.io\.vn[[:space:]]+127\.0\.0\.1:8451;$' "$nginx_conf"
-grep -Fqx '        listen 127.0.0.1:8451;' "$nginx_conf"
-grep -Fq 'set $opencode2_backend caddy-edge:8450;' "$nginx_conf"
-grep -Fq 'proxy_protocol on;' "$nginx_conf"
+grep -Fq 'use_backend opencode2 if { req.ssl_sni -i opencode2.hangocthanh.io.vn }' "$haproxy_conf"
+grep -A2 -F 'backend opencode2' "$haproxy_conf" | grep -Fq 'caddy-edge:8450'
+grep -A2 -F 'backend opencode2' "$haproxy_conf" | grep -Fq 'send-proxy'
 
 grep -Fq 'servers :8450 {' "$caddyfile"
 grep -Fq 'allow 172.16.0.0/12' "$caddyfile"
@@ -41,13 +40,13 @@ grep -Fq '"status":401' "$filter"
 grep -Fq 'Kiem tra DNS opencode2.hangocthanh.io.vn' "$workflow"
 grep -Fq 'https://opencode2.hangocthanh.io.vn/global/health' "$workflow"
 grep -Fq '"${CODE:-000}" != "401"' "$workflow"
-grep -Fq -- '--force-recreate nginx caddy-edge fail2ban' "$workflow"
+grep -Fq -- '--force-recreate haproxy caddy-edge fail2ban' "$workflow"
 
 # Regression guards: unaffected public routes retain their exact ingress.
-grep -Eq '^[[:space:]]*cliproxy\.hangocthanh\.io\.vn[[:space:]]+caddy-edge:8444;$' "$nginx_conf"
-grep -Eq '^[[:space:]]*opencode\.hangocthanh\.io\.vn[[:space:]]+127\.0\.0\.1:8446;$' "$nginx_conf"
-grep -Eq '^[[:space:]]*default[[:space:]]+derper:443;$' "$nginx_conf"
-grep -Eq '^[[:space:]]*portainer\.hangocthanh\.io\.vn[[:space:]]+caddy-edge:8447;$' "$nginx_conf"
+grep -Fq 'use_backend cliproxy if { req.ssl_sni -i cliproxy.hangocthanh.io.vn }' "$haproxy_conf"
+grep -Fq 'use_backend opencode if { req.ssl_sni -i opencode.hangocthanh.io.vn }' "$haproxy_conf"
+grep -Fq 'default_backend derper' "$haproxy_conf"
+grep -Fq 'use_backend portainer if { req.ssl_sni -i portainer.hangocthanh.io.vn }' "$haproxy_conf"
 grep -Fq 'https://portainer.hangocthanh.io.vn:8447 {' "$caddyfile"
 
 git diff --exit-code HEAD -- \
