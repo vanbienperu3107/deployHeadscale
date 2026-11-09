@@ -96,9 +96,9 @@ jobs:
             $SUDO docker network inspect edge >/dev/null 2>&1 || $SUDO docker network create edge
             echo "  mang edge san sang"
 
-            echo "==> [3/7] Kiem tra config nginx truoc khi dung toi derper"
-            $SUDO docker run --rm -v "$DEPLOY_PATH/edge-vpn4/nginx.conf:/etc/nginx/nginx.conf:ro" nginx:1.27-alpine nginx -t
-            echo "  nginx.conf hop le"
+            echo "==> [3/7] Kiem tra config HAProxy truoc khi dung toi derper"
+            $SUDO docker run --rm -v "$DEPLOY_PATH/edge-vpn4/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro" haproxy:3.0.12-alpine haproxy -c -f /usr/local/etc/haproxy/haproxy.cfg
+            echo "  haproxy.cfg hop le"
 
             echo "==> [4/7] Recreate derper (nha cong 443, vao mang edge)"
             cd "$DEPLOY_PATH/derp-vpn4"

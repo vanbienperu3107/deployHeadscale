@@ -75,7 +75,7 @@ def test_portainer_proxy_network_is_a_private_caddy_to_portainer_boundary():
         "external": True,
         "name": "portainer_proxy",
     }
-    assert "portainer_proxy" not in edge_compose["services"]["nginx"]["networks"]
+    assert "portainer_proxy" not in edge_compose["services"]["haproxy"]["networks"]
 
 
 def test_portainer_declares_its_named_data_volume():
@@ -226,7 +226,7 @@ def test_deploy_preflight_validates_dns_secrets_and_candidate_configs_before_ssh
     assert 'git fetch origin "$DEPLOY_REF:refs/remotes/origin/$DEPLOY_REF"' in body
     assert 'git reset --hard "origin/$DEPLOY_REF"' in body
     assert "OLD_SHA=" in body and "NEW_SHA=" in body
-    assert "nginx:1.27-alpine nginx -t" in body
+    assert "haproxy:3.0.12-alpine haproxy -c -f /usr/local/etc/haproxy/haproxy.cfg" in body
     assert "caddy:2.8-alpine caddy validate --adapter caddyfile --config /etc/caddy/Caddyfile" in body
     assert "docker compose --project-name portainer-vpn4 -f \"$DEPLOY_PATH/portainer-vpn4/docker-compose.yml\" config --quiet" in body
 
@@ -237,15 +237,15 @@ def test_deploy_only_recreates_the_two_affected_edge_services_and_preserves_data
         'docker compose -f "$DEPLOY_PATH/edge-vpn4/docker-compose.yml" '
         "up -d --force-recreate --no-deps caddy-edge"
     )
-    nginx_recreate = (
+    haproxy_recreate = (
         'docker compose -f "$DEPLOY_PATH/edge-vpn4/docker-compose.yml" '
-        "up -d --force-recreate --no-deps nginx"
+        "up -d --force-recreate --no-deps haproxy"
     )
 
     assert caddy_recreate in body
-    assert nginx_recreate in body
-    assert body.index(caddy_recreate) < body.index(nginx_recreate)
-    assert body.index("nginx:1.27-alpine nginx -t") < body.index(nginx_recreate)
+    assert haproxy_recreate in body
+    assert body.index(caddy_recreate) < body.index(haproxy_recreate)
+    assert body.index("haproxy:3.0.12-alpine haproxy -c -f /usr/local/etc/haproxy/haproxy.cfg") < body.index(haproxy_recreate)
     portainer_compose = 'docker compose --project-name portainer-vpn4 -f "$DEPLOY_PATH/portainer-vpn4/docker-compose.yml"'
     # Khong gioi han ten service: stack gio co ca cong SSO, va Portainer KHONG
     # duoc khoi dong neu cong do vang mat.
@@ -266,14 +266,14 @@ def test_deploy_snapshots_unrelated_containers_before_and_after_the_change():
     assert "SNAPSHOT_AFTER=" in body
     assert "RestartCount" in body
     assert "StartedAt" in body
-    assert 'portainer|portainer-oauth2-proxy|caddy-edge|edge-nginx' in body
+    assert 'portainer|portainer-oauth2-proxy|caddy-edge|edge-haproxy' in body
     assert "cmp -s \"$SNAPSHOT_BEFORE\" \"$SNAPSHOT_AFTER\"" in body
     assert "diff -u \"$SNAPSHOT_BEFORE\" \"$SNAPSHOT_AFTER\"" in body
     assert body.index("SNAPSHOT_BEFORE=") < body.index(
         'docker compose --project-name portainer-vpn4 -f "$DEPLOY_PATH/portainer-vpn4/docker-compose.yml" pull'
     )
     assert body.index('snapshot_non_portainer | $SUDO tee "$SNAPSHOT_AFTER" >/dev/null') > body.index(
-        "up -d --force-recreate --no-deps nginx"
+        "up -d --force-recreate --no-deps haproxy"
     )
 
 
@@ -288,7 +288,7 @@ def test_deploy_verifies_public_tls_isolation_and_existing_routes_after_edge_act
     # /oauth2/start.
     assert 'test "$STATUS_CODE" = "302"' in body
     assert "/oauth2/start" in body
-    assert body.index(status_url) > body.index("up -d --force-recreate --no-deps nginx")
+    assert body.index(status_url) > body.index("up -d --force-recreate --no-deps haproxy")
     assert "8000|9000|9443" in body
     assert "HostConfig.PortBindings" in body
     # Docker tra "{}" khi khong co binding; so sanh cung voi "null" lam deploy
@@ -362,8 +362,8 @@ def test_deploy_recovers_only_its_route_changes_and_never_prints_secret_values()
 
     assert "TRANSACTION_MARKER" in script
     assert "caddy-change-attempted" in rollback_script
-    assert "nginx-change-attempted" in rollback_script
-    assert "edge-vpn4/nginx.conf" in script
+    assert "haproxy-change-attempted" in rollback_script
+    assert "edge-vpn4/haproxy.cfg" in script
     assert "edge-vpn4/Caddyfile" in script
     assert "docker compose --project-name portainer-vpn4 -f \"$DEPLOY_PATH/portainer-vpn4/docker-compose.yml\" down" in rollback_script
     assert "$SUDO rm -rf \"$TRANSACTION_DIR\"" in rollback_script
@@ -402,9 +402,9 @@ def test_deploy_is_a_fail_closed_transaction_until_external_checks_commit_it():
     assert "TRANSACTION_DIR=" in script
     assert "TRANSACTION_MARKER=" in script
     assert "caddy-change-attempted" in script
-    assert "nginx-change-attempted" in script
+    assert "haproxy-change-attempted" in script
     assert "PORTAINER_STARTED=1" in script
-    assert "PREVIOUS_NGINX" in script and "PREVIOUS_CADDY" in script
+    assert "PREVIOUS_HAPROXY" in script and "PREVIOUS_CADDY" in script
 
     external_index = next(
         index
@@ -427,7 +427,7 @@ def test_deploy_is_a_fail_closed_transaction_until_external_checks_commit_it():
     diagnostics_script = steps[diagnostics_index]["with"]["script"]
     for needle in (
             "docker logs --tail 200 caddy-edge",
-            "docker logs --tail 100 edge-nginx",
+            "docker logs --tail 100 edge-haproxy",
             "docker logs --tail 100 portainer",
             "docker inspect -f",
             "docker network inspect portainer_proxy",
@@ -438,7 +438,7 @@ def test_deploy_is_a_fail_closed_transaction_until_external_checks_commit_it():
     assert steps[rollback_index].get("if") == "failure()"
     rollback_script = steps[rollback_index]["with"]["script"]
     assert "edge-vpn4/Caddyfile" in rollback_script
-    assert "edge-vpn4/nginx.conf" in rollback_script
+    assert "edge-vpn4/haproxy.cfg" in rollback_script
     assert 'docker compose --project-name portainer-vpn4 -f "$DEPLOY_PATH/portainer-vpn4/docker-compose.yml" down' in rollback_script
     assert any(
         step.get("name", "").startswith("Commit successful transaction")
@@ -539,7 +539,7 @@ def test_rollback_reads_every_root_owned_transaction_marker_via_sudo():
     for marker in (
         '"$TRANSACTION_MARKER"',
         '"$TRANSACTION_DIR/caddy-change-attempted"',
-        '"$TRANSACTION_DIR/nginx-change-attempted"',
+        '"$TRANSACTION_DIR/haproxy-change-attempted"',
         '"$TRANSACTION_DIR/portainer-attempted"',
     ):
         assert f"$SUDO test -f {marker}" in rollback_script
@@ -615,11 +615,11 @@ def test_rollback_preflight_checks_secrets_and_the_exact_portainer_dns_before_ss
 def test_rollback_removes_only_the_exact_portainer_routes_with_guarded_editing():
     script = rollback_stage_step()["with"]["script"]
 
-    # nginx: mot dong duy nhat, van an toan khi so khop nguyen van.
-    assert "portainer.hangocthanh.io.vn caddy-edge:8447;" in script
+    # HAProxy: mot dong duy nhat, van an toan khi so khop nguyen van.
+    assert "use_backend portainer if { req.ssl_sni -i portainer.hangocthanh.io.vn }" in script
     assert "assert s.count(route) == 1" in script
     assert 'p.write_text(s.replace(route, ""))' in script
-    assert "edge-vpn4/nginx.conf" in script
+    assert "edge-vpn4/haproxy.cfg" in script
     # Caddy: khoi nhieu dong -> dung remover theo ranh gioi khoi (van fail-closed
     # khi so site khop != 1), thay vi nhung nguyen van than site vao workflow.
     assert "edge-vpn4/Caddyfile" in script
@@ -636,16 +636,16 @@ def test_rollback_validates_route_free_candidate_before_target_edge_recreates():
         'docker compose -f "$DEPLOY_PATH/edge-vpn4/docker-compose.yml" '
         "up -d --force-recreate --no-deps caddy-edge"
     )
-    nginx_recreate = (
+    haproxy_recreate = (
         'docker compose -f "$DEPLOY_PATH/edge-vpn4/docker-compose.yml" '
-        "up -d --force-recreate --no-deps nginx"
+        "up -d --force-recreate --no-deps haproxy"
     )
 
-    assert "nginx:1.27-alpine nginx -t" in script
+    assert "haproxy:3.0.12-alpine haproxy -c -f /usr/local/etc/haproxy/haproxy.cfg" in script
     assert "caddy:2.8-alpine caddy validate --adapter caddyfile --config /etc/caddy/Caddyfile" in script
-    assert script.index("nginx:1.27-alpine nginx -t") < script.index(caddy_recreate)
+    assert script.index("haproxy:3.0.12-alpine haproxy -c -f /usr/local/etc/haproxy/haproxy.cfg") < script.index(caddy_recreate)
     assert script.index("caddy:2.8-alpine caddy validate --adapter caddyfile --config /etc/caddy/Caddyfile") < script.index(caddy_recreate)
-    assert script.index(caddy_recreate) < script.index(nginx_recreate)
+    assert script.index(caddy_recreate) < script.index(haproxy_recreate)
     assert 'docker compose -f "$DEPLOY_PATH/edge-vpn4/docker-compose.yml" up -d --remove-orphans' not in script
     for unrelated in ("--no-deps derper", "--no-deps cliproxy", "--no-deps opencode", "--no-deps fail2ban"):
         assert unrelated not in script
@@ -700,22 +700,22 @@ def test_rollback_recovers_original_routes_and_portainer_if_the_transaction_fail
     recovery_script = recovery_step["with"]["script"]
 
     assert "TRANSACTION_MARKER" in stage_script
-    assert "PREVIOUS_NGINX" in stage_script and "PREVIOUS_CADDY" in stage_script
+    assert "PREVIOUS_HAPROXY" in stage_script and "PREVIOUS_CADDY" in stage_script
     assert "caddy-change-attempted" in stage_script
-    assert "nginx-change-attempted" in stage_script
+    assert "haproxy-change-attempted" in stage_script
     assert "portainer-down-attempted" in stage_script
     assert recovery_step["if"] == "failure()"
     assert 'cp "$TRANSACTION_DIR/Caddyfile.previous" "$DEPLOY_PATH/edge-vpn4/Caddyfile"' in recovery_script
-    assert 'cp "$TRANSACTION_DIR/nginx.conf.previous" "$DEPLOY_PATH/edge-vpn4/nginx.conf"' in recovery_script
+    assert 'cp "$TRANSACTION_DIR/haproxy.cfg.previous" "$DEPLOY_PATH/edge-vpn4/haproxy.cfg"' in recovery_script
     assert 'caddy:2.8-alpine caddy validate --adapter caddyfile --config /etc/caddy/Caddyfile' in recovery_script
     assert recovery_script.index("caddy validate") < recovery_script.index(
         "up -d --force-recreate --no-deps caddy-edge"
     )
-    assert recovery_script.index("nginx:1.27-alpine nginx -t") < recovery_script.index(
-        "up -d --force-recreate --no-deps nginx"
+    assert recovery_script.index("haproxy:3.0.12-alpine haproxy -c -f /usr/local/etc/haproxy/haproxy.cfg") < recovery_script.index(
+        "up -d --force-recreate --no-deps haproxy"
     )
     assert 'docker compose -f "$DEPLOY_PATH/edge-vpn4/docker-compose.yml" up -d --force-recreate --no-deps caddy-edge' in recovery_script
-    assert 'docker compose -f "$DEPLOY_PATH/edge-vpn4/docker-compose.yml" up -d --force-recreate --no-deps nginx' in recovery_script
+    assert 'docker compose -f "$DEPLOY_PATH/edge-vpn4/docker-compose.yml" up -d --force-recreate --no-deps haproxy' in recovery_script
     assert 'docker compose --project-name portainer-vpn4 -f "$DEPLOY_PATH/portainer-vpn4/docker-compose.yml" up -d portainer' in recovery_script
     assert 'git reset --hard "$OLD_SHA"' in recovery_script
     assert "ROLLBACK_FAILED=0" in recovery_script

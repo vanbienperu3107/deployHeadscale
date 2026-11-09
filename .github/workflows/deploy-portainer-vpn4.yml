@@ -67,9 +67,9 @@ jobs:
             TRANSACTION_MARKER="$TRANSACTION_DIR/pending"
             $SUDO rm -rf "$TRANSACTION_DIR"
             $SUDO mkdir -p "$TRANSACTION_DIR"
-            PREVIOUS_NGINX="$TRANSACTION_DIR/nginx.conf.previous"
+            PREVIOUS_HAPROXY="$TRANSACTION_DIR/haproxy.cfg.previous"
             PREVIOUS_CADDY="$TRANSACTION_DIR/Caddyfile.previous"
-            $SUDO cp edge-vpn4/nginx.conf "$PREVIOUS_NGINX"
+            $SUDO cp edge-vpn4/haproxy.cfg "$PREVIOUS_HAPROXY"
             $SUDO cp edge-vpn4/Caddyfile "$PREVIOUS_CADDY"
             $SUDO touch "$TRANSACTION_MARKER"
             OLD_SHA=$(git rev-parse HEAD)
@@ -80,7 +80,7 @@ jobs:
             echo "Deployment revision changed: $OLD_SHA -> $NEW_SHA"
             $SUDO docker network inspect edge >/dev/null 2>&1 || $SUDO docker network create edge
             $SUDO docker network inspect portainer_proxy >/dev/null 2>&1 || $SUDO docker network create portainer_proxy
-            $SUDO docker run --rm -v "$DEPLOY_PATH/edge-vpn4/nginx.conf:/etc/nginx/nginx.conf:ro" nginx:1.27-alpine nginx -t
+            $SUDO docker run --rm -v "$DEPLOY_PATH/edge-vpn4/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro" haproxy:3.0.12-alpine haproxy -c -f /usr/local/etc/haproxy/haproxy.cfg
             $SUDO docker run --rm --add-host cliproxy:127.0.0.1 --add-host portainer:127.0.0.1 --add-host portainer-oauth2-proxy:127.0.0.1 --add-host opencode-server:127.0.0.1 -v "$DEPLOY_PATH/edge-vpn4/Caddyfile:/etc/caddy/Caddyfile:ro" caddy:2.8-alpine caddy validate --adapter caddyfile --config /etc/caddy/Caddyfile
             test -n "$PORTAINER_OAUTH_CLIENT_ID" && test -n "$PORTAINER_OAUTH_CLIENT_SECRET" && test -n "$PORTAINER_OAUTH_COOKIE_SECRET" && test -n "$PORTAINER_ADMIN_PASSWORD"
             umask 077
@@ -93,7 +93,7 @@ jobs:
             $SUDO docker compose --project-name portainer-vpn4 -f "$DEPLOY_PATH/portainer-vpn4/docker-compose.yml" config --quiet
             SNAPSHOT_BEFORE="$TRANSACTION_DIR/non-portainer.before"
             SNAPSHOT_AFTER="$TRANSACTION_DIR/non-portainer.after"
-            snapshot_unrelated_workloads() { $SUDO docker ps --format '{{.Names}}' | while IFS= read -r container; do case "$container" in portainer|portainer-oauth2-proxy|caddy-edge|edge-nginx) continue ;; esac; $SUDO docker inspect -f '{{.Name}}|{{.RestartCount}}|{{.State.StartedAt}}' "$container"; done | sed 's#^/##' | sort; }
+            snapshot_unrelated_workloads() { $SUDO docker ps --format '{{.Names}}' | while IFS= read -r container; do case "$container" in portainer|portainer-oauth2-proxy|caddy-edge|edge-haproxy) continue ;; esac; $SUDO docker inspect -f '{{.Name}}|{{.RestartCount}}|{{.State.StartedAt}}' "$container"; done | sed 's#^/##' | sort; }
             snapshot_non_portainer() { snapshot_unrelated_workloads; }
             snapshot_non_portainer | $SUDO tee "$SNAPSHOT_BEFORE" >/dev/null
             $SUDO docker compose --project-name portainer-vpn4 -f "$DEPLOY_PATH/portainer-vpn4/docker-compose.yml" pull
@@ -115,8 +115,8 @@ jobs:
             test "$GATE_RUNNING" = "1"
             $SUDO touch "$TRANSACTION_DIR/caddy-change-attempted"
             $SUDO docker compose -f "$DEPLOY_PATH/edge-vpn4/docker-compose.yml" up -d --force-recreate --no-deps caddy-edge
-            $SUDO touch "$TRANSACTION_DIR/nginx-change-attempted"
-            $SUDO docker compose -f "$DEPLOY_PATH/edge-vpn4/docker-compose.yml" up -d --force-recreate --no-deps nginx
+            $SUDO touch "$TRANSACTION_DIR/haproxy-change-attempted"
+            $SUDO docker compose -f "$DEPLOY_PATH/edge-vpn4/docker-compose.yml" up -d --force-recreate --no-deps haproxy
             probe_code() { set +e; curl -sS -o /dev/null -w '%{http_code}' --max-time 20 "$1"; set -e; }
             wait_for_code() { TARGET="$1"; URL="$2"; ATTEMPTS="$3"; DELAY="$4"; LAST=000; for _ in $(seq 1 "$ATTEMPTS"); do LAST=$(probe_code "$URL"); if [ "$LAST" = "$TARGET" ]; then break; fi; sleep "$DELAY"; done; printf '%s' "$LAST"; }
             DERP_CODE=$(wait_for_code 200 https://vpn4.hangocthanh.io.vn/derp/probe 15 4)
@@ -226,8 +226,8 @@ jobs:
             $SUDO docker network inspect portainer_proxy --format '{{range .Containers}}{{.Name}} {{end}}'
             echo "==> Caddy log (200 lines)"
             $SUDO docker logs --tail 200 caddy-edge
-            echo "==> Nginx log (100 lines)"
-            $SUDO docker logs --tail 100 edge-nginx
+            echo "==> HAProxy log (100 lines)"
+            $SUDO docker logs --tail 100 edge-haproxy
             echo "==> Portainer log (100 lines)"
             $SUDO docker logs --tail 100 portainer 2>&1 | sed -E '/setup_token=|Paste it into the setup screen/d'
             echo "==> SSO gate log (60 lines)"
@@ -261,10 +261,10 @@ jobs:
               rollback_run $SUDO cp "$TRANSACTION_DIR/Caddyfile.previous" "$DEPLOY_PATH/edge-vpn4/Caddyfile"
               rollback_run $SUDO docker compose -f "$DEPLOY_PATH/edge-vpn4/docker-compose.yml" up -d --force-recreate --no-deps caddy-edge
             fi
-            if $SUDO test -f "$TRANSACTION_DIR/nginx-change-attempted"; then
-              rollback_run $SUDO cp "$TRANSACTION_DIR/nginx.conf.previous" "$DEPLOY_PATH/edge-vpn4/nginx.conf"
-              rollback_run $SUDO docker run --rm -v "$DEPLOY_PATH/edge-vpn4/nginx.conf:/etc/nginx/nginx.conf:ro" nginx:1.27-alpine nginx -t
-              rollback_run $SUDO docker compose -f "$DEPLOY_PATH/edge-vpn4/docker-compose.yml" up -d --force-recreate --no-deps nginx
+            if $SUDO test -f "$TRANSACTION_DIR/haproxy-change-attempted"; then
+              rollback_run $SUDO cp "$TRANSACTION_DIR/haproxy.cfg.previous" "$DEPLOY_PATH/edge-vpn4/haproxy.cfg"
+              rollback_run $SUDO docker run --rm -v "$DEPLOY_PATH/edge-vpn4/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro" haproxy:3.0.12-alpine haproxy -c -f /usr/local/etc/haproxy/haproxy.cfg
+              rollback_run $SUDO docker compose -f "$DEPLOY_PATH/edge-vpn4/docker-compose.yml" up -d --force-recreate --no-deps haproxy
             fi
             if $SUDO test -f "$TRANSACTION_DIR/portainer-attempted"; then
               rollback_run $SUDO docker compose --project-name portainer-vpn4 -f "$DEPLOY_PATH/portainer-vpn4/docker-compose.yml" down

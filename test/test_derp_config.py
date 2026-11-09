@@ -123,7 +123,7 @@ def test_derp_vpn4_van_phuc_vu_443_nhung_qua_nginx():
     ports = [str(p) for p in derper.get("ports", [])]
 
     assert not any(p.startswith("443:") for p in ports), (
-        f"derper KHONG duoc publish 443 nua (nginx giu cong do): {ports}"
+        f"derper KHONG duoc publish 443 nua (edge ingress giu cong do): {ports}"
     )
     assert "3478:3478/udp" in ports, "derp-vpn4 phai expose 3478/udp (STUN) truc tiep"
     assert "80:80" in ports, "derper phai giu cong 80 cho ACME HTTP-01 cua chinh no"
@@ -132,9 +132,9 @@ def test_derp_vpn4_van_phuc_vu_443_nhung_qua_nginx():
     assert "--a=:443" in cmd_str, "derper van phai nghe :443 ben trong container"
 
     edge = yaml.safe_load((ROOT / "edge-vpn4" / "docker-compose.yml").read_text())
-    edge_ports = [str(p) for p in edge["services"]["nginx"].get("ports", [])]
+    edge_ports = [str(p) for p in edge["services"]["haproxy"].get("ports", [])]
     assert "443:443" in edge_ports, (
-        "phai co nginx cua edge-vpn4 giu 443, neu khong DERP mat duong vao"
+        "phai co HAProxy cua edge-vpn4 giu 443, neu khong DERP mat duong vao"
     )
 
 

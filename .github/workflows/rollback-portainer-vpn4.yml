@@ -59,9 +59,9 @@ jobs:
             TRANSACTION_MARKER="$TRANSACTION_DIR/pending"
             $SUDO rm -rf "$TRANSACTION_DIR"
             $SUDO mkdir -p "$TRANSACTION_DIR"
-            PREVIOUS_NGINX="$TRANSACTION_DIR/nginx.conf.previous"
+            PREVIOUS_HAPROXY="$TRANSACTION_DIR/haproxy.cfg.previous"
             PREVIOUS_CADDY="$TRANSACTION_DIR/Caddyfile.previous"
-            $SUDO cp edge-vpn4/nginx.conf "$PREVIOUS_NGINX"
+            $SUDO cp edge-vpn4/haproxy.cfg "$PREVIOUS_HAPROXY"
             $SUDO cp edge-vpn4/Caddyfile "$PREVIOUS_CADDY"
             OLD_SHA=$(git rev-parse HEAD)
             printf '%s\n' "$OLD_SHA" | $SUDO tee "$TRANSACTION_DIR/old-sha" >/dev/null
@@ -71,14 +71,14 @@ jobs:
             NEW_SHA=$(git rev-parse HEAD)
             echo "Rollback source revision changed: $OLD_SHA -> $NEW_SHA"
             test -f "$DEPLOY_PATH/portainer-vpn4/docker-compose.yml"
-            python3 -c 'from pathlib import Path; import sys; p=Path(sys.argv[1]); route="        portainer.hangocthanh.io.vn caddy-edge:8447;\n"; s=p.read_text(); assert s.count(route) == 1; p.write_text(s.replace(route, ""))' "$DEPLOY_PATH/edge-vpn4/nginx.conf"
+            python3 -c 'from pathlib import Path; import sys; p=Path(sys.argv[1]); route="  use_backend portainer if { req.ssl_sni -i portainer.hangocthanh.io.vn }\n"; s=p.read_text(); assert s.count(route) == 1; p.write_text(s.replace(route, ""))' "$DEPLOY_PATH/edge-vpn4/haproxy.cfg"
             python3 "$DEPLOY_PATH/portainer-vpn4/remove-caddy-site.py" "$DEPLOY_PATH/edge-vpn4/Caddyfile"
-            $SUDO docker run --rm -v "$DEPLOY_PATH/edge-vpn4/nginx.conf:/etc/nginx/nginx.conf:ro" nginx:1.27-alpine nginx -t
+            $SUDO docker run --rm -v "$DEPLOY_PATH/edge-vpn4/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro" haproxy:3.0.12-alpine haproxy -c -f /usr/local/etc/haproxy/haproxy.cfg
             $SUDO docker run --rm --add-host cliproxy:127.0.0.1 --add-host opencode-server:127.0.0.1 -v "$DEPLOY_PATH/edge-vpn4/Caddyfile:/etc/caddy/Caddyfile:ro" caddy:2.8-alpine caddy validate --adapter caddyfile --config /etc/caddy/Caddyfile
             $SUDO touch "$TRANSACTION_DIR/caddy-change-attempted"
             $SUDO docker compose -f "$DEPLOY_PATH/edge-vpn4/docker-compose.yml" up -d --force-recreate --no-deps caddy-edge
-            $SUDO touch "$TRANSACTION_DIR/nginx-change-attempted"
-            $SUDO docker compose -f "$DEPLOY_PATH/edge-vpn4/docker-compose.yml" up -d --force-recreate --no-deps nginx
+            $SUDO touch "$TRANSACTION_DIR/haproxy-change-attempted"
+            $SUDO docker compose -f "$DEPLOY_PATH/edge-vpn4/docker-compose.yml" up -d --force-recreate --no-deps haproxy
             probe_code() { set +e; curl -sS -o /dev/null -w '%{http_code}' --max-time 20 "$1"; set -e; }
             wait_for_code() { TARGET="$1"; URL="$2"; ATTEMPTS="$3"; DELAY="$4"; LAST=000; for _ in $(seq 1 "$ATTEMPTS"); do LAST=$(probe_code "$URL"); if [ "$LAST" = "$TARGET" ]; then break; fi; sleep "$DELAY"; done; printf '%s' "$LAST"; }
             DERP_CODE=$(wait_for_code 200 https://vpn4.hangocthanh.io.vn/derp/probe 15 4)
@@ -150,11 +150,11 @@ jobs:
               rollback_run $SUDO docker run --rm --add-host cliproxy:127.0.0.1 --add-host portainer:127.0.0.1 --add-host portainer-oauth2-proxy:127.0.0.1 --add-host opencode-server:127.0.0.1 -v "$DEPLOY_PATH/edge-vpn4/Caddyfile:/etc/caddy/Caddyfile:ro" caddy:2.8-alpine caddy validate --adapter caddyfile --config /etc/caddy/Caddyfile
               rollback_run $SUDO docker compose -f "$DEPLOY_PATH/edge-vpn4/docker-compose.yml" up -d --force-recreate --no-deps caddy-edge
             fi
-            if $SUDO test -f "$TRANSACTION_DIR/nginx-change-attempted"; then
-              rollback_run $SUDO cp "$TRANSACTION_DIR/nginx.conf.previous" "$DEPLOY_PATH/edge-vpn4/nginx.conf"
-              rollback_run $SUDO chown "$(id -u):$(id -g)" "$DEPLOY_PATH/edge-vpn4/nginx.conf"
-              rollback_run $SUDO docker run --rm -v "$DEPLOY_PATH/edge-vpn4/nginx.conf:/etc/nginx/nginx.conf:ro" nginx:1.27-alpine nginx -t
-              rollback_run $SUDO docker compose -f "$DEPLOY_PATH/edge-vpn4/docker-compose.yml" up -d --force-recreate --no-deps nginx
+            if $SUDO test -f "$TRANSACTION_DIR/haproxy-change-attempted"; then
+              rollback_run $SUDO cp "$TRANSACTION_DIR/haproxy.cfg.previous" "$DEPLOY_PATH/edge-vpn4/haproxy.cfg"
+              rollback_run $SUDO chown "$(id -u):$(id -g)" "$DEPLOY_PATH/edge-vpn4/haproxy.cfg"
+              rollback_run $SUDO docker run --rm -v "$DEPLOY_PATH/edge-vpn4/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro" haproxy:3.0.12-alpine haproxy -c -f /usr/local/etc/haproxy/haproxy.cfg
+              rollback_run $SUDO docker compose -f "$DEPLOY_PATH/edge-vpn4/docker-compose.yml" up -d --force-recreate --no-deps haproxy
             fi
             if $SUDO test -f "$TRANSACTION_DIR/portainer-down-attempted"; then
               rollback_run $SUDO docker compose --project-name portainer-vpn4 -f "$DEPLOY_PATH/portainer-vpn4/docker-compose.yml" up -d portainer
