@@ -38,7 +38,11 @@ grep -Fq '"remote_ip":"<HOST>"' "$filter"
 grep -Fq '"status":401' "$filter"
 
 grep -Fq 'Kiem tra DNS opencode2.hangocthanh.io.vn' "$workflow"
-grep -Fq 'https://opencode2.hangocthanh.io.vn/global/health' "$workflow"
+grep -Fq 'https://opencode2.hangocthanh.io.vn/api/info' "$workflow"
+if grep -Fq 'opencode2.hangocthanh.io.vn/global/health' "$workflow"; then
+    echo "OpenCode v2 edge check must not use the static UI route" >&2
+    exit 1
+fi
 grep -Fq '"${CODE:-000}" != "401"' "$workflow"
 grep -Fq -- '--force-recreate haproxy caddy-edge fail2ban' "$workflow"
 

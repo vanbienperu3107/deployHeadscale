@@ -280,7 +280,8 @@ def test_workflow_kiem_tra_dns_opencode():
 def test_workflow_kiem_tra_dns_va_xac_thuc_opencode2_ma_khong_deploy_backend():
     body = WORKFLOW.read_text(encoding="utf-8")
     assert OPENCODE2_HOST in body
-    assert f"https://{OPENCODE2_HOST}/global/health" in body
+    assert f"https://{OPENCODE2_HOST}/api/info" in body
+    assert f"{OPENCODE2_HOST}/global/health" not in body
     assert '"${CODE:-000}" = "200"' in body, "200 khong xac thuc phai la loi bao mat"
     assert '"${CODE:-000}" != "401"' in body
     assert "--force-recreate haproxy caddy-edge fail2ban" in body

@@ -213,8 +213,10 @@ jobs:
         run: |
           # Backend opencode2 co the chua duoc deploy o lan dau. 401 chung minh
           # ca DNS, SNI, TLS va Basic Auth da dung; 200 la loi bao mat va phai fail.
-          CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 https://opencode2.hangocthanh.io.vn/global/health || true)
-          echo "https://opencode2.hangocthanh.io.vn/global/health -> ${CODE:-000} (mong doi 401)"
+          # OpenCode v2 serves the static web UI shell on non-/api paths, so
+          # only /api/info is a valid authentication-boundary probe.
+          CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 https://opencode2.hangocthanh.io.vn/api/info || true)
+          echo "https://opencode2.hangocthanh.io.vn/api/info -> ${CODE:-000} (mong doi 401)"
           if [ "${CODE:-000}" = "200" ]; then
             echo "::error::opencode2.hangocthanh.io.vn tra 200 KHONG kem xac thuc — tat route va kiem tra OPENCODE_SERVER_PASSWORD ngay lap tuc"
             exit 1
