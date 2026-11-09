@@ -1,6 +1,6 @@
 name: Deploy edge 443 (vpn4)
 
-# Chia se cong 443 cua vpn4 giua derper va CLIProxyAPI bang nginx dinh tuyen SNI.
+# Chia se cong 443 cua vpn4 bang HAProxy L4 dinh tuyen SNI.
 # Xem edge-vpn4/README.md.
 #
 # THU TU CAT CHUYEN quan trong: derper phai nha 443 TRUOC khi nginx gianh duoc no.
@@ -96,9 +96,9 @@ jobs:
             $SUDO docker network inspect edge >/dev/null 2>&1 || $SUDO docker network create edge
             echo "  mang edge san sang"
 
-            echo "==> [3/7] Kiem tra config nginx truoc khi dung toi derper"
-            $SUDO docker run --rm -v "$DEPLOY_PATH/edge-vpn4/nginx.conf:/etc/nginx/nginx.conf:ro" nginx:1.27-alpine nginx -t
-            echo "  nginx.conf hop le"
+            echo "==> [3/7] Kiem tra config HAProxy truoc khi dung toi derper"
+            $SUDO docker run --rm -v "$DEPLOY_PATH/edge-vpn4/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro" haproxy:3.0.12-alpine haproxy -c -f /usr/local/etc/haproxy/haproxy.cfg
+            echo "  haproxy.cfg hop le"
 
             echo "==> [4/7] Recreate derper (nha cong 443, vao mang edge)"
             cd "$DEPLOY_PATH/derp-vpn4"
@@ -110,17 +110,18 @@ jobs:
             cd "$DEPLOY_PATH/cliproxy"
             $SUDO docker compose up -d --remove-orphans
 
-            echo "==> [6/7] Bat nginx + caddy (gianh cong 443)"
+            echo "==> [6/7] Bat HAProxy + caddy (gianh cong 443)"
             cd "$DEPLOY_PATH/edge-vpn4"
             $SUDO docker compose pull
-            # --force-recreate BAT BUOC: nginx.conf va Caddyfile la bind mount, doc
+            $SUDO docker compose run --rm --no-deps haproxy haproxy -c -f /usr/local/etc/haproxy/haproxy.cfg
+            # --force-recreate BAT BUOC: haproxy.cfg va Caddyfile la bind mount, doc
             # NGAY LUC TIEN TRINH KHOI DONG. `up -d` khong tu nhan dien noi dung file
             # mount doi (chi so sanh hash dinh nghia service/image/env) nen sua xong
             # ma khong force thi container van chay cau hinh CU vo thoi han — chinh
             # la ly do route opencode tra HTTP 000 sau hai lan deploy lien tiep.
             # fail2ban cung doc jail/filter tu bind mount khi khoi dong, nen phai
-            # recreate no cung nginx/Caddy de jail opencode2 co hieu luc ngay.
-            $SUDO docker compose up -d --remove-orphans --force-recreate nginx caddy-edge fail2ban
+            # recreate no cung HAProxy/Caddy de jail opencode2 co hieu luc ngay.
+            $SUDO docker compose up -d --remove-orphans --force-recreate haproxy caddy-edge fail2ban
             sleep 5
             $SUDO docker compose ps
 
@@ -156,7 +157,7 @@ jobs:
             echo "::error::DERP vpn4 KHONG con tra loi qua 443 — rollback ngay: xoa 'networks/edge' + tra lai '443:443' trong derp-vpn4/docker-compose.yml, tat stack edge-vpn4"
             exit 1
           fi
-          echo "DERP OK qua nginx (chung chi van la cua derper, TLS khong bi dung toi)"
+          echo "DERP OK qua HAProxy (chung chi van la cua derper, TLS khong bi dung toi)"
 
       - name: Verify tu Internet — CLIProxyAPI qua 443
         env:

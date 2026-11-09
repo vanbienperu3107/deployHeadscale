@@ -168,11 +168,11 @@ jobs:
       - name: Validate Portainer Compose render
         run: docker compose --project-name portainer-vpn4 -f portainer-vpn4/docker-compose.yml config --quiet
 
-      - name: Validate exact edge Nginx config
+      - name: Validate exact edge HAProxy config
         run: |
           docker run --rm \
-            -v "${{ github.workspace }}/edge-vpn4/nginx.conf:/etc/nginx/nginx.conf:ro" \
-            nginx:1.27-alpine nginx -t
+            -v "${{ github.workspace }}/edge-vpn4/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro" \
+            haproxy:3.0.12-alpine haproxy -c -f /usr/local/etc/haproxy/haproxy.cfg
 
       - name: Validate exact edge Caddy config without production backends
         run: |
