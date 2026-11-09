@@ -20,7 +20,7 @@ jobs:
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_KEY }}
           port: ${{ secrets.SSH_PORT || '22' }}
-          envs: DEPLOY_PATH
+          envs: DEPLOY_PATH,DEPLOY_REF
           script_stop: true
           command_timeout: 10m
           script: |
@@ -28,19 +28,17 @@ jobs:
             if [ "$(id -u)" -ne 0 ]; then SUDO="sudo"; else SUDO=""; fi
             cd "$DEPLOY_PATH"
             git config --global --add safe.directory "$DEPLOY_PATH" || true
-            git fetch origin main
-            git reset --hard origin/main
+            git fetch origin "$DEPLOY_REF"
+            git reset --hard FETCH_HEAD
             PREVIEW_ROOT=/home/thanh/ui-previews
-            RANDOM=$(openssl rand -hex 12)
-            SLUG="preview-${{ github.run_id }}-$RANDOM"
-            TEMP="$PREVIEW_ROOT/.${SLUG}.staging"
-            TARGET="$PREVIEW_ROOT/$SLUG"
+            TEMP="$PREVIEW_ROOT/.fixed-preview-staging-${{ github.run_id }}"
             $SUDO mkdir -p "$PREVIEW_ROOT"
-            test ! -e "$TEMP" && test ! -e "$TARGET"
+            $SUDO rm -rf "$TEMP"
             $SUDO mkdir "$TEMP"
             $SUDO cp -a "$DEPLOY_PATH/ui-preview/." "$TEMP/"
-            $SUDO mv "$TEMP" "$TARGET"
-            printf '<!doctype html><title>UI previews</title><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{font:16px system-ui;margin:3rem;max-width:48rem}a{display:block;padding:.6rem 0}</style><h1>UI previews</h1><a href="/%s/">Latest preview</a>' "$SLUG" | $SUDO tee "$PREVIEW_ROOT/index.html" >/dev/null
+            $SUDO find "$PREVIEW_ROOT" -mindepth 1 -maxdepth 1 ! -name "$(basename "$TEMP")" -exec rm -rf {} +
+            $SUDO cp -a "$TEMP/." "$PREVIEW_ROOT/"
+            $SUDO rm -rf "$TEMP"
 
             $SUDO docker compose up -d --no-deps --force-recreate ui-preview
             $SUDO docker network connect memory-stack_memnet ui-preview 2>/dev/null || true
@@ -57,7 +55,7 @@ jobs:
               exit 1
             fi
             $SUDO docker restart memory-caddy
-            URL="https://view.hangocthanh.io.vn/$SLUG/"
+            URL="https://view.hangocthanh.io.vn/"
             for _ in $(seq 1 30); do
               code=$(curl -k -sS -o /dev/null -w '%{http_code}' --resolve view.hangocthanh.io.vn:443:127.0.0.1 "$URL" || true)
               if [ "$code" = "200" ]; then
@@ -70,3 +68,4 @@ jobs:
             exit 1
         env:
           DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          DEPLOY_REF: ${{ github.ref_name }}
