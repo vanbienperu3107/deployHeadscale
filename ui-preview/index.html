@@ -2,89 +2,38 @@
 <html lang="vi">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Cooldown Model Filter plugin design review">
-  <title>Cooldown Model Filter - Design Review</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="Cooldown Model Filter implementation plan">
+  <title>Cooldown Model Filter - Implementation Plan</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'/%3E">
   <style>
-    :root { color-scheme: dark; --bg:#071018; --panel:#0d1a24; --panel2:#102632; --ink:#eaf8f7; --muted:#9eb6b8; --line:#29424b; --cyan:#47d7cf; --amber:#f2b84b; --green:#8be28b; }
-    * { box-sizing: border-box; }
-    html { scroll-behavior: smooth; }
-    body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.65 "IBM Plex Sans","Segoe UI",sans-serif; }
-    code { font-family:"IBM Plex Mono","Cascadia Code",monospace; }
-    .shell { width:min(1180px,calc(100% - 32px)); margin:0 auto; padding:30px 0 72px; }
-    .mast { border:1px solid var(--line); background:linear-gradient(135deg,#0d1a24 0%,#102632 68%,#12343a 100%); padding:clamp(28px,6vw,72px); position:relative; overflow:hidden; }
-    .mast::after { content:"FILTER"; position:absolute; right:-18px; bottom:-48px; color:rgba(71,215,207,.07); font:800 clamp(92px,20vw,240px)/1 "Arial Narrow",sans-serif; letter-spacing:-.09em; }
-    h1,h2,h3 { margin:0; line-height:1.08; }
-    h1 { max-width:850px; font-size:clamp(42px,8vw,88px); letter-spacing:-.055em; }
-    h2 { margin-bottom:18px; font-size:clamp(25px,4vw,38px); letter-spacing:-.035em; }
-    h3 { font-size:18px; }
-    .lead { max-width:760px; margin:24px 0 0; color:#c5dcdd; font-size:clamp(17px,2vw,21px); }
-    .status { display:flex; flex-wrap:wrap; gap:9px; margin-top:30px; }
-    .pill { border:1px solid #3d6267; padding:7px 11px; color:#c8e6e5; background:rgba(7,16,24,.45); font-size:13px; }
-    .pill.good { border-color:#3f7455; color:var(--green); }
-    .layout { display:grid; grid-template-columns:250px minmax(0,1fr); gap:28px; margin-top:28px; align-items:start; }
-    nav { position:sticky; top:20px; border-left:2px solid var(--cyan); padding:9px 0 9px 18px; }
-    nav a { display:block; padding:6px 0; color:var(--muted); text-decoration:none; font-size:14px; }
-    nav a:hover,nav a:focus-visible { color:var(--ink); }
-    article { min-width:0; }
-    section { border-top:1px solid var(--line); padding:34px 0 38px; }
-    section:first-child { border-top:0; padding-top:8px; }
-    p { max-width:76ch; margin:12px 0; }
-    .flow { display:grid; grid-template-columns:repeat(5,1fr); gap:8px; margin-top:22px; }
-    .flow div { min-height:116px; border:1px solid var(--line); background:var(--panel); padding:16px; }
-    .flow strong { display:block; color:var(--cyan); font-size:13px; margin-bottom:9px; }
-    .decision { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:18px; }
-    .decision>div { border:1px solid var(--line); padding:20px; background:var(--panel); }
-    .keep { border-color:#35685a!important; } .hide { border-color:#725542!important; }
-    .keep h3 { color:var(--green); } .hide h3 { color:var(--amber); }
-    ul { padding-left:20px; } li { margin:7px 0; }
-    .code { overflow-x:auto; white-space:pre; border:1px solid var(--line); border-left:3px solid var(--cyan); background:#050c12; padding:18px; color:#d8efed; font:14px/1.65 "IBM Plex Mono",monospace; }
-    table { width:100%; border-collapse:collapse; margin-top:18px; font-size:14px; }
-    th,td { border-bottom:1px solid var(--line); padding:12px 10px; text-align:left; vertical-align:top; }
-    th { color:var(--cyan); font-weight:650; }
-    .gate { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }
-    .gate div { background:var(--panel2); border:1px solid #31515c; padding:18px; }
-    .pass { color:var(--green); font-weight:750; }
-    .warning { border:1px solid #6c5432; background:#231b10; padding:18px; color:#f8dca2; }
-    footer { color:var(--muted); border-top:1px solid var(--line); padding-top:24px; font-size:14px; }
-    :focus-visible { outline:3px solid var(--amber); outline-offset:3px; }
-    @media(max-width:860px){.layout{grid-template-columns:1fr}nav{position:static;display:grid;grid-template-columns:1fr 1fr;gap:0 16px}.flow{grid-template-columns:1fr}.flow div{min-height:0}.gate{grid-template-columns:1fr}}
-    @media(max-width:560px){.shell{width:min(100% - 20px,1180px);padding-top:10px}.mast{padding:26px 20px 32px}.decision{grid-template-columns:1fr}nav{grid-template-columns:1fr}th:nth-child(3),td:nth-child(3){display:none}th,td{padding:10px 6px}}
-    @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+    :root{color-scheme:dark;--bg:#071018;--panel:#0d1a24;--ink:#eaf8f7;--muted:#9eb6b8;--line:#29424b;--cyan:#47d7cf;--amber:#f2b84b;--green:#8be28b}
+    *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.65 "Segoe UI",sans-serif}.shell{width:min(1060px,calc(100% - 28px));margin:auto;padding:28px 0 70px}
+    header{border:1px solid var(--line);background:linear-gradient(135deg,#0d1a24,#12343a);padding:clamp(28px,6vw,66px)}h1,h2,h3{margin:0;line-height:1.08}h1{max-width:850px;font-size:clamp(40px,8vw,80px);letter-spacing:-.05em}h2{font-size:clamp(25px,4vw,38px);margin-bottom:18px}h3{font-size:18px;color:var(--cyan)}
+    .lead{max-width:760px;color:#c5dcdd;font-size:19px}.meta{display:flex;flex-wrap:wrap;gap:8px;margin-top:26px}.pill{border:1px solid #3d6267;padding:7px 11px;color:#c8e6e5}.pass{color:var(--green);border-color:#3f7455}
+    section{padding:34px 0;border-bottom:1px solid var(--line)}p{max-width:76ch}.tasks{display:grid;gap:10px}.task{display:grid;grid-template-columns:64px 1fr;gap:18px;border:1px solid var(--line);background:var(--panel);padding:20px}.num{color:var(--amber);font:700 20px/1 monospace}.task p{margin:7px 0 0;color:var(--muted)}
+    table{width:100%;border-collapse:collapse;font-size:14px}th,td{padding:12px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}th{color:var(--cyan)}code,.code{font-family:"Cascadia Code",monospace}.code{white-space:pre;overflow-x:auto;background:#050c12;border-left:3px solid var(--cyan);padding:18px;color:#d8efed}
+    .choices{display:grid;grid-template-columns:1fr 1fr;gap:12px}.choice{border:1px solid var(--line);padding:22px;background:var(--panel)}.choice.recommended{border-color:#397663}.choice strong{color:var(--green)}ul{padding-left:20px}li{margin:7px 0}footer{padding-top:24px;color:var(--muted);font-size:14px}
+    @media(max-width:650px){.task{grid-template-columns:1fr}.choices{grid-template-columns:1fr}th:nth-child(3),td:nth-child(3){display:none}h1{font-size:42px}.shell{width:min(100% - 20px,1060px)}}
   </style>
 </head>
-<body>
-<main class="shell">
-  <header class="mast">
-    <h1>Ẩn model đang cooldown, không chạm scheduler.</h1>
-    <p class="lead">Đặc tả plugin-only cho CLIProxyAPI: model biến mất khỏi catalog khi mọi credential sở hữu nó đều không khả dụng, rồi tự xuất hiện lại sau deadline.</p>
-    <div class="status"><span class="pill good">Normal: PASS</span><span class="pill good">High: PASS</span><span class="pill good">XHigh: PASS</span><span class="pill">Plugin ABI 1</span><span class="pill">RPC schema 6</span><span class="pill">Baseline 91d452a</span></div>
-  </header>
-  <div class="layout">
-    <nav aria-label="Mục lục"><a href="#intent">Mục tiêu</a><a href="#flow">Luồng xử lý</a><a href="#policy">Chính sách lọc</a><a href="#safety">Fail-open</a><a href="#scope">Phạm vi</a><a href="#tests">Test matrix</a><a href="#impact">Tác động</a><a href="#rollback">Rollback</a></nav>
-    <article>
-      <section id="intent"><h2>Mục tiêu</h2><p>Plugin <code>cooldown-model-filter</code> chỉ sửa response danh sách model. Nó không khóa tài khoản, không thay đổi cooldown, không chọn credential, không probe quota và không thay đổi đường thực thi request.</p><div class="decision"><div class="keep"><h3>Giữ model</h3><p>Còn ít nhất một credential khỏe, hoặc ownership/state chưa đủ chắc chắn.</p></div><div class="hide"><h3>Ẩn model</h3><p>Mọi credential đã biết của model đều disabled hoặc unavailable ở thời điểm hiện tại.</p></div></div></section>
-      <section id="flow"><h2>Luồng xử lý</h2><div class="flow"><div><strong>1. Catalog</strong>CPA tạo response <code>/v1/models</code>.</div><div><strong>2. Runtime state</strong>Gọi <code>host.auth.list</code>.</div><div><strong>3. Ownership</strong>Gọi <code>host.auth.models</code>.</div><div><strong>4. Filter</strong>Ghép credential ID và lọc.</div><div><strong>5. Recovery</strong>Refresh sau deadline tự hiện lại.</div></div><p class="warning">Không cron, database hoặc timer nền. Mỗi lần client tải catalog, plugin tính lại từ host state hiện tại.</p></section>
-      <section id="policy"><h2>Chính sách lọc</h2><div class="code">usable = !disabled &amp;&amp; (
-  !unavailable ||
-  (next_retry_after != zero &amp;&amp; next_retry_after &lt;= now)
-)
-
-hide(model) = known_owners(model) &gt; 0
-  &amp;&amp; every owner is unusable</div><ul><li><code>unavailable=true</code> nhưng không có deadline: coi là chưa thể tự phục hồi.</li><li>Model không map được tới credential: luôn giữ, không đoán.</li><li>Static plugin model không có ownership credential: luôn giữ.</li><li>Hỗ trợ OpenAI <code>data[*].id</code> và Codex client <code>models[*].slug</code>.</li></ul></section>
-      <section id="safety"><h2>Fail-open</h2><p>Mọi lỗi callback, JSON, join identity hoặc shape không hỗ trợ đều trả nguyên catalog. Plugin không được làm mất model khi thiếu bằng chứng.</p><div class="code">X-CPA-Cooldown-Model-Filter: applied | bypassed
-X-CPA-Cooldown-Models-Hidden: &lt;count&gt;</div><p>Kết quả lọc rỗng không chứng minh đầy đủ ownership/state sẽ bị hủy và trả body gốc.</p></section>
-      <section id="scope"><h2>Phạm vi</h2><table><thead><tr><th>Có</th><th>Không</th><th>Lý do</th></tr></thead><tbody><tr><td>Credential-wide cooldown</td><td>Per-model cooldown trong cùng credential</td><td>ABI chưa expose <code>ModelStates</code>.</td></tr><tr><td>OpenAI/Codex catalog</td><td>Đoán field catalog lạ</td><td>Tránh lọc nhầm.</td></tr><tr><td>Read-only callbacks</td><td>Sửa auth file/scheduler</td><td>Native selector là nguồn sự thật.</td></tr><tr><td>Tự hiện lại khi refresh</td><td>Ép client xóa cache</td><td>Client phải gọi lại endpoint.</td></tr></tbody></table></section>
-      <section id="tests"><h2>Test matrix bắt buộc</h2><table><thead><tr><th>ID</th><th>Tình huống</th><th>Kết quả</th></tr></thead><tbody><tr><td>T01</td><td>Một owner cooldown, một owner khỏe</td><td>Model vẫn hiện</td></tr><tr><td>T02</td><td>Tất cả owner cooldown</td><td>Model bị ẩn</td></tr><tr><td>T03</td><td>Deadline đã qua, không restart</td><td>Model tự hiện</td></tr><tr><td>T04-T06</td><td>Unavailable, disabled, ownership không rõ</td><td>Ẩn chỉ khi chắc chắn</td></tr><tr><td>T07</td><td>Host callback lỗi</td><td>Catalog byte-equivalent</td></tr><tr><td>T08-T09</td><td>OpenAI và Codex catalog</td><td>Giữ order và field bắt buộc</td></tr><tr><td>T10-T11</td><td>Chat response và concurrency</td><td>Không đổi, race PASS</td></tr><tr><td>T12-T13</td><td>Redeploy và rollback</td><td>Plugin bền, tắt được ngay</td></tr></tbody></table></section>
-      <section id="impact"><h2>Tác động và review gates</h2><div class="gate"><div><h3>Normal</h3><p class="pass">PASS</p><p>Intent và acceptance đầy đủ.</p></div><div><h3>High</h3><p class="pass">PASS</p><p>Không đổi routing, network, storage.</p></div><div><h3>XHigh</h3><p class="pass">PASS</p><p>Fail-open, không state, không mất dữ liệu.</p></div></div><ul><li>Hai RPC nội bộ và một lần lọc JSON chỉ khi tải catalog.</li><li>Không secret mới; log không chứa email/token/key.</li><li>Direct request và fallback vẫn do core quyết định.</li><li>Client có thể còn hiện model tới lần refresh catalog tiếp theo.</li></ul></section>
-      <section id="rollback"><h2>Rollback</h2><div class="code">plugins:
-  configs:
-    cooldown-model-filter:
-      enabled: false</div><p>Reload/restart CPA, kiểm tra catalog gốc và completion smoke test. Không migration, không dữ liệu cần khôi phục.</p></section>
-      <footer>Artifact review cho revision <code>91d452afb07b67af2266146d19bb40c6e66ba654</code>. Đây là thiết kế, chưa phải implementation.</footer>
-    </article>
-  </div>
-</main>
-</body>
-</html>
+<body><main class="shell">
+  <header><h1>Plan triển khai plugin cooldown model filter.</h1><p class="lead">Năm task TDD, hai repository, một nguyên tắc an toàn: thiếu bằng chứng thì giữ nguyên catalog.</p><div class="meta"><span class="pill pass">Design approved</span><span class="pill pass">Plan self-review PASS</span><span class="pill">Baseline 91d452a</span><span class="pill">ABI 1 / schema 6</span></div></header>
+  <section><h2>Kiến trúc</h2><p>Plugin c-shared stateless chạy <code>response.intercept_after</code>, đọc <code>host.auth.list</code> và <code>host.auth.models</code>, rồi lọc hai catalog OpenAI/Codex. Core registry, scheduler, credential state và fallback không thay đổi.</p><div class="code">/v1/models → catalog core → plugin callbacks
+           → ownership + runtime state
+           → filter known all-unavailable models
+           → catalog response</div></section>
+  <section><h2>Năm deliverable</h2><div class="tasks">
+    <div class="task"><div class="num">01</div><div><h3>Availability policy</h3><p>Controlled-clock tests cho active, disabled, future/expired cooldown, unknown ownership và multi-account.</p></div></div>
+    <div class="task"><div class="num">02</div><div><h3>Catalog filter</h3><p>Giữ order và mọi field của OpenAI <code>data[*].id</code> và Codex <code>models[*].slug</code>; malformed/unsupported fail-open.</p></div></div>
+    <div class="task"><div class="num">03</div><div><h3>Native ABI plugin</h3><p>C bridge, lifecycle, fake-host integration, race test, c-shared artifact và image packaging.</p></div></div>
+    <div class="task"><div class="num">04</div><div><h3>Deploy integration</h3><p>Config priority 90, copy artifact từ pinned image vào persistent plugin mount, bắt buộc registration log.</p></div></div>
+    <div class="task"><div class="num">05</div><div><h3>Production evidence</h3><p>Normal → High → XHigh review, CI, immutable image, deploy, model-list diagnostics, completion smoke và rollback.</p></div></div>
+  </div></section>
+  <section><h2>Acceptance → evidence</h2><table><thead><tr><th>Yêu cầu</th><th>Evidence</th><th>Lớp</th></tr></thead><tbody>
+    <tr><td>Còn một owner khỏe thì model vẫn hiện</td><td>Policy table test</td><td>Unit</td></tr><tr><td>Mọi owner unusable thì model ẩn</td><td>Policy + fake-host test</td><td>Unit/integration</td></tr><tr><td>Deadline qua thì tự hiện</td><td>Controlled clock, không restart</td><td>Unit</td></tr><tr><td>Callback/JSON lỗi không ẩn model</td><td>Byte-equivalent catalog</td><td>Integration</td></tr><tr><td>Không đổi chat response</td><td>Completion smoke UTF-8</td><td>Production</td></tr><tr><td>Redeploy vẫn có plugin</td><td>Artifact mount + registration log</td><td>Deploy</td></tr><tr><td>Tắt được ngay</td><td>Config-only rollback check</td><td>Operations</td></tr>
+  </tbody></table></section>
+  <section><h2>Ràng buộc</h2><ul><li>Không sửa core registry/scheduler.</li><li>Không secret, database, timer, poller, probe hoặc port mới.</li><li>Không suy luận per-model cooldown vì ABI chưa expose <code>ModelStates</code>.</li><li>Không deploy floating image tag.</li><li>Plugin lỗi phải trả catalog gốc.</li></ul></section>
+  <section><h2>Cách thực thi</h2><div class="choices"><div class="choice recommended"><h3>Subagent-driven</h3><p><strong>Khuyến nghị.</strong> Mỗi task có implementer và reviewer riêng, sau đó whole-branch review. Phù hợp vì lỗi catalog có thể ẩn nhầm toàn bộ model và công việc trải qua hai repository.</p></div><div class="choice"><h3>Native</h3><p>Tôi triển khai tuần tự trong session, rồi một reviewer độc lập review toàn branch. Nhanh và ít context hơn, nhưng review độc lập chỉ đến cuối.</p></div></div></section>
+  <footer>Plan nguồn: <code>docs/superpowers/plans/2026-11-09-cooldown-model-filter.md</code> · Baseline <code>91d452afb07b67af2266146d19bb40c6e66ba654</code></footer>
+</main></body></html>
