@@ -1,0 +1,59 @@
+name: Edge regression (vpn4, every 6h)
+
+# Kiem tra dinh ky, chi doc, cac route public qua 443 sau khi ingress HAProxy
+# duoc deploy: DERP, CLIProxy, OpenCode v1 va OpenCode v2. Khong SSH vao vpn4,
+# khong thay doi gi tren host. Neu co route hong, workflow fail va mo issue.
+on:
+  schedule:
+    - cron: "17 */6 * * *"
+  workflow_dispatch:
+
+concurrency:
+  # Cung nhom voi cac workflow deploy vpn4 de khong chay dong thoi.
+  group: deploy-vpn4-host
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Probe public routes through 443
+        env:
+          # Chi dung de goi /v1/models; khong bao gio in ra.
+          CLIPROXY_PROBE_KEY: ${{ secrets.CLIPROXY_API_KEY }}
+        run: |
+          set -uo pipefail
+          failed=0
+          check() {
+            local name="$1" expected="$2" url="$3"
+            shift 3
+            local code
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$@" "$url" || true)
+            code=${code:-000}
+            echo "$name -> $code (expect $expected)"
+            if [ "$code" != "$expected" ]; then
+              echo "::error::$name returned $code, expected $expected"
+              failed=1
+            fi
+          }
+          check "DERP probe" 200 https://vpn4.hangocthanh.io.vn/derp/probe
+          check "CLIProxy without key" 401 https://cliproxy.hangocthanh.io.vn/v1/models
+          check "CLIProxy with key" 200 https://cliproxy.hangocthanh.io.vn/v1/models \
+            -H "Authorization: Bearer ${CLIPROXY_PROBE_KEY}"
+          check "OpenCode v1 without auth" 401 https://opencode.hangocthanh.io.vn/global/health
+          check "OpenCode v2 without auth" 401 https://opencode2.hangocthanh.io.vn/api/info
+          exit "$failed"
+
+      - name: Open an issue when a route regresses
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh issue create --repo "$GITHUB_REPOSITORY" \
+            --title "Edge regression on vpn4 detected" \
+            --body "The 6-hourly edge probe failed. Run: $RUN_URL. Check DERP, CLIProxy and OpenCode routes through 443 before changing anything."
