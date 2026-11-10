@@ -96,7 +96,7 @@ gh workflow run deploy-edge-vpn4.yml --ref main
 ```
 
 Thứ tự cắt chuyển trong workflow: kiểm tra DNS → tạo mạng `edge` → kiểm cú pháp
-`nginx.conf` → recreate derper (nhả 443) → recreate cliproxy → bật nginx + Caddy
+`haproxy.cfg` → recreate derper (nhả 443) → recreate cliproxy → bật nginx + Caddy
 (giành 443) → verify từ Internet cả `/derp/probe`, `cliproxy` qua 443, và đường cũ 28417.
 
 ## Chứng chỉ
@@ -129,10 +129,10 @@ Rồi revert commit tương ứng trên `main` để lần deploy sau không l�
 |---|---|
 | `https://cliproxy.hangocthanh.io.vn` báo lỗi chứng chỉ | Caddy chưa xin được cert. `docker logs caddy-edge`; kiểm tra DNS đã trỏ đúng và nginx đang chạy (TLS-ALPN đi xuyên nginx). |
 | `https://opencode.hangocthanh.io.vn` trả 502 | opencode-server chưa chạy hoặc chưa vào mạng `edge` — kiểm `docker network inspect edge` ở máy đang chạy stack `/opt/opencode`. |
-| `https://opencode.hangocthanh.io.vn` (hoặc `cliproxy...`) trả HTTP 000 / lỗi TLS ngay cả khi backend healthy | **Bẫy đã gặp thật (2026-08-27)**: `nginx.conf`/`Caddyfile` là bind mount, `docker compose up -d` không phát hiện nội dung file đổi (chỉ so hash service/image/env) nên container cũ vẫn chạy cấu hình cũ vô thời hạn dù deploy "thành công" nhiều lần. Deploy workflow đã sửa dùng `--force-recreate` ở bước bật nginx+caddy; nếu vẫn gặp lại (sửa tay ngoài workflow) thì `docker compose up -d --force-recreate nginx caddy-edge`. |
+| `https://opencode.hangocthanh.io.vn` (hoặc `cliproxy...`) trả HTTP 000 / lỗi TLS ngay cả khi backend healthy | **Bẫy đã gặp thật (2026-08-27)**: `haproxy.cfg`/`Caddyfile` là bind mount, `docker compose up -d` không phát hiện nội dung file đổi (chỉ so hash service/image/env) nên container cũ vẫn chạy cấu hình cũ vô thời hạn dù deploy "thành công" nhiều lần. Deploy workflow đã sửa dùng `--force-recreate` ở bước bật haproxy+caddy; nếu vẫn gặp lại (sửa tay ngoài workflow) thì `docker compose up -d --force-recreate haproxy caddy-edge`. |
 | `https://opencode2.hangocthanh.io.vn` không xác thực không trả 401 | Backend OpenCode v2 chưa chạy/không ở network `edge` thì workflow chỉ cảnh báo; trả **200** là sự cố bảo mật, phải tắt route và kiểm tra Basic Auth ngay. |
-| `https://opencode.hangocthanh.io.vn` trả 200 không cần mật khẩu | **Sự cố bảo mật nghiêm trọng** — `OPENCODE_SERVER_PASSWORD` rỗng hoặc chưa được nạp vào `opencode-server`. Tắt route ngay (dừng `edge-vpn4` hoặc xoá nhánh opencode khỏi `nginx.conf`) cho tới khi xác nhận lại biến môi trường. |
-| DERP chết sau khi deploy | `docker logs edge-nginx` xem SNI có vào đúng `derper` không; kiểm tra `docker network inspect edge` có cả derper lẫn nginx. Không cứu được thì rollback ở trên. |
+| `https://opencode.hangocthanh.io.vn` trả 200 không cần mật khẩu | **Sự cố bảo mật nghiêm trọng** — `OPENCODE_SERVER_PASSWORD` rỗng hoặc chưa được nạp vào `opencode-server`. Tắt route ngay (dừng `edge-vpn4` hoặc xoá nhánh opencode khỏi `haproxy.cfg`) cho tới khi xác nhận lại biến môi trường. |
+| DERP chết sau khi deploy | `docker logs edge-haproxy` xem backend có vào đúng `derper` không; kiểm tra `docker network inspect edge` có cả derper lẫn nginx. Không cứu được thì rollback ở trên. |
 | Client "đứng hình" khi model đang trả lời | Thiếu `flush_interval -1` trong Caddyfile → phản hồi SSE bị đệm. |
-| Kết nối DERP bị ngắt sau ~10 phút | `proxy_timeout` trong `nginx.conf` quá ngắn. Đang đặt 1h. |
+| Kết nối DERP bị ngắt sau ~10 phút | `timeout client`/`timeout server` trong `haproxy.cfg` quá ngắn. Đang đặt 1h. |
 | `docker compose up` báo thiếu network `edge` | `docker network create edge` rồi chạy lại. Các workflow deploy đều tự tạo. |

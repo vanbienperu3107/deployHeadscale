@@ -30,7 +30,7 @@ jobs:
 
             echo ""
             echo "==> edge-vpn4 compose ps"
-            $SUDO docker ps --filter "name=edge-nginx" --filter "name=caddy-edge" --format '{{.Names}}\t{{.Status}}' 2>&1 || true
+            $SUDO docker ps --filter "name=edge-haproxy" --filter "name=caddy-edge" --format '{{.Names}}\t{{.Status}}' 2>&1 || true
 
             echo ""
             echo "==> opencode-server container co ton tai khong"

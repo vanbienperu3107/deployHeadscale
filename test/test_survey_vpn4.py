@@ -250,7 +250,7 @@ def test_allowlist_chan_duoc_lenh_ghi_that(lenh_doc):
 # ---------- bat bien 2: docker exec bi siet rieng ----------
 
 # `docker exec <container> <lenh doc>` — cho phep dung mot so lenh doc cau hinh.
-# `nginx -T` nam trong danh sach: do la cach DUY NHAT biet nginx dang nap cau
+# `cat` cau hinh HAProxy nam trong danh sach: do la cach biet ingress dang nap cau
 # hinh nao (bind mount doi ma khong recreate thi file tren dia khac voi cau hinh
 # dang chay — su co that 2026-08-27).
 #
@@ -267,7 +267,7 @@ TRAN_TG = r"(?:\$Q(?:30)?|timeout \d+)"
 # "cho du" la tu mau thuan voi chinh ly do vua go logs/events/top/port khoi
 # DONG_TU_CHO_PHEP: dong tu khong dung toi = mot cua de san cho nguoi sau.
 EXEC_AN_TOAN = re.compile(
-    TRAN_TG + r" docker exec [A-Za-z0-9_.-]+ (?:cat|nginx -T)\b"
+    TRAN_TG + r" docker exec [A-Za-z0-9_.-]+ (?:cat|haproxy)\b"
 )
 
 
@@ -278,7 +278,7 @@ def test_moi_docker_exec_deu_la_lenh_doc_va_co_timeout():
     thi vong lap khong chay va KHONG co assert nao, nen
     `docker exec c /bin/sh -c 'echo x > /etc/caddy/Caddyfile'` lot sach.
 
-    `timeout` la bat buoc: `docker exec edge-nginx nginx -T` tren mot container
+    `timeout` la bat buoc: `docker exec edge-haproxy cat ...` tren mot container
     hap hoi se treo het command_timeout 3m, giu concurrency group
     'deploy-vpn4-host' va chan rollback khan cap cua derper.
     """
@@ -287,7 +287,7 @@ def test_moi_docker_exec_deu_la_lenh_doc_va_co_timeout():
     an_toan = len(EXEC_AN_TOAN.findall(script))
     assert tong == an_toan, (
         f"Co {tong} lan `docker exec` nhung chi {an_toan} lan khop pattern an "
-        "toan. Moi lan exec phai la: timeout N docker exec <ten> <cat|nginx -T>"
+        "toan. Moi lan exec phai la: timeout N docker exec <ten> <cat|haproxy>"
     )
 
 
@@ -720,7 +720,7 @@ CAU_HOI_BAT_BUOC = {
     "mang docker": r"docker network ls",
     "container dang chay": r"docker ps",
     "mem_limit da cam ket": r"HostConfig\.Memory",
-    "cau hinh nginx DANG NAP": r"nginx -T",
+    "cau hinh HAProxy DANG NAP": r"haproxy\.cfg",
     "trang thai container edge": r"State\.Status",
     # Chain quyet dinh voi container publish cong. Doc INPUT la nhin nham cho:
     # jail opencode-401 phai dat `chain = DOCKER-USER` chinh vi ly do nay.
