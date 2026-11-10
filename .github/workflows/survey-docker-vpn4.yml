@@ -14,7 +14,7 @@ name: Survey Docker vpn4 (read-only)
 #   2. Swarm hay standalone? Docker co rootless khong? (quyet dinh cach mount sock)
 #   3. Cong nao da bi chiem? (tranh dung do 9443/9000 va cac cong noi bo 844x)
 #   4. Mang `edge` co san khong? (de Caddy route toi Portainer)
-#   5. nginx/Caddy DANG NAP cau hinh nao? (them route moi khong dap cai cu)
+#   5. HAProxy/Caddy DANG NAP cau hinh nao? (them route moi khong dap cai cu)
 #
 # ⚠️ CO Y KHONG dung `script_stop: true` va KHONG dung `set -e`:
 #   - ssh-action voi script_stop chen kiem tra exit code sau MOI dong -> cam
@@ -243,12 +243,16 @@ jobs:
             echo "--- Trang thai 2 container edge ---"
             # 2>/dev/null (khong phai 2>&1): voi 2>&1 thi khi loi, CA thong bao
             # cua docker LAN chuoi fallback deu in ra, doc rat roi.
-            for c in edge-nginx caddy-edge; do
+            for c in edge-haproxy caddy-edge; do
               echo "$c: $($Q docker inspect -f '{{.State.Status}} tu {{.State.StartedAt}}' "$c" 2>/dev/null || echo 'KHONG TON TAI/KHONG DOC DUOC')"
             done
             echo ""
-            echo "--- nginx: cau hinh DANG NAP (nginx -T) ---"
-            $Q docker exec edge-nginx nginx -T 2>&1 || echo "(khong lay duoc — container khong chay?)"
+            echo "--- HAProxy: cau hinh DANG NAP (doc file dang mount trong container) ---"
+            $Q docker exec edge-haproxy cat /usr/local/etc/haproxy/haproxy.cfg 2>&1 || echo "(khong lay duoc — container khong chay?)"
+            echo ""
+            echo "--- HAProxy: phien ban dang chay ---"
+            HAPROXY_VER=$($Q docker exec edge-haproxy haproxy -v 2>/dev/null | head -n 1)
+            echo "${HAPROXY_VER:-(khong lay duoc phien ban)}"
             echo ""
             echo "--- Caddy: cac site dang phuc vu (doc file trong container) ---"
             $Q docker exec caddy-edge cat /etc/caddy/Caddyfile 2>&1 || echo "(khong doc duoc tu container)"
@@ -276,7 +280,7 @@ jobs:
             echo "########## [11] SYSTEMD UNIT LIEN QUAN ##########"
             MUC=$((MUC+1))
             $Q systemctl is-active docker 2>&1 || true
-            $Q systemctl list-units --type=service --state=running --no-pager 2>/dev/null | grep -iE 'tailscale|docker|nginx|caddy' || echo "(khong khop hoac khong doc duoc)"
+            $Q systemctl list-units --type=service --state=running --no-pager 2>/dev/null | grep -iE 'tailscale|docker|haproxy|caddy' || echo "(khong khop hoac khong doc duoc)"
 
             echo ""
             echo "########## [12] FIREWALL ##########"

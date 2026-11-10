@@ -88,9 +88,9 @@ DOT_BIEN = [
      '$Q docker exec caddy-edge cat /etc/caddy/Caddyfile',
      '$Q docker exec caddy-edge cat /etc/caddy/Caddyfile && docker rm -f derper',
      "test_docker_exec_khong_duoc_mo_shell"),
-    ("xoa `timeout` truoc docker exec  (nginx -T treo het command_timeout)",
-     '$Q docker exec edge-nginx nginx -T',
-     '$SUDO docker exec edge-nginx nginx -T',
+    ("xoa `timeout` truoc docker exec  (haproxy config cat treo het command_timeout)",
+     '$Q docker exec edge-haproxy cat /usr/local/etc/haproxy/haproxy.cfg',
+     '$SUDO docker exec edge-haproxy cat /usr/local/etc/haproxy/haproxy.cfg',
      "test_moi_docker_exec_deu_la_lenh_doc_va_co_timeout"),
 
     ("docker inspect KHONG --format  (in ca Config.Env -> lo CLIPROXY_API_KEY)",

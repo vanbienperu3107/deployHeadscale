@@ -1,6 +1,6 @@
 # Portainer (control plane cua Docker tren vpn4) + cong Google SSU rieng.
 #
-#   Internet :443 -> edge-nginx (SNI) -> caddy-edge:8447
+#   Internet :443 -> edge-haproxy (SNI) -> caddy-edge:8447
 #                                           |
 #                            forward_auth --+--> portainer-oauth2-proxy:4180
 #                                           |      (Google login, allowlist 1 email)
