@@ -13,6 +13,10 @@ on:
         description: "Tag image cli-proxy-api (vd main-d833ba5). Bo trong = dung main-d833ba5 (co plugin deepseek-web-go)"
         required: false
         default: "main-d833ba5"
+      image_full:
+        description: "Image day du (vd ghcr.io/vanbienperu3107/cliproxy_daily:main-abc1234). Co gia tri thi UU TIEN hon image_tag — dung cho pipeline daily tren fork rieng."
+        required: false
+        default: ""
       debug_logging:
         description: "Bat ghi log loi ra file de doc lai request that bai. CHI bat khi dang dieu tra roi tat lai."
         required: false
@@ -57,6 +61,31 @@ jobs:
           script: |
             set -e
             if [ "$(id -u)" -ne 0 ]; then SUDO="sudo"; else SUDO=""; fi
+
+            # Rollback tu dong: neu BAT KY buoc nao sau day loi (kiem tra plugin,
+            # verify 401/200, v.v.), dua cliproxy ve dung image dang chay TRUOC
+            # khi script nay bat dau, de production khong bi treo o trang thai
+            # loi cho toi khi co nguoi can thiep tay. Image cu doc tu docker
+            # inspect (khong hardcode main-d833ba5) nen luon dung voi thuc te.
+            # Workflow van bao THAT BAI du co rollback — rollback chi la chong
+            # downtime, khong thay the viec nguoi kiem tra lai anh moi.
+            PREV_IMAGE=$($SUDO docker inspect -f '{{.Config.Image}}' cliproxy 2>/dev/null || echo "")
+            ROLLED_BACK=0
+            rollback_on_failure() {
+              ec=$?
+              if [ "$ec" -ne 0 ] && [ -n "$PREV_IMAGE" ] && [ "$ROLLED_BACK" = "0" ]; then
+                echo "::error::Deploy loi (exit=$ec) - tu dong rollback ve $PREV_IMAGE"
+                ROLLED_BACK=1
+                cd "$DEPLOY_PATH/cliproxy" 2>/dev/null || true
+                grep -v '^CLIPROXY_IMAGE=' .env > .env.tmp 2>/dev/null || true
+                printf 'CLIPROXY_IMAGE=%s\n' "$PREV_IMAGE" > .env
+                cat .env.tmp >> .env 2>/dev/null || true
+                rm -f .env.tmp
+                $SUDO docker compose up -d --force-recreate --no-deps cliproxy || true
+                echo "::error::Da rollback ve $PREV_IMAGE. Deploy nay van tinh la THAT BAI (can nguoi kiem tra anh moi)."
+              fi
+            }
+            trap rollback_on_failure EXIT
 
             echo "==> [1/6] Clone/cap nhat repo"
             if [ ! -d "$DEPLOY_PATH/.git" ]; then
@@ -232,7 +261,7 @@ jobs:
           DEPLOY_REF: ${{ github.ref_name }}
           CLIPROXY_API_KEY: ${{ secrets.CLIPROXY_API_KEY }}
           CLIPROXY_MGMT_KEY: ${{ secrets.CLIPROXY_MGMT_KEY }}
-          CLIPROXY_IMAGE: ${{ github.event.inputs.image_tag && format('ghcr.io/vanbienperu3107/cliproxy_mod:{0}', github.event.inputs.image_tag) || '' }}
+          CLIPROXY_IMAGE: ${{ github.event.inputs.image_full != '' && github.event.inputs.image_full || (github.event.inputs.image_tag && format('ghcr.io/vanbienperu3107/cliproxy_mod:{0}', github.event.inputs.image_tag) || '') }}
           DEBUG_LOGGING: ${{ github.event.inputs.debug_logging || 'false' }}
           # Lich su chat. DSN rong => tinh nang tu tat, deploy van chay binh thuong.
           CHAT_HISTORY_DSN: ${{ secrets.CHAT_HISTORY_DSN }}
