@@ -1,0 +1,153 @@
+name: Auto-update CLIProxyAPI (daily, fork rieng)
+
+# Ban HANG NGAY cua autoupdate-cliproxy.yml, nhung theo doi fork rieng
+# vanbienperu3107/CLIProxyAPI-daily (dong bo tu router-for-me/CLIProxyAPI moi
+# ngay qua daily-sync-upstream.yml trong repo do) thay vi
+# vanbienperu3107/cliproxy_mod.
+#
+# Fork rieng nay KHONG co: fingerprint Claude CLI da pin (2.1.286), plugin
+# deepseek-web-go bake san, plugin model-fallback-router cai rieng. Vi vay:
+#   - deploy-cliproxy.yml se that bai o buoc kiem tra plugin deepseek-web
+#     (anh tu fork daily khong co plugin do bake san) VA/HOAC Anthropic co
+#     the tu choi model moi vi fingerprint khong duoc cap nhat theo kip.
+#   - ĐAY LA CO Y: deploy-cliproxy.yml (tu 2026-11) co auto-rollback — khi
+#     buoc nao do loi, container tu dong duoc dua ve image dang chay TRUOC
+#     do, workflow van bao THAT BAI de nguoi biet can xem lai.
+#   - Noi dung cua lan chay nay la PHEP THU: neu mot ngay fork daily da co
+#     du plugin/fingerprint (vd sau khi ai do merge them patch), deploy se
+#     tu thanh cong va o lai; neu chua, se tu rollback va KHONG anh huong
+#     production ngoai vai chuc giay restart container.
+#
+# Gioi han tan suat deploy THAT (restart container lam rot request dang chay):
+#   - Toi da 1 lan deploy THANH CONG / ngay. Da thanh cong roi thi khong
+#     deploy lai du co build moi hon trong ngay do (doi den lan chay ngay mai).
+#   - Neu deploy loi (ha tang, SSH, v.v., KHONG tinh loi do thieu
+#     plugin/fingerprint cua chinh fork daily — do la loi "mong doi"), cho
+#     thu lai toi da 3 lan trong cung ngay UTC, roi dung.
+on:
+  schedule:
+    # 11:00 UTC — sau daily-sync-upstream (02:00) + daily-ci + daily-image
+    # cua CLIProxyAPI-daily co du thoi gian chay xong.
+    - cron: "0 11 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: deploy-vpn4-host-autoupdate-daily
+  cancel-in-progress: false
+
+jobs:
+  check-and-update:
+    name: Kiem tra tag moi (fork daily) va deploy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Gioi han tan suat — da thanh cong hom nay chua, da thu toi da 3 lan chua
+        id: freq
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TODAY=$(date -u +%Y-%m-%d)
+          # Liet ke cac lan dispatch deploy-cliproxy.yml TRONG NGAY UTC hom nay
+          # ma chinh workflow nay (bot) da kich, dua vao title run (tim theo
+          # created_at). Dem theo trang thai.
+          RUNS=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow deploy-cliproxy.yml --event workflow_dispatch --limit 20 --json createdAt,conclusion,triggeringActor --jq "[.[] | select(.createdAt | startswith(\"$TODAY\")) | select(.triggeringActor.login == \"github-actions[bot]\")]")
+          SUCCESS_TODAY=$(echo "$RUNS" | python3 -c "import json,sys; d=json.load(sys.stdin); print(sum(1 for r in d if r.get('conclusion')=='success'))")
+          ATTEMPTS_TODAY=$(echo "$RUNS" | python3 -c "import json,sys; d=json.load(sys.stdin); print(len(d))")
+          echo "Da deploy THANH CONG hom nay (qua workflow nay): $SUCCESS_TODAY lan"
+          echo "Da THU deploy hom nay (qua workflow nay): $ATTEMPTS_TODAY lan"
+          if [ "$SUCCESS_TODAY" -ge 1 ]; then
+            echo "::notice::Da co 1 lan deploy thanh cong hom nay — bo qua, doi ngay mai."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          elif [ "$ATTEMPTS_TODAY" -ge 3 ]; then
+            echo "::warning::Da thu 3 lan deploy hom nay ma chua thanh cong — bo qua, doi ngay mai (xem lai thu cong neu can gap)."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Lay anh fork-daily moi nhat da build xanh
+        id: hub
+        if: steps.freq.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          REPO=vanbienperu3107/CLIProxyAPI-daily
+          SHA=""
+          for CAND in $(gh run list --repo "$REPO" --workflow daily-image.yml --branch main --status success --limit 10 --json headSha --jq '.[].headSha'); do
+            OK=$(gh run list --repo "$REPO" --workflow daily-ci.yml --branch main --commit "$CAND" --status success --limit 1 --json databaseId --jq 'length')
+            echo "  ung vien $(echo "$CAND" | cut -c1-7): daily-ci xanh = $OK"
+            if [ "$OK" = "1" ]; then SHA="$CAND"; break; fi
+          done
+          if [ -z "$SHA" ]; then echo "::error::Khong co sha nao tren main cua fork daily co ca daily-image lan daily-ci xanh"; exit 1; fi
+          LATEST="ghcr.io/vanbienperu3107/cliproxy_daily:main-$(echo "$SHA" | cut -c1-7)"
+          echo "latest=$LATEST" >> "$GITHUB_OUTPUT"
+          echo "Anh fork daily moi nhat: $LATEST"
+
+      - name: Doc anh cliproxy dang chay tren vpn4
+        if: steps.freq.outputs.skip != 'true'
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SSH_HOST_VPN4 }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT || '22' }}
+          script_stop: true
+          script: |
+            docker inspect -f '{{.Config.Image}}' cliproxy
+
+      - name: So voi tag moi nhat
+        id: cmp
+        if: steps.freq.outputs.skip != 'true'
+        continue-on-error: true
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SSH_HOST_VPN4 }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT || '22' }}
+          script_stop: true
+          envs: LATEST
+          script: |
+            docker inspect -f '{{.Config.Image}}' cliproxy | grep -qF "$LATEST"
+        env:
+          LATEST: ${{ steps.hub.outputs.latest }}
+
+      - name: Ket luan
+        if: steps.freq.outputs.skip != 'true'
+        run: |
+          echo "So sanh tren vpn4: ${{ steps.cmp.outcome }} (success = dang chay dung anh fork daily moi nhat)"
+          test "${{ steps.cmp.outcome }}" != "success" || echo "Khong co ban moi — bo qua."
+
+      - name: Dispatch deploy voi image_full va cho ket qua
+        if: steps.freq.outputs.skip != 'true' && steps.cmp.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          LATEST: ${{ steps.hub.outputs.latest }}
+        run: |
+          T0=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          gh workflow run deploy-cliproxy.yml --repo "$GITHUB_REPOSITORY" --ref main -f image_full="$LATEST"
+          sleep 20
+          RUN_ID=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow deploy-cliproxy.yml --event workflow_dispatch --limit 10 --json databaseId,createdAt --jq "[.[] | select(.createdAt >= \"$T0\")] | sort_by(.createdAt) | .[0].databaseId")
+          ACTOR=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID" --jq .triggering_actor.login 2>/dev/null || echo "?")
+          test "$ACTOR" = "github-actions[bot]" || echo "::warning::Run $RUN_ID do $ACTOR tao, khong phai bot - co the co dispatch tay chen vao"
+          echo "Theo doi run $RUN_ID (deploy-cliproxy.yml se TU ROLLBACK neu loi — xem comment dau file nay)"
+          gh run watch "$RUN_ID" --repo "$GITHUB_REPOSITORY" --exit-status --interval 30
+
+      - name: Xac minh vpn4 da chay tag moi (chi khi dispatch thanh cong)
+        if: steps.freq.outputs.skip != 'true' && steps.cmp.outcome == 'failure'
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SSH_HOST_VPN4 }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT || '22' }}
+          script_stop: true
+          envs: LATEST
+          script: |
+            docker inspect -f '{{.Config.Image}}' cliproxy
+            docker inspect -f '{{.Config.Image}}' cliproxy | grep -qF "$LATEST"
+        env:
+          LATEST: ${{ steps.hub.outputs.latest }}
