@@ -26,9 +26,10 @@ name: Auto-update CLIProxyAPI (daily, fork rieng)
 #     thu lai toi da 3 lan trong cung ngay UTC, roi dung.
 on:
   schedule:
-    # 11:00 UTC — sau daily-sync-upstream (02:00) + daily-ci + daily-image
+    # 11:17 UTC (lech phut, tranh gio dinh "top of hour" de cron khong bi tre/bo qua)
+    # sau daily-sync-upstream (02:00) + daily-ci + daily-image
     # cua CLIProxyAPI-daily co du thoi gian chay xong.
-    - cron: "0 11 * * *"
+    - cron: "17 11 * * *"
   workflow_dispatch: {}
 
 permissions:
