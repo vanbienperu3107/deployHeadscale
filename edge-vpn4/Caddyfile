@@ -178,3 +178,27 @@ https://opencode2.hangocthanh.io.vn:8450 {
 		format json
 	}
 }
+
+# Hindsight Control Plane (CT106:9999). Dang nhap bang khoa Control Plane.
+# Listener rieng 8451 (khong dung chung cliproxy/opencode) de mot site loi khong keo site kia.
+https://memory.hangocthanh.io.vn:8451 {
+	tls {
+		issuer acme {
+			disable_http_challenge
+		}
+	}
+
+	reverse_proxy 172.31.250.36:9999 {
+		transport http {
+			dial_timeout 10s
+		}
+	}
+
+	log {
+		output file /var/log/caddy/memory-access.log {
+			roll_size 10MiB
+			roll_keep 3
+		}
+		format json
+	}
+}
